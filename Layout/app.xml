@@ -1,0 +1,9 @@
+<App font="LiberationMono-Bold" fontSize="17">
+  <Event type="init" action="MADSCORE\Controller::initialize" />
+  <Event type="close" action="MADSCORE\Controller::persistSession" />
+  <Event type="resize" action="MADSCORE\Controller::resize" />
+  <Window title="madscore" width="120" height="38" mode="maximized">
+    <Screen id="editor" title="Score" file="editor.xml" />
+    <Screen id="files" title="Files" file="files.xml" />
+  </Window>
+</App>

@@ -1,0 +1,18 @@
+<Screen>
+  <Layout direction="vertical">
+    <Title height="1">Files</Title>
+    <Input id="path" height="2" label="Score path (.json)" />
+    <Input id="legacy" height="2" label="Legacy source path (.txt)" />
+    <Input id="pdf" height="2" label="PDF path" />
+    <Layout direction="horizontal" height="1">
+      <Button label="Open" action="MADSCORE\Controller::open" />
+      <Button label="Save as" action="MADSCORE\Controller::saveAs" />
+      <Button label="Import" action="MADSCORE\Controller::importLegacy" />
+      <Button label="Export PDF" action="MADSCORE\Controller::exportPdf" />
+      <Button label="Back" action="MADSCORE\Controller::showEditor" />
+    </Layout>
+    <Text id="importWarnings" height="4">Legacy import warnings appear here.</Text>
+    <Empty height="1*" />
+    <StatusBar height="1" />
+  </Layout>
+</Screen>
