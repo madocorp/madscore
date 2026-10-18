@@ -1,62 +1,65 @@
 <Screen>
-  <Event type="keyDown" key="f3" action="MADSCORE\Controller::showFiles" />
-  <Event type="keyDown" key="f5" action="MADSCORE\Controller::newBar" />
-  <Event type="keyDown" key="f6" action="MADSCORE\Controller::save" />
-  <Event type="keyDown" key="f7" action="MADSCORE\Controller::exportPdf" />
-  <Event type="keyDown" key="f8" action="MADSCORE\Controller::toggleSection" />
-  <Event type="keyDown" key="p" action="MADSCORE\Controller::toggleScorePlayback" />
-  <Event type="keyDown" key="shift+p" action="MADSCORE\Controller::toggleMelodyPlayback" />
+  <Event type="keyDown" key="escape" action="MADSCORE\App\Controller::activateSheetEditor" />
+  <Event type="keyDown" key="ctrl+z" action="MADSCORE\App\Controller::undoMelodyShortcut" />
+  <Event type="keyDown" key="ctrl+y" action="MADSCORE\App\Controller::redoMelodyShortcut" />
   <Layout direction="vertical">
-    <Layout direction="horizontal" height="5">
-      <Layout direction="vertical" width="2*">
-        <Input id="title" height="2" label="Title">
-          <Event type="accept" action="MADSCORE\Controller::editorFieldAccepted" />
-        </Input>
-        <Separator />
-        <Input id="author" height="2" label="Author">
-          <Event type="accept" action="MADSCORE\Controller::editorFieldAccepted" />
-        </Input>
-      </Layout>
+    <Layout direction="horizontal" height="1">
+      <Input id="title" width="3*">
+        <Event type="accept" action="MADSCORE\App\Controller::editorFieldAccepted" />
+      </Input>
       <Separator />
-      <Layout direction="vertical" width="1*">
-        <Input id="catalog" height="2" label="Catalog number">
-          <Event type="accept" action="MADSCORE\Controller::editorFieldAccepted" />
-        </Input>
-        <Separator />
-        <Input id="filename" height="2" label="Filename">
-          <Event type="accept" action="MADSCORE\Controller::editorFieldAccepted" />
-        </Input>
-      </Layout>
+      <Input id="author" width="2*">
+        <Event type="accept" action="MADSCORE\App\Controller::editorFieldAccepted" />
+      </Input>
+      <Separator />
+      <Input id="catalog" width="16">
+        <Event type="accept" action="MADSCORE\App\Controller::editorFieldAccepted" />
+      </Input>
     </Layout>
     <Separator />
-    <Layout id="board" direction="horizontal" height="50%">
-      <Empty />
+    <Layout id="board" direction="horizontal" height="40%">
+      <Empty navigate="false" />
     </Layout>
     <Separator />
     <Layout direction="horizontal" height="1*">
-      <Layout direction="vertical" width="1*">
-        <Text height="1">Note</Text>
-        <Text id="selectedBar" height="3">Bar 1
-Gap
-Length 1 beat</Text>
-        <Empty height="1*" />
-      </Layout>
-      <Separator />
-      <Layout direction="vertical" width="1*">
-        <Text height="1">Bar settings</Text>
+      <Layout direction="vertical" width="2*">
+        <Title id="barSettingsTitle" height="1" navigate="false">[R] Bar 1</Title>
         <Input id="tempo" height="2" label="Tempo (BPM)">
-          <Event type="accept" action="MADSCORE\Controller::editorFieldAccepted" />
+          <Event type="accept" action="MADSCORE\App\Controller::editorFieldAccepted" />
         </Input>
-        <Input id="beats" height="2" label="Notes per bar">
-          <Event type="accept" action="MADSCORE\Controller::editorFieldAccepted" />
+        <Input id="beats" height="2" label="Beats per bar">
+          <Event type="accept" action="MADSCORE\App\Controller::editorFieldAccepted" />
         </Input>
-        <Empty height="1*" />
+        <Input id="barNote" height="2" label="Bar note">
+          <Event type="accept" action="MADSCORE\App\Controller::editorFieldAccepted" />
+        </Input>
+        <Input id="repeats" height="2" label="Repeats (0–8)">
+          <Event type="accept" action="MADSCORE\App\Controller::editorFieldAccepted" />
+        </Input>
+        <Button id="section" hotkey="|" label="Section start: Yes" action="MADSCORE\App\Controller::functionButton" />
+        <Empty height="1*" navigate="false" />
       </Layout>
       <Separator />
-      <Layout direction="vertical" width="1*">
-        <Text id="selectedMelody" height="1">Melody 1 settings</Text>
-        <RadioButton id="pattern" title="Sound" height="11">
-          <Item value="organ" checked="true">Organ</Item>
+      <Layout id="melodyBox" direction="vertical" width="2*">
+        <Title id="selectedMelody" height="1" navigate="false">[Y] Melody 1</Title>
+        <ColorInput id="color" height="auto" label="Color (#rrggbb)" value="#c04b20">
+          <Event type="accept" action="MADSCORE\App\Controller::editorFieldAccepted" />
+        </ColorInput>
+        <Input id="sound" height="2" label="Sound" value="Organ">
+          <Event type="activate" action="MADSCORE\App\Controller::showSoundPicker" />
+        </Input>
+        <Input id="volume" height="2" label="Volume (0–100%)">
+          <Event type="accept" action="MADSCORE\App\Controller::editorFieldAccepted" />
+        </Input>
+        <Text id="melodyHelp" height="5" navigate="false" highlighter="MADSCORE\App\HelpHighlighter">Tab Next
+Shift+Tab Prev
+N New melody
+Ctrl+Z Undo
+Ctrl+Y Redo</Text>
+        <Button id="deleteMelody" label="Delete melody" action="MADSCORE\App\Controller::requestDeleteMelody" />
+        <Empty height="1*" navigate="false" />
+        <List id="soundPicker" overwrite="parent" title="Sound" filterable="false" searchable="false" height="1*">
+          <Item value="organ" selected="true">Organ</Item>
           <Item value="sine">Sine</Item>
           <Item value="triangle">Triangle</Item>
           <Item value="square">Square</Item>
@@ -66,15 +69,61 @@ Length 1 beat</Text>
           <Item value="clap">Clap</Item>
           <Item value="hat">Closed hat</Item>
           <Item value="open_hat">Open hat</Item>
-          <Event type="change" action="MADSCORE\Controller::melodyPatternChanged" />
-        </RadioButton>
-        <Input id="volume" height="2" label="Volume (0–100%)">
-          <Event type="accept" action="MADSCORE\Controller::editorFieldAccepted" />
-        </Input>
-        <Input id="color" height="2" label="Color (#rrggbb)">
-          <Event type="accept" action="MADSCORE\Controller::editorFieldAccepted" />
-        </Input>
-        <Empty height="1*" />
+          <Event type="accept" action="MADSCORE\App\Controller::melodyPatternChanged" />
+        </List>
+      </Layout>
+      <Separator />
+      <Layout id="noteBox" direction="vertical" width="5*">
+        <Title id="noteTitle" height="1" navigate="false">[T] Gap</Title>
+        <Layout direction="horizontal" height="1*">
+          <Layout direction="vertical" width="1*">
+            <Button id="trill" hotkey="w" label="Trill: Off" action="MADSCORE\App\Controller::functionButton" />
+            <Button id="staccato" hotkey="s" label="Staccato: No" action="MADSCORE\App\Controller::functionButton" />
+            <Button id="fermata" hotkey="h" label="Fermata: No" action="MADSCORE\App\Controller::functionButton" />
+            <Button id="slur" hotkey="l" label="Link to next: No" action="MADSCORE\App\Controller::functionButton" />
+            <Button id="glissando" hotkey="\" label="Glissando: No" action="MADSCORE\App\Controller::functionButton" />
+            <Button id="dynamic" hotkey="*" label="Volume: =" action="MADSCORE\App\Controller::functionButton" />
+            <Empty height="1*" navigate="false" />
+          </Layout>
+          <Layout direction="vertical" width="1*">
+            <Input id="dynamicLevel" height="2" label="Level (ppp–fff / %)">
+              <Event type="accept" action="MADSCORE\App\Controller::editorFieldAccepted" />
+            </Input>
+            <Input id="finger" height="2" label="Finger (L/R1–5)">
+              <Event type="accept" action="MADSCORE\App\Controller::editorFieldAccepted" />
+            </Input>
+            <Text id="noteHelp" height="7" navigate="false" highlighter="MADSCORE\App\HelpHighlighter">Space Add/follow
+Return Add/change
+A-G Set pitch
+U Duplicate
+Ins Insert beat
+Bksp Delete + gap
+Del Delete note/gap</Text>
+            <Empty height="1*" navigate="false" />
+          </Layout>
+        </Layout>
+      </Layout>
+      <Separator />
+      <Layout id="cursorBox" direction="vertical" width="3*" navigateChildren="false">
+        <Title id="cursorTitle" height="1" navigate="false">Cursor C4</Title>
+        <Text id="cursorLength" height="1" navigate="false">Length 1 beat</Text>
+        <Text id="cursorHelp" height="8" navigate="false" highlighter="MADSCORE\App\HelpHighlighter">Left/Right Move time
+Up/Down Move pitch
+Home/End Screen edge
+PgUp/Down Octave
+Shift+Move Select
++/- Change length
+0-9 Set length</Text>
+        <Empty height="1*" navigate="false" />
+      </Layout>
+      <Separator />
+      <Layout id="actionsBox" direction="vertical" width="2*">
+        <Title height="1" navigate="false">Actions</Title>
+        <Text id="actionsHelp" height="4" navigate="false" highlighter="MADSCORE\App\HelpHighlighter">P Play all
+M Play melody
+V Preview</Text>
+        <Button id="filesButton" label="Files" action="MADSCORE\App\Controller::showFiles" />
+        <Empty height="1*" navigate="false" />
       </Layout>
     </Layout>
     <Separator />

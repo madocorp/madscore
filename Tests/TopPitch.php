@@ -10,20 +10,20 @@ function expectTopPitch(bool $condition, string $message): void {
   }
 }
 
-expectTopPitch(MADSCORE\Pitch::step(8, 11, 1) === [8, 12], 'The preview reaches G-sharp above the highest G.');
-expectTopPitch(MADSCORE\Pitch::step(8, 12, -1) === [8, 11], 'The preview steps back down to G.');
-expectTopPitch(MADSCORE\Pitch::step(4, 11, 1) === [4, 12] && MADSCORE\Pitch::step(4, 12, 1) === [5, 1], 'G-sharp ends an octave before A in the next band.');
+expectTopPitch(MADSCORE\Score\Pitch::step(8, 11, 1) === [8, 12], 'The preview reaches G-sharp above the highest G.');
+expectTopPitch(MADSCORE\Score\Pitch::step(8, 12, -1) === [8, 11], 'The preview steps back down to G.');
+expectTopPitch(MADSCORE\Score\Pitch::step(4, 11, 1) === [4, 12] && MADSCORE\Score\Pitch::step(4, 12, 1) === [5, 1], 'G-sharp ends an octave before A in the next band.');
 try {
-  MADSCORE\Pitch::step(8, 12, 1);
+  MADSCORE\Score\Pitch::step(8, 12, 1);
   throw new \RuntimeException('The preview moved above the supported range.');
 } catch (\DomainException $error) {
 }
 
-$score = new MADSCORE\Score();
+$score = new MADSCORE\Score\Score(12);
 $index = $score->place(0, 0, 0, 8, 11, 2);
 $score->stepPitch($index, 1);
 expectTopPitch($score->notes[$index]['pitch'] === 'G' && $score->notes[$index]['alter'] === 1, 'A placed top G steps to G-sharp.');
-expectTopPitch($score->data() === MADSCORE\Score::fromData($score->data())->data(), 'The top G-sharp survives a save and load round trip.');
+expectTopPitch($score->data() === MADSCORE\Score\Score::fromData($score->data())->data(), 'The top G-sharp survives a save and load round trip.');
 $score->stepPitch($index, -1);
 expectTopPitch($score->notes[$index]['pitch'] === 'G' && $score->notes[$index]['alter'] === 0, 'The note steps back down to G.');
 $score->setPitchPosition($index, 4, 12);

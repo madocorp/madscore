@@ -1,0 +1,11 @@
+<Screen>
+  <Event type="keyDown" key="v" action="MADSCORE\App\Controller::toggleView" />
+  <Event type="keyDown" key="escape" action="MADSCORE\App\Controller::toggleView" />
+  <Event type="keyDown" key="enter" action="MADSCORE\App\Controller::toggleView" />
+  <Event type="keyDown" key="p" action="MADSCORE\App\Controller::toggleScorePlayback" />
+  <Event type="keyDown" key="m" action="MADSCORE\App\Controller::toggleMelodyPlayback" />
+  <Layout direction="vertical">
+    <Layout id="board" direction="horizontal" height="1*"><Empty navigate="false" /></Layout>
+    <StatusBar height="1" />
+  </Layout>
+</Screen>
