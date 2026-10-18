@@ -15,7 +15,20 @@ function sectionRgb(\SPTK\Core\RasterImage $image, int $x, int $y): int {
   return (unpack('L', substr($image->pixels, $offset, 4))[1] >> 8) & 0xffffff;
 }
 
-$score = new MADSCORE\Score();
+function sectionPageImage(MADSCORE\Score\Score $score): \SPTK\Core\RasterImage {
+  $cairo = MADSCORE\Render\Cairo::library();
+  $surface = $cairo->cairo_image_surface_create(0, 1000, 1000);
+  $context = $cairo->cairo_create($surface);
+  try {
+    MADSCORE\Render\PagePainter::drawPage($score, $cairo, $context, MADSCORE\Render\PagePainter::pages($score)[0]);
+    return MADSCORE\Render\Cairo::raster($surface, 1000, 1000);
+  } finally {
+    $cairo->cairo_destroy($context);
+    $cairo->cairo_surface_destroy($surface);
+  }
+}
+
+$score = new MADSCORE\Score\Score(12);
 $score->ensureBar(2);
 expectSection($score->sectionNumber(2) === 1, 'A new score starts with one section.');
 expectSection($score->bars[0]['sectionLeader'] && !$score->bars[1]['sectionLeader'], 'New bars continue the first section.');
@@ -23,7 +36,7 @@ $score->setSectionLeader(1, true);
 expectSection($score->sectionNumber(1) === 2 && $score->sectionNumber(2) === 2, 'A leader starts the next section.');
 $score->ensureBar(3);
 expectSection(!$score->bars[3]['sectionLeader'], 'Appending after a leader does not start another section.');
-expectSection(MADSCORE\Score::fromData($score->data())->data() === $score->data(), 'Section leaders survive a save and load.');
+expectSection(MADSCORE\Score\Score::fromData($score->data())->data() === $score->data(), 'Section leaders survive a save and load.');
 $score->setSectionLeader(1, false);
 expectSection($score->sectionNumber(3) === 1, 'Removing a leader joins adjacent bars.');
 try {
@@ -33,54 +46,91 @@ try {
   expectSection($score->bars[0]['sectionLeader'], 'The first section leader is required.');
 }
 
-$old = $score->data();
-$old['version'] = 3;
-$old['bars'] = array_map(static fn (array $bar): array => ['beats' => $bar['beats'], 'tempo' => $bar['tempo']], $old['bars']);
-$migrated = MADSCORE\Score::fromData($old);
-expectSection($migrated->bars[0]['sectionLeader'] && !$migrated->bars[1]['sectionLeader'], 'Older scores migrate into one section.');
 $invalid = $score->data();
 unset($invalid['bars'][1]['sectionLeader']);
 try {
-  MADSCORE\Score::fromData($invalid);
+  MADSCORE\Score\Score::fromData($invalid);
   throw new \RuntimeException('A missing section leader flag was accepted.');
 } catch (\DomainException $error) {
-  expectSection(true, 'Version 4 bars require a section leader flag.');
+  expectSection(true, 'Bars require a section leader flag.');
 }
 
-$drawing = new MADSCORE\Score();
+$drawing = new MADSCORE\Score\Score(12);
 $drawing->ensureBar(1);
-$plain = MADSCORE\SheetPainter::render($drawing, 0, 2, 500, 490);
-$rows = MADSCORE\Prescription::rows(MADSCORE\Prescription::states($drawing)[0], 480, 24);
+$plain = MADSCORE\Render\SheetPainter::render($drawing, 0, 2, 500, 490);
+$rows = MADSCORE\Render\Prescription::rows(MADSCORE\Render\Prescription::states($drawing)[0], 480, 48);
 $gapY = 5 + $rows[5]['top'] + $rows[5]['height'];
-$boundaryX = 259;
+$boundaryX = 262;
 expectSection(sectionRgb($plain, $boundaryX, $gapY) === 0xffffff, 'An ordinary bar edge leaves the octave gap open.');
 $drawing->setSectionLeader(1, true);
-$sectioned = MADSCORE\SheetPainter::render($drawing, 0, 2, 500, 490);
+$sectioned = MADSCORE\Render\SheetPainter::render($drawing, 0, 2, 500, 490);
 expectSection(sectionRgb($sectioned, $boundaryX, $gapY) !== 0xffffff, 'A section edge connects the octave rows.');
-expectSection(sectionRgb($sectioned, 23, $gapY) !== 0xffffff, 'The first section has a left edge.');
-expectSection(sectionRgb($sectioned, 495, $gapY) !== 0xffffff, 'The last section ends at the bar edge.');
+$crossing = new MADSCORE\Score\Score(12);
+$crossing->ensureBar(1);
+$crossing->setSectionLeader(1, true);
+$crossing->place(0, 0, 6, 4, 4, 4);
+$crossingSheet = MADSCORE\Render\SheetPainter::render($crossing, 0, 2, 500, 490);
+expectSection(sectionRgb($crossingSheet, $boundaryX, $gapY) !== 0xffffff,
+  'The section separator remains visible between rows when a note crosses it.');
+expectSection(sectionRgb($sectioned, 30, $gapY) !== 0xffffff, 'The first section has a left edge.');
+expectSection(sectionRgb($sectioned, 494, $gapY) !== 0xffffff && sectionRgb($sectioned, 495, $gapY) === 0xffffff,
+  'The last section separator aligns with the inset closing bar line.');
 expectSection(sectionRgb($sectioned, 492, $gapY) === 0xffffff, 'The closing edge is not inset from the bar boundary.');
 $highestGSharpTop = 5 + $rows[5]['top'] - $rows[5]['height'] / 6;
-$lowestABottom = 5 + $rows[2]['top'] + 11 * $rows[2]['height'] / 12;
+$lowestGSharpBottom = 5 + $rows[2]['top'] + $rows[2]['height'];
 expectSection(sectionRgb($sectioned, $boundaryX, (int)ceil($highestGSharpTop)) !== 0xffffff, 'The separator reaches the top of the highest G-sharp.');
 expectSection(sectionRgb($sectioned, $boundaryX, (int)floor($highestGSharpTop) - 2) === 0xffffff, 'The separator does not extend above G-sharp.');
-expectSection(sectionRgb($sectioned, $boundaryX, (int)floor($lowestABottom)) !== 0xffffff, 'The separator reaches the bottom of the lowest A.');
-expectSection(sectionRgb($sectioned, $boundaryX, (int)ceil($lowestABottom) + 2) === 0xffffff, 'The separator does not extend below A.');
+expectSection(sectionRgb($sectioned, $boundaryX, (int)floor($lowestGSharpBottom) - 1) !== 0xffffff,
+  'The separator reaches the bottom of the lowest overflow G-sharp.');
+expectSection(sectionRgb($sectioned, $boundaryX, (int)ceil($lowestGSharpBottom) + 2) === 0xffffff,
+  'The separator does not extend below the overflow G-sharp.');
 
-$single = new MADSCORE\Score();
-$oneBarSheet = MADSCORE\SheetPainter::render($single, 0, 2, 500, 490);
+$single = new MADSCORE\Score\Score(12);
+$oneBarSheet = MADSCORE\Render\SheetPainter::render($single, 0, 2, 500, 490);
 $staffY = 5 + (int)round($rows[4]['top'] + $rows[4]['height'] / 12);
+$staffInteriorY = 5 + (int)round($rows[4]['top'] + 3 * $rows[4]['height'] / 12);
+expectSection(sectionRgb($oneBarSheet, 261, $staffInteriorY) !== 0xffffff,
+  'The final bar stays closed through the middle of its staff.');
 expectSection(sectionRgb($oneBarSheet, 380, $staffY) === 0xffffff, 'No octave staff continues past the final separator.');
 $preview = ['bar' => 0, 'start' => 7, 'end' => 9, 'octave' => 4, 'pitch' => 4];
-$oneBarPreview = MADSCORE\SheetPainter::render($single, 0, 2, 500, 490, $preview, 0);
+$oneBarPreview = MADSCORE\Render\SheetPainter::render($single, 0, 2, 500, 490, $preview, 0);
 $pitchY = 5 + (int)round($rows[4]['top'] + 7 * $rows[4]['height'] / 12);
 expectSection(sectionRgb($oneBarPreview, 280, $pitchY) === 0xffffff, 'A cursor preview does not draw beyond the final separator.');
 $single->ensureBar(1);
-$twoBarSheet = MADSCORE\SheetPainter::render($single, 0, 2, 500, 490);
+$twoBarSheet = MADSCORE\Render\SheetPainter::render($single, 0, 2, 500, 490);
 expectSection(sectionRgb($twoBarSheet, 380, $staffY) !== 0xffffff, 'Appending a bar makes its octave staff visible.');
+$hiddenNextBar = new MADSCORE\Score\Score(12);
+$hiddenNextBar->ensureBar(2);
+$visiblePair = MADSCORE\Render\SheetPainter::render($hiddenNextBar, 0, 2, 500, 490);
+expectSection(sectionRgb($visiblePair, 494, $staffInteriorY) !== 0xffffff,
+  'The last visible bar closes when the following bar is outside the editor viewport.');
+
+$printBorders = new MADSCORE\Score\Score();
+$printBorders->ensureBar(2);
+$printBorders->setSectionLeader(1, true);
+$pageImage = sectionPageImage($printBorders);
+$strip = static function (int $center) use ($pageImage): array {
+  $pixels = [];
+  for ($x = $center - 3; $x <= $center + 3; $x++) {
+    $pixels[] = sectionRgb($pageImage, $x, 530);
+  }
+  return $pixels;
+};
+expectSection($strip(375) === $strip(642),
+  'A section border and an ordinary bar border have the same ink strength in print.');
+$endingBand = new MADSCORE\Score\Score(2);
+$endingBand->ensureBar(1);
+$endingBand->place(0, 0, 0, 4, 4, 2);
+$endingBand->place(0, 1, 0, 4, 4, 2);
+$endingBand->place(1, 0, 0, 6, 4, 2);
+$endingBand->setSectionLeader(1, true);
+$endingBandPage = sectionPageImage($endingBand);
+expectSection(sectionRgb($endingBandPage, 385, 325) === 0xffffff
+  && sectionRgb($endingBandPage, 386, 325) !== 0xffffff,
+  'A staff ending before an octave hidden in the next section uses only the section border.');
 
 $pdf = tempnam(sys_get_temp_dir(), 'madscore-sections-');
-MADSCORE\PdfWriter::write($pdf, $drawing);
+MADSCORE\Render\PdfWriter::write($pdf, $drawing);
 expectSection(str_starts_with(file_get_contents($pdf), '%PDF-'), 'Sections export to PDF.');
 unlink($pdf);
 
