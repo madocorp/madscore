@@ -64,7 +64,7 @@ expectEditorFocus($editor->handleEvent(editorArrow(SDL::KEY_RIGHT))
   && $editor->selectedLeaf()?->instance() === $cursor,
   'Right from Note selects the Cursor tile.');
 expectEditorFocus($editor->handleEvent(editorArrow(SDL::KEY_RIGHT))
-  && $editor->selectedLeaf()?->instance()?->id() === 'filesButton',
+  && $editor->selectedLeaf()?->instance()?->id() === 'saveButton',
   'Right from Cursor selects Actions.');
 expectEditorFocus($editor->handleEvent(editorArrow(SDL::KEY_LEFT))
   && $editor->selectedLeaf()?->instance() === $cursor,
@@ -72,4 +72,14 @@ expectEditorFocus($editor->handleEvent(editorArrow(SDL::KEY_LEFT))
 expectEditorFocus($editor->handleEvent(editorArrow(SDL::KEY_LEFT))
   && $editor->layout->findTile('noteBox')->pathTo($editor->selectedLeaf()) !== null,
   'Left from Cursor returns to Note controls.');
+$editor->show('savePanel');
+expectEditorFocus($editor->layout->findTile('savePanel')->overwriting() === $editor->layout->findTile('noteBox')
+  && $editor->selectedLeaf()?->instance()?->id() === 'saveDirectory',
+  'Save replaces Note and focuses its directory selector.');
+$editor->restore('savePanel');
+$editor->show('loadPanel');
+expectEditorFocus($editor->layout->findTile('loadPanel')->overwriting() === $editor->layout->findTile('noteBox')
+  && $editor->selectedLeaf()?->instance()?->id() === 'loadSelector',
+  'Load replaces Note and focuses its file selector.');
+$editor->restore('loadPanel');
 echo "Editor focus checks passed\n";

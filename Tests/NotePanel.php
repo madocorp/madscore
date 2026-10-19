@@ -20,8 +20,28 @@ foreach (['window' => $window, 'score' => $score, 'bar' => 0, 'slot' => 0, 'octa
   (new ReflectionProperty(MADSCORE\App\Controller::class, $name))->setValue(null, $value);
 }
 $refresh = new ReflectionMethod(MADSCORE\App\Controller::class, 'refreshCursorReadout');
+$install = new ReflectionMethod(MADSCORE\App\Controller::class, 'installSheet');
+$install->invoke(null, 'editor');
 $editor = $window->screen('editor');
-$editor->measureGrid(new SPTK\Layout\Tile(0, 0, 120, 38));
+$editor->measureGrid(new SPTK\Layout\Tile(0, 0, 132, 38));
+foreach (['melodyBox', 'actionsBox'] as $boxId) {
+  $box = $editor->layout->findTile($boxId)->grid();
+  $fillers = array_values(array_filter($editor->layout->leaves(), static function ($leaf) use ($box): bool {
+    return $leaf->instance() instanceof SPTK\Widgets\Empty\Placeholder
+      && $leaf->grid()->x === $box->x && $leaf->grid()->y >= $box->y;
+  }));
+  expectNotePanel(count($fillers) === 1 && $fillers[0]->grid()->height === 0
+    && $fillers[0]->grid()->y + $fillers[0]->grid()->height === $box->y + $box->height,
+    "The {$boxId} filler adds no extra bottom row.");
+}
+$cursorBox = $editor->layout->findTile('cursorBox')->grid();
+$cursorFillers = array_values(array_filter($editor->layout->leaves(), static function ($leaf) use ($cursorBox): bool {
+  return $leaf->instance() instanceof SPTK\Widgets\Empty\Placeholder
+    && $leaf->grid()->x === $cursorBox->x && $leaf->grid()->y >= $cursorBox->y;
+}));
+expectNotePanel(count($cursorFillers) === 1 && $cursorFillers[0]->grid()->height > 0
+  && $cursorFillers[0]->grid()->y + $cursorFillers[0]->grid()->height === $cursorBox->y + $cursorBox->height,
+  'A shorter box stretches its filler to the automatically measured panel bottom.');
 expectNotePanel($editor->layout->findTile('noteBox')->grid()->width
   > $editor->layout->findTile('melodyBox')->grid()->width,
   'The Note box receives more width than the other controls.');
@@ -77,12 +97,26 @@ expectNotePanel($editor->widget('cursorTitle')->text() === 'Cursor A#3'
   && $editor->widget('cursorLength')->text() === 'Length 1 beat',
   'Adding a note leaves the cursor readout unchanged.');
 expectNotePanel($editor->widget('staccato')->hotkey() === 's', 'The note panel offers S for staccato.');
+expectNotePanel($editor->widget('dynamicLevel')->hotkey() === '/'
+  && (new ReflectionProperty(SPTK\Widgets\Button\Button::class, 'label'))->getValue($editor->widget('dynamicLevel')) === 'All levels: —',
+  'The slash button shows the shared level at the cursor.');
+expectNotePanel($editor->widget('dynamic')->hotkey() === '*'
+  && (new ReflectionProperty(SPTK\Widgets\Button\Button::class, 'label'))->getValue($editor->widget('dynamic')) === 'All wedge: =',
+  'The star button shows the shared wedge at the cursor.');
+$score->setScoreDynamicLevel(0, 'mf');
+expectNotePanel($refresh->invoke(null)
+  && (new ReflectionProperty(SPTK\Widgets\Button\Button::class, 'label'))->getValue($editor->widget('dynamicLevel')) === 'All levels: mf',
+  'The slash button updates when the shared level changes.');
 expectNotePanel($editor->widget('fermata')->preferredWidth() > 0, 'The note panel offers a fermata control.');
 expectNotePanel($editor->widget('trill')->hotkey() === 'w', 'The note panel offers W for trill.');
 $linkLabel = new ReflectionProperty(SPTK\Widgets\Button\Button::class, 'label');
 expectNotePanel($linkLabel->getValue($editor->widget('slur')) === 'Link to next: No',
   'A note without a link shows No.');
 $score->place(0, 0, 2, 3, 4, 2);
+$score->setScoreDynamicWedge(0, 2, 'crescendo');
+expectNotePanel($refresh->invoke(null)
+  && (new ReflectionProperty(SPTK\Widgets\Button\Button::class, 'label'))->getValue($editor->widget('dynamic')) === 'All wedge: +',
+  'The star button updates when the shared wedge changes.');
 $score->setSlurToNext(0, true);
 expectNotePanel($refresh->invoke(null) && $linkLabel->getValue($editor->widget('slur')) === 'Link to next: Yes',
   'A linked note shows Yes.');
@@ -102,11 +136,15 @@ expectNotePanel($refresh->invoke(null)
 expectNotePanel(str_contains($editor->widget('noteHelp')->text(), 'Bksp Delete + gap')
   && !str_contains($editor->widget('noteHelp')->text(), 'Toggle staccato'),
   'The Note box shows note editing help beside its articulation controls.');
-expectNotePanel(str_contains($editor->widget('cursorHelp')->text(), 'Left/Right Move time')
-  && str_contains($editor->widget('cursorHelp')->text(), '0-9 Set length'),
+expectNotePanel(str_contains($editor->widget('cursorHelp')->text(), 'Left/Right Time')
+  && str_contains($editor->widget('cursorHelp')->text(), '+/- Change length')
+  && str_contains($editor->widget('noteHelp')->text(), '1-9 All ppp-fff')
+  && str_contains($editor->widget('noteHelp')->text(), 'CTRL+1-9 ppp-fff')
+  && !str_contains($editor->widget('melodyHelp')->text(), '0 Mute/unmute')
+  && $editor->widget('muteMelody')->hotkey() === '0',
   'The Cursor box holds movement and entry help.');
 expectNotePanel(str_contains($editor->widget('melodyHelp')->text(), 'Shift+Tab Prev')
-  && str_contains($editor->widget('actionsHelp')->text(), 'P Play all')
+  && str_contains($editor->widget('actionsHelp')->text(), 'P/M Play all/one')
   && str_contains($editor->widget('actionsHelp')->text(), 'V Preview'),
   'Melody and Actions show their own shortcuts.');
 echo "Note panel checks passed\n";

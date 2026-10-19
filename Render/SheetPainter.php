@@ -13,6 +13,7 @@ final class SheetPainter {
   private const INSET = 5;
 
   public static function render(Score $score, int $firstBar, int $columns, int $width, int $height, ?array $cursor = null, ?int $melody = null, ?array $selection = null, bool $design = false, int $firstRow = 0): RasterImage {
+    $score = $score->visibleCopy();
     $width = max(1, $width);
     $height = max(1, $height);
     $columns = max(1, $columns);
@@ -150,7 +151,9 @@ final class SheetPainter {
 
   /** Highlight the selected time range across all four octave rows. */
   private static function drawSelection(\FFI $cairo, \FFI\CData $context, Score $score, array $positions, array $states, int $tileHeight, int $topSpace, array $selection, bool $design): void {
-    $rgb = sscanf(BarPainter::color($score, $selection['melody']), '#%02x%02x%02x');
+    $color = ($selection['scope'] ?? 'melody') === 'score'
+      ? '#3a527a' : BarPainter::color($score, $selection['melody']);
+    $rgb = sscanf($color, '#%02x%02x%02x');
     $red = $rgb[0] / 255;
     $green = $rgb[1] / 255;
     $blue = $rgb[2] / 255;
@@ -167,7 +170,7 @@ final class SheetPainter {
         continue;
       }
       $rows = self::rows($states[$bar], $tileHeight, $topSpace, $design);
-      $top = min(array_column($rows, 'top'));
+      $top = min(array_map(static fn (array $row): float => $row['top'] - $row['height'] / 6, $rows));
       $bottom = max(array_map(static fn (array $row): int => $row['top'] + $row['height'], $rows));
       $unit = ($position['right'] - $position['left']) / (2 * $score->beats($bar));
       $left = $position['left'] + ($start - $barStart) * $unit;

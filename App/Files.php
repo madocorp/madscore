@@ -2,175 +2,234 @@
 
 namespace MADSCORE\App;
 
+use MADSCORE\Play\MidiWriter;
 use MADSCORE\Render\PdfWriter;
 use MADSCORE\Score\LegacyImporter;
 use MADSCORE\Score\Score;
-
 use SPTK\Events\EventContext;
 
-/** Opens, saves, imports, and exports score files. */
+/** Named score files and the editor's temporary file panels. */
 final class Files {
 
   private static ?string $path = null;
-  private static ?Score $pendingImport = null;
+  private static ?string $lastDirectory = null;
 
-  /** Populate default paths on the Files screen. */
+  public static function currentPath(): ?string {
+    return self::$path;
+  }
+
+  /** Restore only an absolute named path; the score itself lives in the session. */
+  public static function restorePath(mixed $path): void {
+    self::$path = is_string($path) && str_starts_with($path, '/') && !str_contains($path, "\0") ? $path : null;
+  }
+
   public static function initialize(): void {
-    $screen = Controller::screen('files');
-    $screen->widget('path')->setValue(APP_DIR . '/score.json');
-    $screen->widget('pdf')->setValue(APP_DIR . '/score.pdf');
+    $screen = Controller::screen('editor');
+    self::$lastDirectory = null;
+    $directory = Settings::defaultDirectory();
+    $screen->widget('saveDirectory')->setPath($directory);
+    $screen->widget('loadSelector')->setPath($directory);
+    $screen->widget('saveFilename')->setValue(self::$path === null ? 'score.json' : basename(self::$path));
   }
 
-  /** Show only the name of the score path in the editor header. */
-  public static function filename(): string {
-    $path = trim(Controller::screen('files')->widget('path')->getValue());
-    return $path === '' ? 'score.json' : basename($path);
-  }
-
-  /** Apply an editor filename in the directory selected on the Files screen. */
-  public static function setFilename(string $filename): void {
-    $filename = trim($filename);
-    if ($filename === '' || $filename === '.' || $filename === '..' || strpbrk($filename, '/\\') !== false) {
-      throw new \DomainException('Enter a filename without directory separators.');
-    }
-    $widget = Controller::screen('files')->widget('path');
-    $oldPath = trim($widget->getValue());
-    if ($oldPath !== '' && basename($oldPath) === $filename) {
+  /** Select a directory and file name for a new named save. */
+  public static function showSave(): void {
+    $screen = Controller::screen('editor');
+    $directory = self::browserDirectory();
+    try {
+      $screen->widget('saveDirectory')->setPath($directory);
+    } catch (\Throwable $error) {
+      Controller::status($error->getMessage());
       return;
     }
-    $directory = $oldPath === '' ? APP_DIR : dirname($oldPath);
-    $path = $directory . '/' . $filename;
-    $widget->setValue($path);
-    if (self::$path !== $path) {
-      self::$path = null;
+    self::$lastDirectory = $directory;
+    $screen->widget('saveFilename')->setValue(self::$path === null ? 'score.json' : basename(self::$path));
+    Controller::showFilePanel('savePanel');
+  }
+
+  /** Reopen the last directory and let Return on a file load it. */
+  public static function showLoad(): void {
+    $screen = Controller::screen('editor');
+    $directory = self::browserDirectory();
+    try {
+      $screen->widget('loadSelector')->setPath($directory);
+    } catch (\Throwable $error) {
+      Controller::status($error->getMessage());
+      return;
+    }
+    self::$lastDirectory = $directory;
+    Controller::showFilePanel('loadPanel');
+  }
+
+  /** Remember directory navigation across both file selectors. */
+  public static function directoryChanged(EventContext $event): void {
+    $widget = $event->widget;
+    if ($widget !== null && in_array($widget->id(), ['saveDirectory', 'loadSelector'], true)) {
+      self::$lastDirectory = $widget->path();
     }
   }
 
-  /** A path edited on the Files screen becomes the editor's proposed filename. */
-  public static function syncPathFromFiles(): void {
-    $path = trim(Controller::screen('files')->widget('path')->getValue());
-    if ($path !== self::$path) {
-      self::$path = null;
-    }
+  /** Use the preference once, then the last directory visited in this session. */
+  private static function browserDirectory(): string {
+    return self::$lastDirectory !== null && is_dir(self::$lastDirectory)
+      ? self::$lastDirectory : Settings::defaultDirectory();
   }
 
-  /** Save to the current path, opening Files for a new score. */
-  public static function save(EventContext $event): void {
+  /** Write changes only to the file already associated with the score. */
+  public static function write(EventContext $event): void {
     if (self::$path === null) {
-      Controller::showFiles($event);
-      Controller::status('Choose a score path and press Save as.', 'files');
+      Controller::status('No current file. Use Ctrl+S to save first.');
       return;
     }
     self::writeScore(self::$path);
   }
 
-  /** Save to the path entered on the Files screen. */
+  /** Save in the directory shown by SPTK's file selector. */
   public static function saveAs(EventContext $event): void {
-    $path = trim(Controller::screen('files')->widget('path')->getValue());
-    if ($path === '') {
-      Controller::status('Enter a score path.', 'files');
-      return;
-    }
-    if (is_dir($path)) {
-      Controller::status('The score path names a directory.', 'files');
-      return;
-    }
-    if (self::writeScore($path)) {
-      self::$path = $path;
+    $screen = Controller::screen('editor');
+    try {
+      $name = trim((string)$screen->widget('saveFilename')->getValue());
+      if ($name === '' || $name === '.' || $name === '..' || strpbrk($name, '/\\') !== false
+        || preg_match('/[\x00-\x1f\x7f]/', $name)) {
+        throw new \DomainException('Enter a file name without path separators or control characters.');
+      }
+      if (pathinfo($name, PATHINFO_EXTENSION) === '') {
+        $name .= '.json';
+      } else if (strtolower(pathinfo($name, PATHINFO_EXTENSION)) !== 'json') {
+        throw new \DomainException('Use a .json score file name.');
+      }
+      $path = $screen->widget('saveDirectory')->path() . '/' . $name;
+      if (is_dir($path)) {
+        throw new \DomainException('The file name belongs to a directory.');
+      }
+      if (is_file($path) && $path !== self::$path) {
+        $screen->statusBar?->confirm('Overwrite ' . $name . '?',
+          static function() use ($path): void { self::finishSave($path); },
+          static function(): void { Controller::status('Save cancelled.'); });
+        return;
+      }
+      self::finishSave($path);
+    } catch (\Throwable $error) {
+      Controller::status($error->getMessage());
     }
   }
 
-  /** Read and validate a JSON score before replacing the current one. */
-  public static function open(EventContext $event): void {
-    $path = trim(Controller::screen('files')->widget('path')->getValue());
+  private static function finishSave(string $path): void {
+    if (self::writeScore($path)) {
+      self::$path = $path;
+      Controller::hideFilePanel('savePanel');
+    }
+  }
+
+  /** Validate a selected score before replacing the editor document. */
+  public static function open(EventContext $event): bool {
+    $path = Controller::screen('editor')->widget('loadSelector')->activeValue();
+    if ($path === null || !is_file($path)) {
+      Controller::status('Select a score file to load.');
+      return true;
+    }
     try {
+      if (strtolower(pathinfo($path, PATHINFO_EXTENSION)) === 'txt') {
+        [$score, $warnings] = LegacyImporter::read($path);
+        if ($warnings !== []) {
+          Controller::screen('editor')->statusBar?->confirm(
+            'Import and omit: ' . implode(', ', $warnings) . '?',
+            static function() use ($score): void { self::finishOpen($score, null, 'Imported core notes. Save as JSON to keep editing.'); },
+            static function(): void { Controller::status('Import cancelled.'); });
+          return true;
+        }
+        self::finishOpen($score, null, 'Imported core notes. Save as JSON to keep editing.');
+        return true;
+      }
       $source = file_get_contents($path);
       if ($source === false) {
         throw new \RuntimeException('Could not read score: ' . $path);
       }
-      $data = json_decode($source, true, 512, JSON_THROW_ON_ERROR);
-      $score = Score::fromData($data);
-      Controller::loadScore($score);
-      self::$path = $path;
-      Controller::showEditor($event);
-      Controller::status('Opened ' . basename($path));
+      $score = Score::fromData(json_decode($source, true, 512, JSON_THROW_ON_ERROR));
+      self::finishOpen($score, $path, 'Opened ' . basename($path));
     } catch (\Throwable $error) {
-      Controller::status($error->getMessage(), 'files');
+      Controller::status($error->getMessage());
     }
+    return true;
   }
 
-  /** Preview old source features that cannot be edited before accepting import. */
-  public static function importLegacy(EventContext $event): void {
-    $path = trim(Controller::screen('files')->widget('legacy')->getValue());
-    try {
-      [$score, $warnings] = LegacyImporter::read($path);
-      self::$pendingImport = $score;
-      $screen = Controller::screen('files');
-      if ($warnings === []) {
-        $screen->widget('importWarnings')->setText('No unsupported features found.');
-        self::acceptImport();
-        return;
-      }
-      $screen->widget('importWarnings')->setText('Omitted on import: ' . implode(', ', $warnings));
-      $screen->statusBar->confirm('Import core notes and omit listed features?', self::acceptImport(...), self::cancelImport(...));
-    } catch (\Throwable $error) {
-      Controller::status($error->getMessage(), 'files');
+  private static function finishOpen(Score $score, ?string $path, string $message): void {
+    Controller::hideFilePanel('loadPanel');
+    self::$path = $path;
+    Controller::loadScore($score);
+    Controller::status($message);
+  }
+
+  public static function cancel(EventContext $event): bool {
+    Controller::hideFilePanel('savePanel');
+    Controller::hideFilePanel('loadPanel');
+    return true;
+  }
+
+  /** Let Escape cancel a file panel before editor navigation handles it. */
+  public static function cancelShortcut(EventContext $event): bool {
+    $screen = Controller::screen('editor');
+    if ($screen->layout->findTile('savePanel')->overwriting() === null
+      && $screen->layout->findTile('loadPanel')->overwriting() === null) {
+      return false;
     }
+    return self::cancel($event);
   }
 
-  /** Commit a legacy import after the user accepts its omissions. */
-  public static function acceptImport(): void {
-    if (self::$pendingImport === null) {
-      return;
-    }
-    self::$path = null;
-    Controller::screen('files')->widget('path')->setValue(APP_DIR . '/score.json');
-    Controller::loadScore(self::$pendingImport);
-    self::$pendingImport = null;
-    Controller::showEditor(new EventContext('accept'));
-    Controller::status('Imported core notes. Save as JSON to keep editing.');
-  }
-
-  /** Discard a pending legacy import. */
-  public static function cancelImport(): void {
-    self::$pendingImport = null;
-  }
-
-  /** Export every printed page to a single PDF. */
+  /** Preserve PDF export without a separate Files screen. */
   public static function exportPdf(EventContext $event): void {
-    if (Controller::currentScreenId() !== 'files') {
-      Controller::showFiles($event);
-      Controller::status('Choose a PDF path and press Export PDF.', 'files');
+    if (self::$path === null) {
+      Controller::status('Save the score before exporting PDF.');
       return;
     }
-    $path = trim(Controller::screen('files')->widget('pdf')->getValue());
+    $path = self::exportPath('pdf');
     try {
-      if ($path === '' || is_dir($path)) {
-        throw new \DomainException('Enter a PDF file path.');
-      }
       PdfWriter::write($path, Controller::score());
-      Controller::status('Exported ' . basename($path), 'files');
+      Controller::status('Exported ' . basename($path));
     } catch (\Throwable $error) {
-      Controller::status($error->getMessage(), 'files');
+      Controller::status($error->getMessage());
     }
+  }
+
+  /** Export beside the named JSON score. */
+  public static function exportMidi(EventContext $event): void {
+    if (self::$path === null) {
+      Controller::status('Save the score before exporting MIDI.');
+      return;
+    }
+    $path = self::exportPath('mid');
+    try {
+      MidiWriter::write($path, Controller::score());
+      Controller::status('Exported ' . basename($path));
+    } catch (\Throwable $error) {
+      Controller::status($error->getMessage());
+    }
+  }
+
+  private static function exportPath(string $extension): string {
+    return preg_match('/\.json$/i', self::$path) === 1
+      ? substr(self::$path, 0, -5) . '.' . $extension
+      : self::$path . '.' . $extension;
   }
 
   /** Atomically store the current JSON score. */
   private static function writeScore(string $path): bool {
+    $temp = null;
     try {
       $encoded = json_encode(Controller::score()->data(), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . "\n";
       $temp = $path . '.tmp-' . bin2hex(random_bytes(6));
-      if (file_put_contents($temp, $encoded) === false || !rename($temp, $path)) {
-        if (is_file($temp)) {
-          unlink($temp);
-        }
+      if (file_put_contents($temp, $encoded) !== strlen($encoded) || !rename($temp, $path)) {
         throw new \RuntimeException('Could not save score: ' . $path);
       }
-      Controller::status('Saved ' . basename($path), Controller::currentScreenId());
+      Controller::status('Saved ' . basename($path));
       return true;
     } catch (\Throwable $error) {
-      Controller::status($error->getMessage(), Controller::currentScreenId());
+      Controller::status($error->getMessage());
       return false;
+    } finally {
+      if ($temp !== null && is_file($temp)) {
+        unlink($temp);
+      }
     }
   }
 }

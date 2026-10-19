@@ -17,6 +17,8 @@ final class Score {
   public string $catalog = '';
   public array $bars = [['beats' => 4, 'tempo' => self::DEFAULT_TEMPO, 'sectionLeader' => true, 'repeats' => 0, 'note' => '']];
   public array $notes = [];
+  /** Shared level and wedge marks keyed by score time in half-beats. */
+  public array $scoreDynamics = [];
   public array $melodies;
 
   /** Start every melody with the current organ voice at full volume. */
@@ -33,7 +35,8 @@ final class Score {
   /** Append an instrument and return its index. */
   public function addMelody(): int {
     $index = count($this->melodies);
-    $this->melodies[] = ['pattern' => 'organ', 'volume' => 100, 'color' => self::COLORS[$index % count(self::COLORS)]];
+    $this->melodies[] = ['instrument' => 'gm:19', 'pattern' => 'organ', 'volume' => 100, 'muted' => false,
+      'color' => self::COLORS[$index % count(self::COLORS)]];
     return $index;
   }
 
@@ -61,23 +64,78 @@ final class Score {
 
   /** Choose one of the available sound patterns for a melody. */
   public function setMelodyPattern(int $melody, string $pattern): void {
+    $this->assertMelodyEditable($melody);
     if (!isset($this->melodies[$melody]) || !in_array($pattern, Waveform::NAMES, true)) {
       throw new \DomainException('Invalid melody or sound pattern.');
     }
     $this->melodies[$melody]['pattern'] = $pattern;
+    $this->melodies[$melody]['instrument'] = Sound::legacyInstrument($pattern);
+    $this->normalizeSlurs();
+  }
+
+  /** Select a portable MIDI instrument and its approximate built-in sound. */
+  public function setMelodyInstrument(int $melody, string $instrument): void {
+    $this->assertMelodyEditable($melody);
+    if (!isset($this->melodies[$melody]) || !Sound::valid($instrument)) {
+      throw new \DomainException('Invalid melody or instrument.');
+    }
+    $this->melodies[$melody]['instrument'] = $instrument;
+    $this->melodies[$melody]['pattern'] = Sound::fallback($instrument);
     $this->normalizeSlurs();
   }
 
   /** Set a melody's volume as a percentage from mute to full. */
   public function setMelodyVolume(int $melody, int $volume): void {
+    $this->assertMelodyEditable($melody);
     if (!isset($this->melodies[$melody]) || $volume < 0 || $volume > 100) {
       throw new \DomainException('Melody volume must be between 0 and 100.');
     }
     $this->melodies[$melody]['volume'] = $volume;
   }
 
+  /** Keep a melody in the document while excluding it from performance and print. */
+  public function setMelodyMuted(int $melody, bool $muted): void {
+    if (!isset($this->melodies[$melody])) {
+      throw new \DomainException('The melody does not exist.');
+    }
+    $this->melodies[$melody]['muted'] = $muted;
+  }
+
+  public function melodyMuted(int $melody): bool {
+    return $this->melodies[$melody]['muted'] ?? false;
+  }
+
+  /** Muted melodies may be selected, copied, unmuted, or deleted, but not changed. */
+  public function assertMelodyEditable(int $melody): void {
+    if (!isset($this->melodies[$melody])) {
+      throw new \DomainException('The melody does not exist.');
+    }
+    if ($this->melodyMuted($melody)) {
+      throw new \DomainException('This melody is muted and read-only. Unmute it to edit.');
+    }
+  }
+
+  /** Whole-score edits must not move or alter any muted melody. */
+  public function assertAllMelodiesEditable(): void {
+    foreach (array_keys($this->melodies) as $melody) {
+      $this->assertMelodyEditable($melody);
+    }
+  }
+
+  /** A score copy without muted notes for drawing and playback. */
+  public function visibleCopy(): self {
+    if (!in_array(true, array_column($this->melodies, 'muted'), true)) {
+      return $this;
+    }
+    $copy = clone $this;
+    $copy->notes = array_values(array_filter($this->notes,
+      fn (array $note): bool => !$this->melodyMuted($note['melody'])));
+    return $copy;
+  }
+
   /** Set the display color for one melody. */
   public function setMelodyColor(int $melody, string $color): void {
+    $this->assertMelodyEditable($melody);
     if (!isset($this->melodies[$melody]) || preg_match('/^#[0-9a-fA-F]{6}$/D', $color) !== 1) {
       throw new \DomainException('Melody color must be a six-digit hex color such as #c04b20.');
     }
@@ -116,6 +174,11 @@ final class Score {
       return false;
     }
     $start = $this->start($last);
+    foreach ($this->scoreDynamics as $mark) {
+      if ($mark['time'] >= $start || ($mark['end'] ?? 0) > $start) {
+        return false;
+      }
+    }
     foreach ($this->notes as $note) {
       if ($this->start($note['bar']) + $note['slot'] + $note['length'] > $start) {
         return false;
@@ -250,6 +313,7 @@ final class Score {
     if (!isset($this->notes[$index])) {
       throw new \OutOfBoundsException('No note at this index.');
     }
+    $this->assertMelodyEditable($this->notes[$index]['melody']);
     if (!in_array($direction, ['', 'crescendo', 'decrescendo'], true)) {
       throw new \DomainException('Invalid dynamic direction.');
     }
@@ -264,16 +328,66 @@ final class Score {
     if (!isset($this->notes[$index])) {
       throw new \OutOfBoundsException('No note at this index.');
     }
-    if (!DynamicLevel::valid($level)) {
-      throw new \DomainException('Dynamic level must be ppp–fff, 0–100, or blank.');
+    $this->assertMelodyEditable($this->notes[$index]['melody']);
+    if ($level !== '' && !in_array($level, DynamicLevel::marks(), true)) {
+      throw new \DomainException('Dynamic level must be ppp–fff or blank.');
     }
     $this->notes[$index]['dynamicLevel'] = $level;
+  }
+
+  /** Set or clear a level shared by every melody at this score position. */
+  public function setScoreDynamicLevel(int $time, string $level): void {
+    $this->assertScoreDynamicTime($time);
+    if ($level !== '' && !in_array($level, DynamicLevel::marks(), true)) {
+      throw new \DomainException('A shared level must be ppp–fff or blank.');
+    }
+    $this->changeScoreDynamic($time, 'level', $level);
+  }
+
+  /** Set or clear a score-wide wedge over an explicit time span. */
+  public function setScoreDynamicWedge(int $start, int $end, string $direction): void {
+    $this->assertScoreDynamicTime($start);
+    if (!in_array($direction, ['', 'crescendo', 'decrescendo'], true)
+      || ($direction !== '' && ($end <= $start || $end > $this->start(count($this->bars))))) {
+      throw new \DomainException('A shared wedge needs a later score position.');
+    }
+    $this->changeScoreDynamic($start, 'direction', $direction, $direction === '' ? null : $end);
+  }
+
+  private function assertScoreDynamicTime(int $time): void {
+    if ($time < 0 || $time >= $this->start(count($this->bars))) {
+      throw new \DomainException('A shared dynamic mark must be inside the score.');
+    }
+  }
+
+  private function changeScoreDynamic(int $time, string $field, string $value, ?int $end = null): void {
+    foreach ($this->scoreDynamics as $index => $mark) {
+      if ($mark['time'] !== $time) {
+        continue;
+      }
+      $mark[$field] = $value;
+      if ($field === 'direction') {
+        $mark['end'] = $end;
+      }
+      if ($mark['level'] === '' && $mark['direction'] === '') {
+        array_splice($this->scoreDynamics, $index, 1);
+      } else {
+        $this->scoreDynamics[$index] = $mark;
+      }
+      return;
+    }
+    if ($value !== '') {
+      $this->scoreDynamics[] = ['time' => $time, 'level' => $field === 'level' ? $value : '',
+        'direction' => $field === 'direction' ? $value : '', 'end' => $end];
+      usort($this->scoreDynamics, static fn (array $a, array $b): int => $a['time'] <=> $b['time']);
+    }
   }
 
   public function setStaccato(int $index, bool $staccato): void {
     if (!isset($this->notes[$index])) {
       throw new \OutOfBoundsException('No note at this index.');
     }
+    $this->assertMelodyEditable($this->notes[$index]['melody']);
     $this->notes[$index]['articulation'] = $staccato ? 'staccato' : 'ordinary';
     if ($staccato) {
       $this->clearIncomingGlissando($index);
@@ -288,6 +402,7 @@ final class Score {
     if (!isset($this->notes[$index])) {
       throw new \OutOfBoundsException('No note at this index.');
     }
+    $this->assertMelodyEditable($this->notes[$index]['melody']);
     if ($slur && $this->nextAdjacent($index) === null) {
       throw new \DomainException('A slur needs an adjacent next note in this melody.');
     }
@@ -305,6 +420,7 @@ final class Score {
     if (!isset($this->notes[$index])) {
       throw new \OutOfBoundsException('No note at this index.');
     }
+    $this->assertMelodyEditable($this->notes[$index]['melody']);
     if ($glissando && !$this->validGlissando($index, true)) {
       throw new \DomainException('A glissando needs two adjacent white-key notes in the same melody.');
     }
@@ -353,6 +469,7 @@ final class Score {
     if (!isset($this->notes[$index])) {
       throw new \OutOfBoundsException('No note at this index.');
     }
+    $this->assertMelodyEditable($this->notes[$index]['melody']);
     $this->notes[$index]['fermata'] = $fermata;
     if ($fermata) {
       $this->clearIncomingGlissando($index);
@@ -367,6 +484,7 @@ final class Score {
     if (!isset($this->notes[$index])) {
       throw new \OutOfBoundsException('No note at this index.');
     }
+    $this->assertMelodyEditable($this->notes[$index]['melody']);
     if (!in_array($interval, [-2, -1, 0, 1, 2], true)
       || !self::validTrillPitch($this->notes[$index], $interval)) {
       throw new \DomainException('The trill pitch is outside the score.');
@@ -383,6 +501,7 @@ final class Score {
     if (!isset($this->notes[$index])) {
       throw new \OutOfBoundsException('No note at this index.');
     }
+    $this->assertMelodyEditable($this->notes[$index]['melody']);
     if ($finger !== '' && preg_match('/^[LR][1-5]$/D', $finger) !== 1) {
       throw new \DomainException('Finger must be L1–L5, R1–R5, or blank.');
     }
@@ -487,6 +606,7 @@ final class Score {
 
   /** Resize or remove an empty cursor span, moving later notes in its melody. */
   public function resizeGapAndShift(int $melody, int $bar, int $slot, int $oldLength, int $length): void {
+    $this->assertMelodyEditable($melody);
     if ($length < 0 || $length > 198 || $oldLength < 1 || $oldLength > 198) {
       throw new \DomainException('Length must be between half a beat and 99 beats.');
     }
@@ -528,6 +648,7 @@ final class Score {
 
   /** Place or replace a note at an onset without overlapping another note in its melody. */
   public function put(int $melody, int $bar, int $slot, int $octave, string $pitch, int $length = 2): int {
+    $this->assertMelodyEditable($melody);
     if (!isset($this->melodies[$melody]) || $length < 1 || $length > 198 || $octave < 0 || $octave > 8) {
       throw new \DomainException('Note length or octave is outside the score.');
     }
@@ -567,6 +688,7 @@ final class Score {
 
   /** Place or replace a note with the cursor's exact pitch and width. */
   public function place(int $melody, int $bar, int $slot, int $octave, int $position, int $length): int {
+    $this->assertMelodyEditable($melody);
     if ($length < 1 || $length > 198) {
       throw new \DomainException('Length must be between half a beat and 99 beats.');
     }
@@ -605,6 +727,7 @@ final class Score {
       throw new \InvalidArgumentException('Pitch direction must be up or down.');
     }
     $note = $this->notes[$index];
+    $this->assertMelodyEditable($note['melody']);
     [$note['octave'], $position] = Pitch::step($note['octave'], Pitch::position($note), $direction);
     $this->assertMelodyBand($note['melody'], $note['octave'], $position, $index);
     [$note['pitch'], $note['alter']] = Pitch::spelling($position);
@@ -623,6 +746,7 @@ final class Score {
     }
     [$pitch, $alter] = Pitch::spelling($position);
     $note = $this->notes[$index];
+    $this->assertMelodyEditable($note['melody']);
     $note['octave'] = $octave;
     $this->assertMelodyBand($note['melody'], $octave, $position, $index);
     $note['pitch'] = $pitch;
@@ -641,6 +765,7 @@ final class Score {
       throw new \DomainException('Length must be between half a beat and 99 beats.');
     }
     $note = $this->notes[$index];
+    $this->assertMelodyEditable($note['melody']);
     $start = $this->start($note['bar']) + $note['slot'];
     $delta = $length - $note['length'];
     if ($delta === 0) {
@@ -697,6 +822,7 @@ final class Score {
 
   /** Insert at the cursor's end, opposite to the beat already there. */
   public function insertInverseBeat(int $melody, int $bar, int $slot, int $cursorLength, int $octave, int $pitchPosition): array {
+    $this->assertMelodyEditable($melody);
     if (!isset($this->melodies[$melody]) || !isset($this->bars[$bar]) || $slot < 0 || $slot > 2 * $this->beats($bar)
       || $cursorLength < 1 || $cursorLength > 198) {
       throw new \DomainException('The insertion position is outside the score.');
@@ -745,6 +871,7 @@ final class Score {
   /** Insert time in the source melody and place a copy in the new space. */
   private function copyAfter(int $index, int $length): int {
     $note = $this->notes[$index];
+    $this->assertMelodyEditable($note['melody']);
     $position = $this->start($note['bar']) + $note['slot'] + $note['length'];
     $oldNotes = $this->notes;
     $oldBars = $this->bars;
@@ -791,6 +918,7 @@ final class Score {
       throw new \DomainException('Length must be between half a beat and 99 beats.');
     }
     $note = $this->notes[$index];
+    $this->assertMelodyEditable($note['melody']);
     $note['length'] = $length;
     $this->assertFree($note, $index);
     $this->notes[$index] = $note;
@@ -804,8 +932,13 @@ final class Score {
       throw new \DomainException('Bar beats must be between 1 and 32.');
     }
     $previous = $this->bars[$bar]['beats'];
+    if ($beats !== $previous) {
+      $this->assertAllMelodiesEditable();
+    }
     $oldBars = $this->bars;
     $oldNotes = $this->notes;
+    $oldDynamics = $this->scoreDynamics;
+    $oldEnd = $this->start($bar + 1);
     $positions = [];
     if ($beats < $previous) {
       foreach ($oldNotes as $index => $note) {
@@ -816,6 +949,29 @@ final class Score {
     }
     $this->bars[$bar]['beats'] = $beats;
     try {
+      $delta = 2 * ($beats - $previous);
+      foreach ($this->scoreDynamics as &$mark) {
+        if ($mark['time'] >= $oldEnd) {
+          $mark['time'] += $delta;
+        }
+        if ($mark['end'] !== null && $mark['end'] >= $oldEnd) {
+          $mark['end'] += $delta;
+        }
+      }
+      unset($mark);
+      foreach ($this->scoreDynamics as $mark) {
+        while (($mark['end'] ?? $mark['time'] + 1) > $this->start(count($this->bars))) {
+          $this->ensureBar(count($this->bars));
+        }
+      }
+      usort($this->scoreDynamics, static fn (array $a, array $b): int => $a['time'] <=> $b['time']);
+      $previousMark = -1;
+      foreach ($this->scoreDynamics as $mark) {
+        if ($mark['time'] <= $previousMark || ($mark['end'] !== null && $mark['end'] <= $mark['time'])) {
+          throw new \DomainException('Changing beats would overlap shared dynamic marks.');
+        }
+        $previousMark = $mark['time'];
+      }
       foreach ($positions as $index => $position) {
         [$this->notes[$index]['bar'], $this->notes[$index]['slot']] = $this->cursorAt($position);
       }
@@ -827,6 +983,7 @@ final class Score {
     } catch (\Throwable $error) {
       $this->bars = $oldBars;
       $this->notes = $oldNotes;
+      $this->scoreDynamics = $oldDynamics;
       throw $error;
     }
   }
@@ -866,6 +1023,8 @@ final class Score {
 
   /** Remove one note by its array index. */
   public function delete(int $index): void {
+    $note = $this->notes[$index] ?? throw new \OutOfBoundsException('No note at this index.');
+    $this->assertMelodyEditable($note['melody']);
     array_splice($this->notes, $index, 1);
     $this->normalizeSlurs();
   }
@@ -873,6 +1032,7 @@ final class Score {
   /** Remove a note and the following gap, bringing the next note to its onset. */
   public function deleteAndClose(int $index): void {
     $note = $this->notes[$index] ?? throw new \OutOfBoundsException('No note at this index.');
+    $this->assertMelodyEditable($note['melody']);
     $start = $this->start($note['bar']) + $note['slot'];
     $nextStart = null;
     foreach ($this->notes as $otherIndex => $other) {
@@ -968,7 +1128,8 @@ final class Score {
   /** Serialize the editable score. */
   public function data(): array {
     return ['title' => $this->title, 'author' => $this->author, 'catalog' => $this->catalog,
-      'bars' => $this->bars, 'notes' => $this->notes, 'melodies' => $this->melodies];
+      'bars' => $this->bars, 'notes' => $this->notes, 'melodies' => $this->melodies,
+      'scoreDynamics' => $this->scoreDynamics];
   }
 
   /** Load and validate an application score document. */
@@ -986,8 +1147,20 @@ final class Score {
       }
       $score->addMelody();
       $score->setMelodyPattern($index, $settings['pattern']);
+      if (array_key_exists('instrument', $settings)) {
+        $instrument = $settings['instrument'];
+        if (!is_string($instrument) || !Sound::valid($instrument)
+          || (Sound::drumKey($instrument) !== null) !== in_array($settings['pattern'], Drum::NAMES, true)) {
+          throw new \DomainException('Invalid melody instrument.');
+        }
+        $score->melodies[$index]['instrument'] = $instrument;
+      }
       $score->setMelodyVolume($index, $settings['volume']);
       $score->setMelodyColor($index, $settings['color']);
+      if (array_key_exists('muted', $settings) && !is_bool($settings['muted'])) {
+        throw new \DomainException('Invalid melody mute setting.');
+      }
+      $score->setMelodyMuted($index, $settings['muted'] ?? false);
     }
     foreach (['title', 'author', 'catalog'] as $field) {
       if (!is_string($data[$field] ?? null) || !mb_check_encoding($data[$field], 'UTF-8') || preg_match('/[\x00-\x1f\x7f]/', $data[$field])) {
@@ -1063,6 +1236,27 @@ final class Score {
       $score->assertMelodyBand($note['melody'], $note['octave'], Pitch::position($note));
       $score->notes[] = $note;
       $score->ensureDuration($note);
+    }
+    $shared = $data['scoreDynamics'] ?? [];
+    if (!is_array($shared) || !array_is_list($shared)) {
+      throw new \DomainException('Invalid shared dynamics.');
+    }
+    $previousTime = -1;
+    foreach ($shared as $mark) {
+      if (!is_array($mark) || !is_int($mark['time'] ?? null) || $mark['time'] <= $previousTime
+        || $mark['time'] < 0 || $mark['time'] >= $score->start(count($score->bars))
+        || !is_string($mark['level'] ?? null) || !is_string($mark['direction'] ?? null)
+        || ($mark['level'] === '' && $mark['direction'] === '')
+        || ($mark['level'] !== '' && !in_array($mark['level'], DynamicLevel::marks(), true))
+        || !in_array($mark['direction'], ['', 'crescendo', 'decrescendo'], true)
+        || (($mark['direction'] === '') !== (($mark['end'] ?? null) === null))
+        || ($mark['direction'] !== '' && (!is_int($mark['end'] ?? null)
+          || $mark['end'] <= $mark['time'] || $mark['end'] > $score->start(count($score->bars))))) {
+        throw new \DomainException('Invalid shared dynamic mark.');
+      }
+      $score->scoreDynamics[] = ['time' => $mark['time'], 'level' => $mark['level'],
+        'direction' => $mark['direction'], 'end' => $mark['end'] ?? null];
+      $previousTime = $mark['time'];
     }
     foreach ($score->notes as $index => $note) {
       if (($note['glissandoToNext'] ?? false) && !$score->validGlissando($index, true)) {

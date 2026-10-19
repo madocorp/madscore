@@ -53,8 +53,13 @@ $rows = MADSCORE\Render\Prescription::rows($state, 480, 48);
 $tops = array_column($rows, 'top');
 $top = min($tops);
 $bottom = max(array_map(static fn (array $row): int => $row['top'] + $row['height'], $rows));
-$image = MADSCORE\Render\SheetPainter::render($blank, 0, 1, 250, 490, selection: ['anchor' => 0, 'caret' => 2, 'start' => 0, 'end' => 2, 'melody' => 0]);
+$image = MADSCORE\Render\SheetPainter::render($blank, 0, 1, 250, 490, melody: 0,
+  selection: ['anchor' => 0, 'caret' => 2, 'start' => 0, 'end' => 2, 'melody' => 0], design: true);
 expectSelection(selectionRgb($image, 45, 5 + $top + 3) !== 0xffffff, 'The selection shades the upper octave row.');
+expectSelection(selectionRgb($image, 45, (int)ceil(5 + $top - $rows[5]['height'] / 6) + 2) !== 0xffffff,
+  'The selection reaches the top of the highest G-sharp.');
+expectSelection(selectionRgb($image, 45, (int)floor(5 + $top - $rows[5]['height'] / 6) - 3) === 0xffffff,
+  'The selection does not extend above the highest G-sharp.');
 expectSelection(selectionRgb($image, 45, 5 + $bottom - 5) !== 0xffffff, 'The selection shades the lower octave row.');
 expectSelection(selectionRgb($image, 120, 5 + $top + 3) === 0xffffff, 'Time outside the selected span remains unshaded.');
 

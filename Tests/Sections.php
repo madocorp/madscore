@@ -15,13 +15,13 @@ function sectionRgb(\SPTK\Core\RasterImage $image, int $x, int $y): int {
   return (unpack('L', substr($image->pixels, $offset, 4))[1] >> 8) & 0xffffff;
 }
 
-function sectionPageImage(MADSCORE\Score\Score $score): \SPTK\Core\RasterImage {
+function sectionPageImage(MADSCORE\Score\Score $score, int $width = 1000, int $height = 1000): \SPTK\Core\RasterImage {
   $cairo = MADSCORE\Render\Cairo::library();
-  $surface = $cairo->cairo_image_surface_create(0, 1000, 1000);
+  $surface = $cairo->cairo_image_surface_create(0, $width, $height);
   $context = $cairo->cairo_create($surface);
   try {
     MADSCORE\Render\PagePainter::drawPage($score, $cairo, $context, MADSCORE\Render\PagePainter::pages($score)[0]);
-    return MADSCORE\Render\Cairo::raster($surface, 1000, 1000);
+    return MADSCORE\Render\Cairo::raster($surface, $width, $height);
   } finally {
     $cairo->cairo_destroy($context);
     $cairo->cairo_surface_destroy($surface);
@@ -128,6 +128,16 @@ $endingBandPage = sectionPageImage($endingBand);
 expectSection(sectionRgb($endingBandPage, 385, 325) === 0xffffff
   && sectionRgb($endingBandPage, 386, 325) !== 0xffffff,
   'A staff ending before an octave hidden in the next section uses only the section border.');
+$wrappedSection = new MADSCORE\Score\Score();
+$wrappedSection->ensureBar(12);
+$wrappedSection->setSectionLeader(12, true);
+$wrappedLines = MADSCORE\Render\PagePainter::pages($wrappedSection)[0];
+expectSection(count($wrappedLines) === 2 && end($wrappedLines[0]) === 11 && $wrappedLines[1][0] === 12,
+  'The section leader falls exactly at a PDF line break.');
+$wrappedPage = sectionPageImage($wrappedSection, 3508, 2480);
+expectSection(sectionRgb($wrappedPage, 3322, 540) !== 0xffffff
+  && sectionRgb($wrappedPage, 120, 1580) !== 0xffffff,
+  'A wrapped section separator appears at both the previous line end and the next line start.');
 
 $pdf = tempnam(sys_get_temp_dir(), 'madscore-sections-');
 MADSCORE\Render\PdfWriter::write($pdf, $drawing);

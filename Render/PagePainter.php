@@ -18,9 +18,11 @@ final class PagePainter {
   private const LINE_PADDING = 40;
   private const FIRST_LINE_Y = 200;
   private const SIDE_MARGIN = 75;
+  private const TEMPO_LEVEL_GAP = 8;
 
   /** Draw every score page into a Cairo PDF context. */
   public static function drawPages(Score $score, \FFI $cairo, \FFI\CData $context): void {
+    $score = $score->visibleCopy();
     $states = Prescription::states($score);
     $pages = self::pages($score, $states);
     foreach ($pages as $index => $page) {
@@ -31,6 +33,7 @@ final class PagePainter {
 
   /** Draw a single PDF page into a context scaled to the page bounds. */
   public static function drawPage(Score $score, \FFI $cairo, \FFI\CData $context, array $page, ?array $states = null, int $pageNumber = 1, int $pageCount = 1): void {
+    $score = $score->visibleCopy();
     $states ??= Prescription::states($score);
     $cairo->cairo_save($context);
     try {
@@ -44,15 +47,24 @@ final class PagePainter {
         $widths = array_map(static fn (int $bar): int => self::barWidth($score, $bar), $bars);
         $positions = Prescription::positions($bars, $widths, $states, self::MARKER_WIDTH);
         $dynamicSegments = DynamicPainter::segments($score, $positions, self::ROW_HEIGHT);
+        $tempoReservations = [];
+        foreach ($positions as $position) {
+          if (($tempo = TempoPainter::label($score, $position['bar'])) !== null) {
+            $tempoReservations[$score->start($position['bar'])] = $position['left']
+              + TempoPainter::width($tempo) + self::TEMPO_LEVEL_GAP;
+          }
+        }
         $cairo->cairo_save($context);
         $cairo->cairo_translate($context, self::SIDE_MARGIN, $y);
+        $lastPrintedBar = $positions[count($positions) - 1]['bar'];
         foreach ($positions as $position) {
           $bar = $position['bar'];
           $rows = Prescription::rows($states[$bar], self::TOP_SPACE + max(4, count($states[$bar]['bands'])) * self::ROW_HEIGHT, self::TOP_SPACE);
           if ($score->bars[$bar]['sectionLeader']) {
             SectionPainter::edge($cairo, $context, $rows, $position['left']);
           }
-          if ($bar === count($score->bars) - 1) {
+          if ($bar === count($score->bars) - 1
+            || ($bar === $lastPrintedBar && ($score->bars[$bar + 1]['sectionLeader'] ?? false))) {
             SectionPainter::edge($cairo, $context, $rows, $position['right'], right: true);
           }
         }
@@ -84,9 +96,8 @@ final class PagePainter {
             Prescription::drawMarkers($cairo, $context, $rows, $position['markerLeft'] + self::MARKER_WIDTH / 2);
           }
           $sounding = Prescription::soundingBands($score, $bar);
-          $nextPrinted = $positions[$index + 1]['bar'] ?? null;
           $sectionAtRight = $bar === count($score->bars) - 1
-            || ($nextPrinted === $bar + 1 && $score->bars[$nextPrinted]['sectionLeader']);
+            || ($score->bars[$bar + 1]['sectionLeader'] ?? false);
           foreach ($rows as $band => $row) {
             if ($band !== $state['primary'] && !in_array($band, $sounding, true)) {
               continue;
@@ -110,7 +121,7 @@ final class PagePainter {
         $cairo->cairo_translate($context, self::SIDE_MARGIN, $y);
         DynamicPainter::draw($cairo, $context, $dynamicSegments, 68, self::ROW_HEIGHT);
         DynamicPainter::drawLabels($cairo, $context,
-          DynamicPainter::labels($score, $positions, self::ROW_HEIGHT), 68, self::ROW_HEIGHT);
+          DynamicPainter::labels($score, $positions, self::ROW_HEIGHT, $tempoReservations), 68, self::ROW_HEIGHT);
         SlurPainter::draw($cairo, $context, $score, $positions,
           static fn (int $bar): array => Prescription::rows($states[$bar],
             self::TOP_SPACE + max(4, count($states[$bar]['bands'])) * self::ROW_HEIGHT, self::TOP_SPACE));
@@ -166,6 +177,7 @@ final class PagePainter {
 
   /** Return the exact line groups used by PDF pagination. */
   public static function pages(Score $score, ?array $states = null): array {
+    $score = $score->visibleCopy();
     $states ??= Prescription::states($score);
     $pages = [];
     $page = [];
@@ -214,7 +226,9 @@ final class PagePainter {
     $slotWidth = 2 * (self::TILE_HEIGHT / 12);
     $width = (int)round(2 * $score->bars[$bar]['beats'] * $slotWidth);
     if (($tempo = TempoPainter::label($score, $bar)) !== null) {
-      $width = max($width, TempoPainter::width($tempo));
+      $levelWidth = DynamicPainter::startLabelWidth($score, $bar, self::ROW_HEIGHT);
+      $width = max($width, (int)ceil(TempoPainter::width($tempo)
+        + ($levelWidth > 0 ? self::TEMPO_LEVEL_GAP + $levelWidth : 0)));
     }
     if ($bar === count($score->bars) - 1 || $score->bars[$bar + 1]['sectionLeader']) {
       $width = max($width, (int)ceil(RepeatPainter::width($score->sectionRepeats($bar), self::ROW_HEIGHT) + 16));

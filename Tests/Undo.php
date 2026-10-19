@@ -11,48 +11,36 @@ function expectUndo(bool $condition, string $message): void {
 }
 
 $score = new MADSCORE\Score\Score(2);
-$history = new MADSCORE\App\MelodyHistory($score);
-expectUndo(!$history->undo($score, 0), 'An untouched melody has nothing to undo.');
-$first = $score->place(0, 0, 0, 4, 4, 2);
-expectUndo($history->observe($score, 0), 'Adding a note records its melody.');
+$history = new MADSCORE\App\ScoreHistory($score);
+expectUndo(!$history->undo($score), 'An untouched score has nothing to undo.');
+$score->place(0, 0, 0, 4, 4, 2);
+expectUndo($history->observe($score), 'Adding a note records an edit.');
 $score->place(1, 0, 0, 5, 4, 2);
-$history->observe($score, 1);
-$otherNote = $score->notes[$score->noteAt(1, 0, 0)];
-expectUndo($history->undo($score, 0), 'The first melody can undo independently.');
-expectUndo(count($score->notes) === 1 && $score->notes[0] === $otherNote,
-  'Undo leaves the other melody untouched.');
-expectUndo($history->redo($score, 0) && count($score->notes) === 2,
-  'Redo restores the first melody beside the second.');
-$score->setStaccato($score->noteAt(0, 0, 0), true);
-$history->observe($score, 0);
-expectUndo($history->undo($score, 0)
-  && $score->notes[$score->noteAt(0, 0, 0)]['articulation'] === 'ordinary',
-  'Undo restores note articulation.');
+$history->observe($score);
+expectUndo($history->undo($score) && count($score->notes) === 1 && $score->notes[0]['melody'] === 0,
+  'Undo removes the latest edit even when it belongs to another melody.');
+expectUndo($history->undo($score) && $score->notes === [], 'The next undo removes the earlier edit.');
+expectUndo($history->redo($score) && count($score->notes) === 1, 'Redo restores the earlier edit.');
+expectUndo($history->redo($score) && count($score->notes) === 2, 'Redo restores the later melody edit.');
+$score->notes[0]['octave'] = 5;
+$score->notes[1]['octave'] = 6;
+$history->observe($score);
+expectUndo($history->undo($score) && $score->notes[0]['octave'] === 4 && $score->notes[1]['octave'] === 5,
+  'One undo restores a multi-melody edit together.');
 $score->setMelodyColor(1, '#123abc');
-$history->observe($score, 1);
-expectUndo($history->undo($score, 1) && $score->melodies[1]['color'] !== '#123abc',
-  'A melody setting has its own undo step.');
-expectUndo($history->redo($score, 0)
-  && $score->notes[$score->noteAt(0, 0, 0)]['articulation'] === 'staccato',
-  'Redo in the first melody survives undo in the second.');
-expectUndo($history->undo($score, 0), 'The first melody has a redo branch after undo.');
-$score->setMelodyVolume(0, 50);
-$history->observe($score, 0);
-expectUndo(!$history->redo($score, 0), 'A new edit clears only its melody redo branch.');
-expectUndo($history->redo($score, 1) && $score->melodies[1]['color'] === '#123abc',
-  'The other melody keeps its redo branch.');
+$history->observe($score);
+expectUndo(!$history->redo($score), 'A new edit clears the chronological redo branch.');
+expectUndo($history->undo($score) && $score->melodies[1]['color'] !== '#123abc',
+  'Melody settings participate in score-wide history.');
+$score->addMelody();
+$history->observe($score);
+expectUndo($history->undo($score) && count($score->melodies) === 2,
+  'Adding a melody is one undoable score edit.');
+$score->setScoreDynamicLevel(0, 'fff');
+$history->observe($score);
+expectUndo($history->undo($score) && $score->scoreDynamics === [],
+  'Undo removes a shared level.');
+expectUndo($history->redo($score) && $score->scoreDynamics[0]['level'] === 'fff',
+  'Redo restores a shared level.');
 
-$third = $score->addMelody();
-$history->addedMelody($score, $third);
-$score->place($third, 0, 2, 4, 6, 2);
-$history->observe($score, $third);
-$score->removeMelody(1);
-$history->removedMelody(1);
-expectUndo($history->undo($score, 1)
-  && !in_array(1, array_column($score->notes, 'melody'), true),
-  'Deleting an earlier melody shifts the later melody history with it.');
-expectUndo($history->redo($score, 1)
-  && in_array(1, array_column($score->notes, 'melody'), true),
-  'The shifted melody can redo its note.');
-
-echo "Per-melody undo checks passed\n";
+echo "Score undo checks passed\n";

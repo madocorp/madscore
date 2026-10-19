@@ -242,6 +242,10 @@ $firstBar->setValue(null, 5);
 $bar->setValue(null, 7);
 expectNavigation($visibleEdge->invoke(null, true) === [5, 7, 7], 'End stops at the trailing gap in the score final bar without adding another page.');
 expectNavigation(count($pages->bars) === 8, 'Home and End destinations do not add score bars.');
+$scoreEdge = new \ReflectionMethod(MADSCORE\App\Controller::class, 'scoreEdgeDestination');
+expectNavigation($scoreEdge->invoke(null, false) === [0, 0], 'Ctrl+Home reaches the first score bar from a later page.');
+expectNavigation($scoreEdge->invoke(null, true) === [7, 7], 'Ctrl+End reaches the last note or gap in the final score bar.');
+expectNavigation(count($pages->bars) === 8, 'Score edge shortcuts do not add a bar.');
 
 $canvas = new MADSCORE\App\SheetCanvas();
 expectNavigation($canvas->releaseNotification(SPTK\SDLWrapper\SDL::KEY_RETURN, 0) === null, 'Return stays in the editor for note placement.');
