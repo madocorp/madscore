@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Read, write, and share — Learn Tristaff</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="topline" aria-hidden="true"></div>
+  <div class="page">
+    <div class="chapter-layout">
+      <main class="chapter-main">
+        <div class="chapter-intro"><span class="chapter-number">Chapter 06 / Practice</span><h1>Read, write, and share</h1><p class="lead">Use the rules together in one phrase, then see how music can be written and shared.</p><div class="core-rule"><p><strong>Rule:</strong> Find the octave marker and tempo first. Read each note's height, then its start and width. Read extra marks last.</p></div></div>
+        <figure class="figure"><div class="figure-art"><div class="rendered-figure"><img src="graphics/phrase.png" width="920" height="340" alt="A rendered Tristaff phrase in the dot-marked octave at 120 beats per minute: C5 for one beat, D5 for one beat, and E5 for two beats, with a slur between the first two."><div class="phrase-labels"><span>C5 · 1 beat</span><span>D5 · 1 beat</span><span>E5 · 2 beats</span></div></div></div><figcaption><span class="caption-label">Look</span> The filled dot at the left marks the A4–G♯5 octave band. The hollow beat symbol with 120 above it means two beats each second. The curve joins C and D smoothly.</figcaption></figure>
+        <section class="below">
+          <h2>Read it step by step</h2>
+          <ol class="recap"><li>Find the octave dot and tempo.</li><li>Read each note's height.</li><li>Count starts and widths in beats.</li><li>Read any extra marks.</li></ol>
+          <p>A <strong>phrase</strong> is a short musical thought. This one rises from C to D to E, then ends with a longer note. The curved <strong>slur</strong> joins the first two smoothly.</p>
+          <h2>Writing Tristaff</h2>
+          <p>Tristaff can be written on paper. The challenge is precision: every semitone needs its own height, and each beat needs a consistent width. A small placement error can make a pitch or length unclear. This asks for more exact spacing than a five-line staff, where a sharp or flat can change a pitch without moving the note.</p>
+          <p>Tristaff was designed for digital editing. A program can keep those positions exact while you move or change notes. <a href="../README.md">madscore</a> is one implementation that lets you write a Tristaff score and hear it.</p>
+        </section>
+        <aside class="science-note" aria-labelledby="format-science-title">
+          <span class="science-label">Music technology · If you want to go deeper</span>
+          <h2 id="format-science-title">What does a music file keep?</h2>
+          <p>A file may describe written notes, a performance, a finished page, or the sound itself. These are different kinds of information.</p>
+          <div class="format-list">
+            <div><small>Notation data</small><strong>MusicXML · .musicxml, .xml, .mxl</strong><p>XML tags describe notes, bars, and symbols. Notation programs use it to exchange scores. A new program may lay out the page differently.</p></div>
+            <div><small>Notation text</small><strong>ABC · .abc</strong><p>Letters, numbers, and symbols describe a tune in plain text. A person can edit it with a text editor; a program can turn it into notation or sound.</p></div>
+            <div><small>Performance events</small><strong>MIDI · .mid</strong><p>Timed messages say when notes start and stop, how strongly to play them, and which instruments to use. A player makes the sound. MIDI stores no recording or fixed page layout.</p></div>
+            <div><small>General data</small><strong>JSON · .json</strong><p>A text format for structured data. A music program can store notes and marks in JSON, but another program needs to know that program's rules to read them.</p></div>
+            <div><small>Page</small><strong>PDF · .pdf</strong><p>Keeps the appearance of pages for viewing or printing. It is much harder to edit as notes than a notation file.</p></div>
+            <div><small>Audio samples</small><strong>WAV · .wav</strong><p>Usually holds uncompressed measurements of the sound wave. It preserves the recorded sound closely but can make a large file.</p></div>
+            <div><small>Compressed audio</small><strong>MP3 · .mp3</strong><p>Stores recorded sound in less space. Its lossy compression discards some sound detail to make the file smaller.</p></div>
+            <div><small>Container</small><strong>Ogg · .ogg</strong><p>Holds an encoded media stream. Ogg Vorbis or Ogg Opus commonly holds compressed sound; Ogg itself is the wrapper, not one sound encoding.</p></div>
+          </div>
+          <p>Sound files such as WAV, MP3, and Ogg let you hear a performance, but they do not tell you exactly which notes were written. MIDI keeps note events but needs a sound maker. Notation formats keep written music, but may not keep the same page design in every program.</p>
+        </aside>
+        <div class="page-turn"><a href="05-marks.html">← Add expression</a><a href="index.html">All chapters →</a></div>
+      </main>
+      <aside class="chapter-nav" aria-label="Chapters"><a class="nav-brand" href="index.html">Tristaff</a><strong>Chapters</strong><div class="chapter-links"><a href="index.html">Start</a><a href="01-why.html">01 Why Tristaff?</a><a href="02-pitch.html">02 Find a pitch</a><a href="03-time.html">03 Read time</a><a href="04-octaves.html">04 Change octave</a><a href="05-marks.html">05 Add expression</a><a aria-current="page" href="06-phrase.html">06 Read, write, and share</a></div></aside>
+    </div>
+    <footer>Tristaff visual guide</footer>
+  </div>
+</body>
+</html>
