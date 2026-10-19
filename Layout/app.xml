@@ -2,9 +2,9 @@
   <Event type="init" action="MADSCORE\App\Controller::initialize" />
   <Event type="close" action="MADSCORE\App\Controller::persistSession" />
   <Event type="resize" action="MADSCORE\App\Controller::resize" />
-  <Window title="madscore" width="120" height="38" mode="maximized">
+  <Window title="madscore" width="120" height="38" mode="maximized" icon="../Assets/icon.png">
     <Screen id="editor" title="Score" file="editor.xml" />
     <Screen id="sheet" title="PDF preview" file="sheet.xml" />
-    <Screen id="files" title="Files" file="files.xml" />
+    <Screen id="settings" title="Settings" file="settings.xml" />
   </Window>
 </App>

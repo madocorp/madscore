@@ -8,17 +8,23 @@ final class MelodySelection {
   private ?int $anchor = null;
   private ?int $caret = null;
   private ?int $melody = null;
+  private string $scope = 'melody';
 
-  public function extend(int $from, int $to, int $melody): void {
-    if ($this->anchor === null || $this->melody !== $melody) {
+  public function extend(int $from, int $to, int $melody, string $scope = 'melody'): void {
+    if (!in_array($scope, ['melody', 'score'], true)) {
+      throw new \InvalidArgumentException('Invalid selection scope.');
+    }
+    if ($this->anchor === null || $this->melody !== $melody || $this->scope !== $scope) {
       $this->anchor = $from;
       $this->melody = $melody;
+      $this->scope = $scope;
     }
     $this->caret = $to;
   }
 
   public function clear(): void {
     $this->anchor = $this->caret = $this->melody = null;
+    $this->scope = 'melody';
   }
 
   /** Return both direction-aware endpoints and the normalized time span. */
@@ -32,6 +38,7 @@ final class MelodySelection {
       'start' => min($this->anchor, $this->caret),
       'end' => max($this->anchor, $this->caret),
       'melody' => $this->melody,
+      'scope' => $this->scope,
     ];
   }
 }

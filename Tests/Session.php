@@ -16,6 +16,7 @@ $score->ensureBar(3);
 $score->place(1, 2, 3, 6, 5, 2);
 $selection = new MADSCORE\App\MelodySelection();
 $selection->extend(12, 19, 1);
+MADSCORE\App\Files::restorePath(sys_get_temp_dir() . '/madscore-session-score.json');
 foreach (['score' => $score, 'bar' => 2, 'slot' => 3, 'octave' => 6, 'melody' => 1,
   'cursorLength' => 2, 'cursorLengthExplicit' => true, 'pitchPosition' => 5, 'firstBar' => 1,
   'firstRow' => 2, 'view' => 'sheet', 'selection' => $selection] as $name => $value) {
@@ -31,6 +32,14 @@ try {
   (new \ReflectionProperty(MADSCORE\App\Controller::class, 'score'))->setValue(null, new MADSCORE\Score\Score(12));
   $restore->invoke(null, MADSCORE\App\Session::load($path));
   expectSession($capture->invoke(null) === $state, 'Restoring the session returns the score, cursor, viewport, and selection.');
+  expectSession(MADSCORE\App\Files::currentPath() === $state['filePath'],
+    'Restoring the session retains the named file for Write.');
+  $whole = $state;
+  $whole['selection']['scope'] = 'score';
+  $restore->invoke(null, $whole);
+  expectSession($capture->invoke(null)['selection']['scope'] === 'score',
+    'A whole-score selection survives session restore.');
+  $restore->invoke(null, $state);
   $invalid = $state;
   $invalid['cursor']['bar'] = 99;
   try {
@@ -40,6 +49,7 @@ try {
     expectSession($capture->invoke(null) === $state, 'A rejected session leaves the current editor state intact.');
   }
   $legacy = $state;
+  unset($legacy['selection']['scope']);
   $legacy['version'] = 1;
   $legacy['score']['version'] = 7;
   unset($legacy['score']['notes'][0]['articulation'], $legacy['score']['notes'][0]['slurToNext'], $legacy['score']['notes'][0]['fermata']);

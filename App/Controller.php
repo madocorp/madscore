@@ -2,17 +2,22 @@
 
 namespace MADSCORE\App;
 
-use MADSCORE\Play\ScoreSource;
+use MADSCORE\Composer\Generator;
+use MADSCORE\Play\{MidiPlayback, ScoreSource};
 use MADSCORE\Render\PagePainter;
 use MADSCORE\Score\Dynamics;
+use MADSCORE\Score\DynamicLevel;
 use MADSCORE\Score\MelodyRange;
 use MADSCORE\Score\Pitch;
+use MADSCORE\Score\RangeEdit;
 use MADSCORE\Score\Score;
+use MADSCORE\Score\Sound;
 
 use SPTK\App;
 use SPTK\Core\{Screen, Window};
 use SPTK\Events\EventContext;
 use SPTK\Layout\{LayoutLeaf, LayoutNode};
+use SPTK\SDLWrapper\SDL;
 
 /** Owns the score, visible sheet, and editor navigation. */
 final class Controller {
@@ -40,8 +45,13 @@ final class Controller {
   private static ?MelodySelection $selection = null;
   private static bool $sessionLoadFailed = false;
   private static ?string $playbackMode = null;
+  private static string $playbackSound = 'midi';
   private static ?int $pendingDeleteMelody = null;
-  private static ?MelodyHistory $history = null;
+  private static ?ScoreHistory $history = null;
+  private static ?array $musicClipboard = null;
+  private static int $composerVersions = 3;
+  private static string $composerDensity = 'balanced';
+  private static string $composerRegister = 'middle';
 
   /** Bind the new score and build its first visible four-staff grid. */
   public static function initialize(EventContext $event): void {
@@ -67,7 +77,7 @@ final class Controller {
         $restoreWarning = 'Could not restore or back up the previous session; it was kept.';
       }
     }
-    self::$history = new MelodyHistory(self::$score);
+    self::$history = new ScoreHistory(self::$score);
     self::$view = 'editor';
     self::$columns = self::fitColumns();
     self::alignTimeline();
@@ -76,6 +86,7 @@ final class Controller {
     self::$sheet = self::$sheets[self::$view];
     self::screen('editor')->activateLeaf(self::$sheet);
     self::screen('editor')->widget('color')->setPalette(Score::COLORS);
+    Settings::initialize();
     Files::initialize();
     self::refreshEditorFields();
     self::$window->refreshLayout();
@@ -107,7 +118,9 @@ final class Controller {
       'firstRow' => self::$firstRow,
       'previewPage' => self::$previewPage,
       'view' => self::$view,
+      'filePath' => Files::currentPath(),
       'selection' => self::selectionStateForSheet(),
+      'playbackSound' => self::$playbackSound,
     ];
   }
 
@@ -130,6 +143,7 @@ final class Controller {
     $firstRow = $state['firstRow'] ?? 0;
     $previewPage = $state['previewPage'] ?? 0;
     $view = $state['view'] ?? 'editor';
+    $playbackSound = $state['playbackSound'] ?? 'midi';
     if (!is_int($bar) || $bar < 0 || $bar >= count($score->bars)
       || !is_int($slot) || $slot < 0 || $slot > 2 * $score->beats($bar)
       || !is_int($octave) || $octave < 0 || $octave > 8
@@ -140,7 +154,8 @@ final class Controller {
       || !is_int($firstBar) || $firstBar < 0 || $firstBar >= count($score->bars)
       || !is_int($firstRow) || $firstRow < 0 || $firstRow > 5
       || !is_int($previewPage) || $previewPage < 0
-      || !in_array($view, ['editor', 'sheet'], true)) {
+      || !in_array($view, ['editor', 'sheet'], true)
+      || !in_array($playbackSound, ['midi', 'built-in'], true)) {
       throw new \DomainException('The previous editor position is invalid.');
     }
     $selection = new MelodySelection();
@@ -152,8 +167,12 @@ final class Controller {
         || ($savedSelection['melody'] ?? null) !== $savedMelody) {
         throw new \DomainException('The previous editor selection is invalid.');
       }
+      $scope = $savedSelection['scope'] ?? 'melody';
+      if (!in_array($scope, ['melody', 'score'], true)) {
+        throw new \DomainException('The previous editor selection scope is invalid.');
+      }
       if (($savedSelection['melody'] ?? null) === $melody) {
-        $selection->extend($savedSelection['anchor'], $savedSelection['caret'], $melody);
+        $selection->extend($savedSelection['anchor'], $savedSelection['caret'], $melody, $scope);
       }
     }
     try {
@@ -173,10 +192,12 @@ final class Controller {
     self::$firstRow = $firstRow;
     self::$previewPage = min($previewPage, count(PagePainter::pages($score)) - 1);
     self::$view = $view;
+    self::$playbackSound = $playbackSound;
     self::$selection = $selection;
     self::$lastCursorEndBar = min(self::cursorEndBar(), count($score->bars) - 1);
     self::$displayedBar = -1;
     self::$displayedReadout = '';
+    Files::restorePath($state['filePath'] ?? null);
   }
 
   /** Recalculate visible bar columns when the native window width changes. */
@@ -197,7 +218,7 @@ final class Controller {
     return self::$score;
   }
 
-  /** Undo the latest edit in the selected melody. */
+  /** Undo the latest score edit. */
   public static function undoMelody(): void {
     self::changeMelodyHistory(false);
   }
@@ -223,22 +244,46 @@ final class Controller {
     return true;
   }
 
-  /** Apply one saved melody state and refresh its cursor and controls. */
+  public static function melodyWedgeShortcut(EventContext $event): bool {
+    EditorInput::suppressNextWedgeText();
+    if (!$event->input->key->repeat) {
+      try {
+        self::cycleDynamic();
+      } catch (\DomainException $error) {
+        self::status($error->getMessage());
+      }
+    }
+    return true;
+  }
+
+  /** Recognize the numpad star, which SDL gives a separate keycode. */
+  public static function keypadMelodyWedgeShortcut(EventContext $event): bool {
+    $modifiers = (int)$event->input->key->mod;
+    if ((int)$event->input->key->key !== SDL::KEY_KP_MULTIPLY
+      || ($modifiers & SDL::MOD_CTRL) === 0
+      || ($modifiers & (SDL::MOD_ALT | SDL::MOD_MODE)) !== 0) {
+      return false;
+    }
+    return self::melodyWedgeShortcut($event);
+  }
+
+  /** Apply one saved score state and refresh its cursor and controls. */
   private static function changeMelodyHistory(bool $redo): void {
-    self::$history ??= new MelodyHistory(self::$score);
+    self::$history ??= new ScoreHistory(self::$score);
     try {
       $changed = $redo
         ? self::$history->redo(self::$score, self::$melody)
         : self::$history->undo(self::$score, self::$melody);
     } catch (\DomainException $error) {
-      self::status('Cannot restore this melody: ' . $error->getMessage());
+      self::status('Cannot restore the score: ' . $error->getMessage());
       return;
     }
     if (!$changed) {
-      self::status($redo ? 'Nothing to redo in this melody.' : 'Nothing to undo in this melody.');
+      self::status($redo ? 'Nothing to redo.' : 'Nothing to undo.');
       return;
     }
     self::$bar = min(self::$bar, count(self::$score->bars) - 1);
+    self::$melody = min(self::$melody, count(self::$score->melodies) - 1);
     self::$slot = min(self::$slot, 2 * self::$score->beats(self::$bar));
     $pitch = MelodyRange::cursorPitch(self::$score, self::$melody, self::$bar, self::$slot);
     if ($pitch !== null) {
@@ -266,7 +311,7 @@ final class Controller {
       self::$playbackMode = null;
     }
     self::$score = $score;
-    self::$history = new MelodyHistory($score);
+    self::$history = new ScoreHistory($score);
     self::$selection = new MelodySelection();
     self::$bar = 0;
     self::$slot = 0;
@@ -349,7 +394,7 @@ final class Controller {
     self::assertPreviewBand($octave, $position);
     self::$octave = $octave;
     self::$pitchPosition = $position;
-    self::focusCursor();
+    self::focusWithoutHistory();
   }
 
   /** Place the preview note at the current time position. */
@@ -375,7 +420,7 @@ final class Controller {
     $note = self::$score->notes[$index];
     self::$octave = $note['octave'];
     self::$pitchPosition = Pitch::position($note);
-    self::focusCursor();
+    self::focusWithoutHistory();
   }
 
   /** Toggle the selected note's short articulation. */
@@ -401,8 +446,12 @@ final class Controller {
     self::invalidateSheet();
   }
 
-  /** Toggle a legato link to the next adjacent melody note. */
+  /** Toggle a legato link, or link the selected notes as one group. */
   public static function toggleSlur(): void {
+    if (($range = self::selectionStateForSheet()) !== null) {
+      self::applyRangeScore(RangeEdit::mark(self::$score, $range, 'link'));
+      return;
+    }
     $index = self::currentNoteIndex();
     if ($index === null) {
       throw new \DomainException('Select a note to start a slur.');
@@ -425,6 +474,10 @@ final class Controller {
 
   /** Cycle the volume change to the next note through louder, softer, and level. */
   public static function cycleDynamic(): void {
+    if (($range = self::selectionStateForSheet()) !== null) {
+      self::applyRangeScore(RangeEdit::mark(self::$score, $range, 'dynamic'));
+      return;
+    }
     $index = self::currentNoteIndex();
     if ($index === null) {
       throw new \DomainException('Select a note to start a dynamic mark.');
@@ -435,12 +488,78 @@ final class Controller {
     self::invalidateSheet();
   }
 
+  /** Cycle the level shared by every melody at the cursor time. */
+  public static function cycleDynamicLevel(): void {
+    $time = self::$score->start(self::$bar) + self::$slot;
+    self::$score->setScoreDynamicLevel($time, DynamicLevel::next(self::sharedDynamicLevel()));
+    self::$displayedReadout = '';
+    self::focusCursor();
+  }
+
+  /** Set a shared level, or a level on the selected melody's note. */
+  public static function setDynamicLevel(string $level, bool $shared): void {
+    if ($shared) {
+      self::$score->setScoreDynamicLevel(self::$score->start(self::$bar) + self::$slot, $level);
+    } else {
+      $index = self::currentNoteIndex();
+      if ($index === null) {
+        throw new \DomainException('Select a note before setting its dynamic level.');
+      }
+      self::$score->setDynamicLevel($index, $level);
+    }
+    self::$displayedReadout = '';
+    self::focusCursor();
+  }
+
+  private static function sharedDynamicLevel(): string {
+    $time = self::$score->start(self::$bar) + self::$slot;
+    foreach (self::$score->scoreDynamics as $mark) {
+      if ($mark['time'] === $time) {
+        return $mark['level'];
+      }
+    }
+    return '';
+  }
+
+  private static function sharedWedgeDirection(): string {
+    $time = self::selectionStateForSheet()['start'] ?? self::$score->start(self::$bar) + self::$slot;
+    foreach (self::$score->scoreDynamics as $mark) {
+      if ($mark['time'] === $time) {
+        return $mark['direction'];
+      }
+    }
+    return '';
+  }
+
+  /** Cycle one shared wedge across the selected time or to the next score note. */
+  public static function cycleScoreDynamic(): void {
+    $range = self::selectionStateForSheet();
+    if ($range === null) {
+      $index = self::currentNoteIndex();
+      $next = $index === null ? null : self::$score->nextMelodyNote($index);
+      if ($next === null) {
+        throw new \DomainException('A shared wedge needs a note followed by another note in this melody.');
+      }
+      $note = self::$score->notes[$index];
+      $following = self::$score->notes[$next];
+      $start = self::$score->start($note['bar']) + $note['slot'];
+      $end = self::$score->start($following['bar']) + $following['slot'];
+    } else {
+      $start = $range['start'];
+      $end = $range['end'];
+    }
+    self::$score->setScoreDynamicWedge($start, $end, Dynamics::nextDirection(self::sharedWedgeDirection()));
+    self::$displayedReadout = '';
+    self::focusCursor();
+  }
+
   /** Cycle the selected note through the four signed trill intervals. */
   public static function cycleTrill(): void {
     $index = self::currentNoteIndex();
     if ($index === null) {
       throw new \DomainException('Select a note to set its trill.');
     }
+    self::$score->assertMelodyEditable(self::$melody);
     $choices = [0, 1, 2, -1, -2];
     $current = self::$score->notes[$index]['trill'] ?? 0;
     $position = array_search($current, $choices, true);
@@ -488,6 +607,12 @@ final class Controller {
 
   /** Delete the selected note, or close the visible empty span in this melody. */
   public static function deleteAtCursor(): void {
+    if (($range = self::selectionStateForSheet()) !== null) {
+      $containsNotes = RangeEdit::copy(self::$score, $range)['notes'] !== [];
+      self::applyRangeScore($containsNotes ? RangeEdit::clear(self::$score, $range) : RangeEdit::close(self::$score, $range),
+        !$containsNotes, $containsNotes ? null : $range['start']);
+      return;
+    }
     $index = self::currentNoteIndex();
     if ($index !== null) {
       $before = self::$score->notes[$index];
@@ -545,6 +670,100 @@ final class Controller {
     return self::$selection?->state();
   }
 
+  /** Copy the selected notes and their relative timing inside this process. */
+  public static function copySelection(): void {
+    $range = self::selectionStateForSheet();
+    if ($range === null) {
+      self::status('Select a range to copy.');
+      return;
+    }
+    self::$musicClipboard = RangeEdit::copy(self::$score, $range);
+    self::status('Copied selection.');
+  }
+
+  /** Replace the selection or insert a clip after the current note or gap. */
+  public static function pasteSelection(): void {
+    if (self::$musicClipboard === null) {
+      self::status('Nothing copied yet.');
+      return;
+    }
+    $range = self::selectionStateForSheet();
+    $at = self::$score->start(self::$bar) + self::$slot + self::cursorLength();
+    $start = $range['start'] ?? $at;
+    $duration = self::$musicClipboard['duration'];
+    $next = RangeEdit::paste(self::$score, self::$musicClipboard, $range, self::$melody, $at);
+    self::applyRangeScore($next, true, $start + $duration);
+    self::status('Pasted selection.');
+  }
+
+  /** Move selected pitches without moving their times. */
+  public static function transposeSelection(int $semitones): void {
+    $range = self::selectionStateForSheet();
+    if ($range === null) {
+      throw new \DomainException('Select notes to transpose.');
+    }
+    self::applyRangeScore(RangeEdit::transpose(self::$score, $range, $semitones));
+  }
+
+  /** Extend a whole-score selection by exactly one half-beat. */
+  public static function moveScoreSelection(int $direction): void {
+    $from = self::$score->start(self::$bar) + self::$slot;
+    $end = self::$score->start(count(self::$score->bars));
+    self::moveToTime(max(0, min($end, $from + $direction)));
+    self::selection()->extend($from, self::$score->start(self::$bar) + self::$slot, self::$melody, 'score');
+    self::syncNoteLength();
+    self::focusWithoutHistory();
+  }
+
+  /** Select every bar and melody in the score. */
+  public static function selectAll(): void {
+    $end = self::$score->start(count(self::$score->bars));
+    self::moveToTime($end);
+    self::selection()->clear();
+    self::selection()->extend(0, $end, self::$melody, 'score');
+    self::syncNoteLength();
+    self::focusWithoutHistory();
+  }
+
+  /** Jump to the first or last cursor position in the score. */
+  public static function moveToScoreEdge(bool $end): void {
+    [self::$bar, self::$slot] = self::scoreEdgeDestination($end);
+    self::clearSelection();
+    self::syncNoteLength();
+    if ($end && self::currentNoteIndex() === null) {
+      self::$cursorLength = min(self::cursorLength(), 2 * self::$score->beats(self::$bar) - self::$slot);
+      self::$cursorLengthExplicit = true;
+    }
+    self::focusWithoutHistory();
+  }
+
+  private static function scoreEdgeDestination(bool $end): array {
+    $bar = $end ? count(self::$score->bars) - 1 : 0;
+    return [$bar, $end ? self::lastPositionInBar($bar) : 0];
+  }
+
+  private static function moveToTime(int $time): void {
+    $bar = 0;
+    while ($bar + 1 < count(self::$score->bars) && $time >= self::$score->start($bar + 1)) {
+      $bar++;
+    }
+    self::$bar = $bar;
+    self::$slot = $time - self::$score->start($bar);
+  }
+
+  private static function applyRangeScore(Score $next, bool $clear = false, ?int $cursorTime = null): void {
+    self::$score = $next;
+    if ($clear) {
+      self::clearSelection();
+    }
+    if ($cursorTime !== null) {
+      self::moveToTime($cursorTime);
+    }
+    self::syncNoteLength();
+    self::focusCursor(false);
+    self::$history?->observe(self::$score);
+  }
+
   public static function firstVisibleBar(): int {
     return self::$firstBar;
   }
@@ -600,16 +819,16 @@ final class Controller {
       self::clearSelection();
     }
     self::syncNoteLength();
-    self::focusCursor();
+    self::focusWithoutHistory();
   }
 
   /** Jump to the first or last position in a visible edge bar, paging from that bar. */
-  public static function moveToVisibleEdge(bool $end, bool $select = false): void {
+  public static function moveToVisibleEdge(bool $end, bool $select = false, string $scope = 'melody'): void {
     $from = self::$score->start(self::$bar) + self::$slot;
     $previousFirstBar = self::$firstBar;
     [self::$firstBar, self::$bar, self::$slot] = self::visibleEdgeDestination($end);
     if ($select) {
-      self::selection()->extend($from, self::$score->start(self::$bar) + self::$slot, self::$melody);
+      self::selection()->extend($from, self::$score->start(self::$bar) + self::$slot, self::$melody, $scope);
     } else {
       self::clearSelection();
     }
@@ -623,7 +842,7 @@ final class Controller {
       self::invalidateSheet();
       self::$window->refreshLayout();
     }
-    self::focusCursor();
+    self::focusWithoutHistory();
   }
 
   /** Return the page, bar, and first or last note-or-gap position for Home or End. */
@@ -645,12 +864,17 @@ final class Controller {
     if (!$end) {
       return [$first, $target, 0];
     }
+    return [$first, $target, self::lastPositionInBar($target)];
+  }
+
+  /** Return the last note or trailing gap in a bar. */
+  private static function lastPositionInBar(int $target): int {
     $barStart = self::$score->start($target);
     $barEndSlot = 2 * self::$score->beats($target);
     $lastNote = self::$score->noteAt(self::$melody, $target, $barEndSlot - 1);
     if ($lastNote !== null) {
       $note = self::$score->notes[$lastNote];
-      return [$first, $target, $note['bar'] === $target ? $note['slot'] : 0];
+      return $note['bar'] === $target ? $note['slot'] : 0;
     }
     $lastEnd = $barStart;
     foreach (self::$score->notes as $note) {
@@ -661,7 +885,7 @@ final class Controller {
         }
       }
     }
-    return [$first, $target, $lastEnd - $barStart];
+    return $lastEnd - $barStart;
   }
 
   /** Move only the pitch cursor to another octave band. */
@@ -669,7 +893,7 @@ final class Controller {
     $octave = max(0, min(8, self::$octave - $direction));
     self::assertPreviewBand($octave, self::$pitchPosition);
     self::$octave = $octave;
-    self::focusCursor();
+    self::focusWithoutHistory();
   }
 
   /** Move between existing melodies without wrapping past either end. */
@@ -695,7 +919,7 @@ final class Controller {
       }
     }
     self::refreshMelodyFields();
-    self::focusCursor();
+    self::focusWithoutHistory();
     self::$window->refreshLayout();
     self::status('Melody ' . (self::$melody + 1));
   }
@@ -706,13 +930,112 @@ final class Controller {
       return;
     }
     self::$melody = self::$score->addMelody();
-    self::$history?->addedMelody(self::$score, self::$melody);
+    self::$history?->observe(self::$score);
     self::$octave = MelodyRange::bands(self::$score, self::$melody)[1];
     self::clearSelection();
     self::refreshMelodyFields();
     self::focusCursor();
     self::$window->refreshLayout();
     self::status('Added melody ' . (self::$melody + 1) . '.');
+  }
+
+  /** Switch the selected melody between audible/printed and hidden. */
+  public static function toggleMelodyMute(EventContext $event): void {
+    if (!self::isDesign()) {
+      return;
+    }
+    if (self::$score->melodyMuted(self::$melody)) {
+      self::refreshMelodyFields();
+      $index = self::currentNoteIndex();
+      self::screen('editor')->widget('finger')->setValue($index === null ? ''
+        : (string)(self::$score->notes[$index]['finger'] ?? ''));
+    }
+    if (!self::commitEditorFields()) {
+      return;
+    }
+    if (self::$playbackMode !== null) {
+      App::audio()->stopMusic();
+      self::$playbackMode = null;
+    }
+    $muted = !self::$score->melodyMuted(self::$melody);
+    self::$score->setMelodyMuted(self::$melody, $muted);
+    self::$history?->observe(self::$score);
+    self::refreshMelodyFields();
+    self::invalidateSheet();
+    self::$previewPage = min(self::$previewPage, count(PagePainter::pages(self::$score)) - 1);
+    self::$window->refreshLayout();
+    self::status('Melody ' . (self::$melody + 1) . ($muted ? ' muted.' : ' unmuted.'));
+  }
+
+  public static function openComposer(EventContext $event): void {
+    if (!self::isDesign() || !self::commitEditorFields()) {
+      return;
+    }
+    $screen = self::screen('editor');
+    $screen->restore('savePanel');
+    $screen->restore('loadPanel');
+    self::refreshComposerSettings();
+    if ($screen->show('composerPanel')) {
+      self::$window->refreshLayout();
+    }
+  }
+
+  public static function closeComposer(EventContext $event): void {
+    if (self::screen('editor')->restore('composerPanel')) {
+      self::$window->refreshLayout();
+    }
+  }
+
+  public static function cycleComposerSetting(EventContext $event): void {
+    switch ($event->widget?->id()) {
+      case 'composerVersions':
+        self::$composerVersions = self::$composerVersions % 5 + 1;
+        break;
+      case 'composerDensity':
+        $values = ['sparse', 'balanced', 'busy'];
+        self::$composerDensity = $values[(array_search(self::$composerDensity, $values, true) + 1) % count($values)];
+        break;
+      case 'composerRegister':
+        $values = ['low', 'middle', 'high'];
+        self::$composerRegister = $values[(array_search(self::$composerRegister, $values, true) + 1) % count($values)];
+        break;
+    }
+    self::refreshComposerSettings();
+    self::$window->refreshLayout();
+  }
+
+  private static function refreshComposerSettings(): void {
+    $screen = self::screen('editor');
+    $screen->widget('composerVersions')->setLabel('Versions: ' . self::$composerVersions);
+    $screen->widget('composerDensity')->setLabel('Density: ' . ucfirst(self::$composerDensity));
+    $screen->widget('composerRegister')->setLabel('Register: ' . ucfirst(self::$composerRegister));
+  }
+
+  /** Commit every version together so one undo removes the whole batch. */
+  public static function generateComposer(EventContext $event): void {
+    if (!self::isDesign()) {
+      return;
+    }
+    $selection = self::selectionStateForSheet();
+    $start = $selection['start'] ?? 0;
+    $end = $selection['end'] ?? self::$score->start(count(self::$score->bars));
+    try {
+      $first = count(self::$score->melodies);
+      $next = Generator::generate(self::$score, $start, $end, self::$composerVersions,
+        self::$composerDensity, self::$composerRegister);
+      self::$score = $next;
+      self::$history?->observe($next);
+      self::$melody = $first;
+      self::$octave = MelodyRange::bands($next, $first)[1];
+      self::clearSelection();
+      self::screen('editor')->restore('composerPanel');
+      self::refreshMelodyFields();
+      self::focusWithoutHistory();
+      self::$window->refreshLayout();
+      self::status('Added ' . self::$composerVersions . ' muted melody versions. Unmute one to listen.');
+    } catch (\DomainException $error) {
+      self::status($error->getMessage());
+    }
   }
 
   /** Ask the status bar before deleting the selected melody and its notes. */
@@ -744,7 +1067,6 @@ final class Controller {
       self::$playbackMode = null;
     }
     self::$score->removeMelody($deleted);
-    self::$history?->removedMelody($deleted);
     self::$melody = min($deleted, count(self::$score->melodies) - 1);
     self::clearSelection();
     self::syncNoteLength();
@@ -790,7 +1112,8 @@ final class Controller {
       'fermata' => static fn () => self::toggleFermata(),
       'slur' => static fn () => self::toggleSlur(),
       'glissando' => static fn () => self::toggleGlissando(),
-      'dynamic' => static fn () => self::cycleDynamic(),
+      'dynamic' => static fn () => self::cycleScoreDynamic(),
+      'dynamicLevel' => static fn () => self::cycleDynamicLevel(),
       'trill' => static fn () => self::cycleTrill(),
     ];
     $action = $actions[$id] ?? null;
@@ -865,11 +1188,27 @@ final class Controller {
 
   /** Show the score editing screen. */
   public static function showEditor(EventContext $event): void {
-    if (self::currentScreenId() === 'files') {
-      Files::syncPathFromFiles();
-    }
     self::$window->setCurrentScreenId(self::$view);
     self::focusCursor();
+  }
+
+  /** Open the application settings after applying edits in the score fields. */
+  public static function openSettings(EventContext $event): bool {
+    if (self::commitEditorFields()) {
+      self::$window->setCurrentScreenId('settings');
+    }
+    return true;
+  }
+
+  /** Return from settings to the score editor. */
+  public static function closeSettings(EventContext $event): bool {
+    self::$window->setCurrentScreenId('editor');
+    return true;
+  }
+
+  /** End the app through its normal close event and session save. */
+  public static function quit(EventContext $event): void {
+    App::eventLoop()->stop();
   }
 
   /** Toggle playback of the score or active melody within the selected span. */
@@ -883,15 +1222,53 @@ final class Controller {
         self::status('Playback stopped.');
         return;
       }
+      if ($selectedMelody && self::$score->melodyMuted(self::$melody)) {
+        self::status('Melody ' . (self::$melody + 1) . ' is muted. Unmute it to play.');
+        return;
+      }
       $selection = self::selectionStateForSheet();
-      $source = new ScoreSource(self::$score, $selectedMelody ? self::$melody : null,
-        $selection['start'] ?? null, $selection['end'] ?? null);
+      $melody = $selectedMelody ? self::$melody : null;
+      $start = $selection['start'] ?? null;
+      $end = $selection['end'] ?? null;
+      $midiFailure = self::$playbackSound === 'midi' ? MidiPlayback::unavailableReason() : null;
+      if (self::$playbackSound === 'midi' && $midiFailure === null) {
+        try {
+          $wave = MidiPlayback::render(self::$score, $melody, $start, $end);
+          try {
+            $audio->playMusic($wave);
+          } finally {
+            unlink($wave);
+          }
+          self::$playbackMode = $mode;
+          self::status('Playing ' . ($selectedMelody ? 'melody' : 'score')
+            . ($selection === null ? '' : ' selection') . ' with MIDI.');
+          return;
+        } catch (\Throwable $error) {
+          $midiFailure = $error->getMessage();
+        }
+      }
+      $source = new ScoreSource(self::$score, $melody, $start, $end);
       $audio->playMusic($source);
       self::$playbackMode = $mode;
-      self::status('Playing ' . ($selectedMelody ? 'melody' : 'score') . ($selection === null ? '.' : ' selection.'));
+      self::status('Playing ' . ($selectedMelody ? 'melody' : 'score')
+        . ($selection === null ? '' : ' selection') . ' with built-in sound.'
+        . ($midiFailure === null ? '' : ' MIDI: ' . $midiFailure));
     } catch (\Throwable $error) {
       self::status('Playback failed: ' . $error->getMessage());
     }
+  }
+
+  /** Let the user compare the built-in synthesis with MIDI SoundFont playback. */
+  public static function togglePlaybackSound(EventContext $event): void {
+    if (self::$playbackMode !== null) {
+      App::audio()->stopMusic();
+      self::$playbackMode = null;
+    }
+    self::$playbackSound = self::$playbackSound === 'midi' ? 'built-in' : 'midi';
+    self::screen('settings')->widget('playbackSound')->setLabel('Playback: '
+      . (self::$playbackSound === 'midi' ? 'MIDI' : 'Built-in'));
+    self::$window->refreshLayout();
+    self::status('Playback sound: ' . (self::$playbackSound === 'midi' ? 'MIDI' : 'built-in') . '.', 'settings');
   }
 
   /** Start or stop all melodies from an editor screen shortcut. */
@@ -928,11 +1305,10 @@ final class Controller {
         self::applyMelodyColor();
       } else if ($field === 'finger') {
         self::applyFinger();
-      } else if ($field === 'dynamicLevel') {
-        self::applyDynamicLevel();
       } else if (in_array($field, ['title', 'author', 'catalog'], true)) {
         self::$score->$field = str_replace("\t", ' ', $event->widget->getValue());
       }
+      self::$history?->observe(self::$score);
     } catch (\Throwable $error) {
       if ($field === 'volume' || $field === 'color') {
         self::refreshMelodyFields();
@@ -940,10 +1316,6 @@ final class Controller {
         $index = self::currentNoteIndex();
         self::screen('editor')->widget('finger')->setValue($index === null
           ? '' : (string)(self::$score->notes[$index]['finger'] ?? ''));
-      } else if ($field === 'dynamicLevel') {
-        $index = self::currentNoteIndex();
-        self::screen('editor')->widget('dynamicLevel')->setValue($index === null
-          ? '' : (string)(self::$score->notes[$index]['dynamicLevel'] ?? ''));
       }
       self::status($error->getMessage());
     }
@@ -951,33 +1323,47 @@ final class Controller {
 
   /** Show the sound choices in place of the melody settings tile. */
   public static function showSoundPicker(EventContext $event): void {
+    if (self::$score->melodyMuted(self::$melody)) {
+      self::status('This melody is muted and read-only. Unmute it to edit.');
+      return;
+    }
     $screen = self::screen('editor');
-    $screen->widget('soundPicker')->setValue(self::$score->melodies[self::$melody]['pattern']);
+    self::prepareSoundPicker();
+    $screen->widget('soundPicker')->setValue(self::$score->melodies[self::$melody]['instrument']);
     if ($screen->show('soundPicker')) {
       self::$window->refreshLayout();
     }
   }
 
-  /** Save the chosen sound pattern for the active melody. */
+  /** Save the chosen instrument for the active melody. */
   public static function melodyPatternChanged(EventContext $event): void {
-    $pattern = $event->widget?->getValue();
-    if (is_string($pattern)) {
-      self::$score->setMelodyPattern(self::$melody, $pattern);
-      self::$history?->observe(self::$score, self::$melody);
+    $instrument = $event->widget?->getValue();
+    if (is_string($instrument)) {
+      try {
+        self::$score->setMelodyInstrument(self::$melody, $instrument);
+        self::$history?->observe(self::$score, self::$melody);
+      } catch (\DomainException $error) {
+        self::status($error->getMessage());
+      }
       self::refreshMelodyFields();
     }
   }
 
-  /** Open file actions. */
-  public static function showFiles(EventContext $event): void {
-    if (self::isDesign() && !self::commitEditorFields()) {
-      return;
+  /** Show one file form over the Note tile. */
+  public static function showFilePanel(string $id): void {
+    $screen = self::screen('editor');
+    $other = $id === 'savePanel' ? 'loadPanel' : 'savePanel';
+    $screen->restore($other);
+    $screen->restore('composerPanel');
+    if ($screen->show($id)) {
+      self::$window->refreshLayout();
     }
-    $path = self::screen('files')->layout->findTile('path');
-    if ($path instanceof LayoutLeaf) {
-      self::screen('files')->selectLeaf($path);
+  }
+
+  public static function hideFilePanel(string $id): void {
+    if (self::screen('editor')->restore($id)) {
+      self::$window->refreshLayout();
     }
-    self::$window->setCurrentScreenId('files');
   }
 
   /** Start or join a section at the selected bar. */
@@ -989,6 +1375,7 @@ final class Controller {
     }
     $leader = !self::$score->bars[$bar]['sectionLeader'];
     self::$score->setSectionLeader($bar, $leader);
+    self::$history?->observe(self::$score);
     self::refreshSelectedBarFields();
     self::refreshCursorReadout();
     self::invalidateSheet();
@@ -996,32 +1383,38 @@ final class Controller {
     self::status($leader ? 'Section starts at bar ' . ($bar + 1) . '.' : 'Bar ' . ($bar + 1) . ' joins the previous section.');
   }
 
-  /** Save the score to its current path. */
-  public static function save(EventContext $event): void {
+  /** Ctrl+S always chooses a directory and file name. */
+  public static function saveDialog(EventContext $event): void {
     if (self::commitEditorFields()) {
-      Files::save($event);
+      Files::showSave();
     }
   }
 
-  /** Save the score to the path shown on the Files screen. */
-  public static function saveAs(EventContext $event): void {
-    Files::saveAs($event);
+  /** Ctrl+W writes to the current file. */
+  public static function write(EventContext $event): void {
+    if (self::commitEditorFields()) {
+      Files::write($event);
+    }
   }
 
-  /** Open a JSON score. */
-  public static function open(EventContext $event): void {
-    Files::open($event);
-  }
-
-  /** Import an old web-editor text score. */
-  public static function importLegacy(EventContext $event): void {
-    Files::importLegacy($event);
+  /** Ctrl+O browses for a score. */
+  public static function loadDialog(EventContext $event): void {
+    if (self::commitEditorFields()) {
+      Files::showLoad();
+    }
   }
 
   /** Export the score as a paginated PDF. */
   public static function exportPdf(EventContext $event): void {
-    if (self::currentScreenId() === 'files' || !self::isDesign() || self::commitEditorFields()) {
+    if (!self::isDesign() || self::commitEditorFields()) {
       Files::exportPdf($event);
+    }
+  }
+
+  /** Export the score as standard MIDI. */
+  public static function exportMidi(EventContext $event): void {
+    if (!self::isDesign() || self::commitEditorFields()) {
+      Files::exportMidi($event);
     }
   }
 
@@ -1032,7 +1425,7 @@ final class Controller {
     if ($oldBoard === null) {
       throw new \LogicException('The score board is missing from the ' . $view . ' screen.');
     }
-    $board = new LayoutNode('horizontal', '1*', $view === 'editor' ? '50%' : '1*', id: 'board');
+    $board = new LayoutNode('horizontal', $oldBoard->width(), $oldBoard->height(), id: 'board');
     $canvas = new SheetCanvas();
     $canvas->setId('sheet');
     $canvas->setTips($view === 'editor' ? 'Score editor.' : 'PDF preview.', $view === 'editor' ? 'Return adds or changes a note; Space adds a note or follows its pitch.' : 'V/Esc/Return opens editor; Page Up and Down turn pages; Home and End jump to page edges.');
@@ -1046,8 +1439,10 @@ final class Controller {
   }
 
   /** Keep the cursor visible and the sheet active. */
-  private static function focusCursor(): void {
-    self::$history?->observe(self::$score, self::$melody);
+  private static function focusCursor(bool $record = true): void {
+    if ($record) {
+      self::$history?->observe(self::$score, self::$melody);
+    }
     self::syncTimelineBars();
     self::$firstRow = 0;
     $barChanged = self::$displayedBar !== self::$bar;
@@ -1062,6 +1457,11 @@ final class Controller {
     if (self::$firstBar !== $previousFirstBar || $barChanged || $readoutChanged) {
       self::$window->refreshLayout();
     }
+  }
+
+  private static function focusWithoutHistory(): void {
+    self::focusCursor(false);
+    self::$history?->rebase(self::$score);
   }
 
   /** Grow or trim trailing bars according to the cursor's final occupied position. */
@@ -1156,6 +1556,8 @@ final class Controller {
   /** Populate the fields above the sheet from the loaded score. */
   private static function refreshEditorFields(): void {
     $screen = self::screen('editor');
+    self::screen('settings')->widget('playbackSound')->setLabel('Playback: '
+      . (self::$playbackSound === 'midi' ? 'MIDI' : 'Built-in'));
     foreach (['title', 'author', 'catalog'] as $field) {
       $screen->widget($field)->setValue(self::$score->$field);
     }
@@ -1180,16 +1582,21 @@ final class Controller {
   private static function refreshMelodyFields(): void {
     $screen = self::screen('editor');
     $settings = self::$score->melodies[self::$melody];
-    $screen->widget('selectedMelody')->setText('[Y] Melody ' . (self::$melody + 1));
-    $screen->widget('soundPicker')->setValue($settings['pattern']);
-    foreach ($screen->widget('soundPicker')->items() as $item) {
-      if ($item['value'] === $settings['pattern']) {
-        $screen->widget('sound')->setValue($item['label']);
-        break;
-      }
-    }
+    $screen->widget('selectedMelody')->setText('[Y] Melody ' . (self::$melody + 1)
+      . (self::$score->melodyMuted(self::$melody) ? ' (muted)' : ''));
+    self::prepareSoundPicker();
+    $screen->widget('soundPicker')->setValue($settings['instrument']);
+    $screen->widget('sound')->setValue(Sound::label($settings['instrument']));
     $screen->widget('volume')->setValue((string)$settings['volume']);
     $screen->widget('color')->setValue($settings['color']);
+    $screen->widget('muteMelody')->setLabel('Mute: ' . (self::$score->melodyMuted(self::$melody) ? 'Yes' : 'No'));
+  }
+
+  private static function prepareSoundPicker(): void {
+    $picker = self::screen('editor')->widget('soundPicker');
+    if (count($picker->items()) !== 175) {
+      $picker->setItems(Sound::items());
+    }
   }
 
   /** Put note and cursor pitches in their headings, with cursor length below. */
@@ -1205,7 +1612,9 @@ final class Controller {
     $length = self::cursorLength();
     $beats = intdiv($length, 2) . ($length % 2 ? '.5' : '');
     $lengthText = 'Length ' . $beats . ($length === 2 ? ' beat' : ' beats');
-    $readout = $title . "\n" . $cursorTitle . "\n" . $lengthText . "\n" . ($index === null ? '' : json_encode([
+    $sharedLevel = self::sharedDynamicLevel();
+    $sharedWedge = self::sharedWedgeDirection();
+    $readout = $title . "\n" . $cursorTitle . "\n" . $lengthText . "\n" . $sharedLevel . "\n" . $sharedWedge . "\n" . ($index === null ? '' : json_encode([
       $note['articulation'] ?? 'ordinary', $note['slurToNext'] ?? false, $note['glissandoToNext'] ?? false,
       $note['fermata'] ?? false, $note['trill'] ?? 0, $note['finger'] ?? '', $note['dynamicToNext'] ?? '',
       $note['dynamicLevel'] ?? '',
@@ -1224,16 +1633,15 @@ final class Controller {
       : 'Link to next: ' . (($note['slurToNext'] ?? false) ? 'Yes' : 'No'));
     self::screen('editor')->widget('glissando')->setLabel($index === null ? 'Glissando: —'
       : 'Glissando: ' . (($note['glissandoToNext'] ?? false) ? 'Yes' : 'No'));
-    self::screen('editor')->widget('dynamic')->setLabel('Volume: ' . ($index === null ? '—'
-      : match ($note['dynamicToNext'] ?? '') {
+    self::screen('editor')->widget('dynamic')->setLabel('All wedge: ' . match ($sharedWedge) {
         'crescendo' => '+',
         'decrescendo' => '-',
         default => '=',
-      }));
+      });
     self::screen('editor')->widget('trill')->setLabel($index === null ? 'Trill: —'
       : 'Trill: ' . (($note['trill'] ?? 0) === 0 ? 'Off' : (($note['trill'] > 0 ? '+' : '') . $note['trill'])));
     self::screen('editor')->widget('finger')->setValue($index === null ? '' : (string)($note['finger'] ?? ''));
-    self::screen('editor')->widget('dynamicLevel')->setValue($index === null ? '' : (string)($note['dynamicLevel'] ?? ''));
+    self::screen('editor')->widget('dynamicLevel')->setLabel('All levels: ' . ($sharedLevel === '' ? '—' : $sharedLevel));
     self::$displayedReadout = $readout;
     return true;
   }
@@ -1248,13 +1656,19 @@ final class Controller {
       self::applyMelodyVolume();
       self::applyMelodyColor();
       self::applyFinger();
-      self::applyDynamicLevel();
       $screen = self::screen('editor');
       foreach (['title', 'author', 'catalog'] as $field) {
         self::$score->$field = str_replace("\t", ' ', $screen->widget($field)->getValue());
       }
+      self::$history?->observe(self::$score);
       return true;
     } catch (\Throwable $error) {
+      if (self::$score->melodyMuted(self::$melody)) {
+        self::refreshMelodyFields();
+        $index = self::currentNoteIndex();
+        self::screen('editor')->widget('finger')->setValue($index === null ? ''
+          : (string)(self::$score->notes[$index]['finger'] ?? ''));
+      }
       self::status($error->getMessage());
       return false;
     }
@@ -1289,25 +1703,6 @@ final class Controller {
     self::invalidateSheet();
   }
 
-  /** Apply a dynamic level at the selected note. */
-  private static function applyDynamicLevel(): void {
-    $raw = strtolower(trim(self::screen('editor')->widget('dynamicLevel')->getValue()));
-    $index = self::currentNoteIndex();
-    if ($index === null) {
-      if ($raw !== '') {
-        throw new \DomainException('Select a note before setting its dynamic level.');
-      }
-      return;
-    }
-    if ($raw !== (string)(self::$score->notes[$index]['dynamicLevel'] ?? '')) {
-      self::$score->setDynamicLevel($index, $raw);
-      self::$history?->observe(self::$score, self::$melody);
-      self::invalidateSheet();
-    }
-    self::screen('editor')->widget('dynamicLevel')->setValue($raw);
-    self::refreshCursorReadout();
-  }
-
   /** Store the current bar's print-only annotation. */
   private static function applyEditorBarNote(): void {
     $note = str_replace("\t", ' ', self::screen('editor')->widget('barNote')->getValue());
@@ -1330,6 +1725,9 @@ final class Controller {
     if (!ctype_digit($raw) || (int)$raw > 100) {
       throw new \DomainException('Melody volume must be a whole number from 0 to 100.');
     }
+    if ((int)$raw === self::$score->melodies[self::$melody]['volume']) {
+      return;
+    }
     self::$score->setMelodyVolume(self::$melody, (int)$raw);
     self::$history?->observe(self::$score, self::$melody);
   }
@@ -1337,6 +1735,9 @@ final class Controller {
   /** Validate and apply the active melody's hex display color. */
   private static function applyMelodyColor(): void {
     $color = trim(self::screen('editor')->widget('color')->getValue());
+    if (strtolower($color) === self::$score->melodies[self::$melody]['color']) {
+      return;
+    }
     self::$score->setMelodyColor(self::$melody, $color);
     self::$history?->observe(self::$score, self::$melody);
     self::screen('editor')->widget('color')->setValue(self::$score->melodies[self::$melody]['color']);
@@ -1354,7 +1755,6 @@ final class Controller {
       return;
     }
     self::$score->setBeats(self::$bar, $beats);
-    self::$history?->reset(self::$score);
     self::$slot = min(self::$slot, 2 * $beats - 1);
     if (self::fitColumns() !== self::$columns) {
       self::$columns = self::fitColumns();

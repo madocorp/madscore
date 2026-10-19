@@ -9,7 +9,7 @@ use MADSCORE\Score\Score;
 /** Draws colored volume triangles and levels on the dynamics row. */
 final class DynamicPainter {
 
-  public static function labels(Score $score, array $positions, float $rowHeight): array {
+  public static function labels(Score $score, array $positions, float $rowHeight, array $reserved = []): array {
     if ($positions === []) {
       return [];
     }
@@ -22,7 +22,20 @@ final class DynamicPainter {
       }
     }
     $fontSize = max(12, $rowHeight / 7.5);
+    $lineStart = $score->start($positions[0]['bar']);
+    $lastBar = $positions[count($positions) - 1]['bar'];
+    $lineEnd = $score->start($lastBar) + 2 * $score->beats($lastBar);
     $labels = [];
+    foreach ($score->scoreDynamics as $mark) {
+      if ($mark['level'] === '' || $mark['time'] < $lineStart || $mark['time'] >= $lineEnd) {
+        continue;
+      }
+      $x = self::timeX($score, $positions, $mark['time']);
+      if ($x !== null) {
+        $labels[] = ['x' => $x, 'text' => $mark['level'], 'color' => '#000000',
+          'filled' => true, 'time' => $mark['time']];
+      }
+    }
     foreach ($score->notes as $index => $note) {
       $mark = $note['dynamicLevel'] ?? '';
       if ($mark === '') {
@@ -51,9 +64,35 @@ final class DynamicPainter {
         $x = max($barPosition['left'], min($barPosition['right'] - $width, $x));
       }
       $labels[] = ['x' => $x, 'text' => $mark,
-        'color' => BarPainter::color($score, $note['melody'])];
+        'color' => BarPainter::color($score, $note['melody']), 'filled' => false,
+        'time' => $score->start($note['bar']) + $note['slot']];
     }
+    $occupied = $reserved;
+    foreach ($labels as &$label) {
+      $time = $label['time'];
+      $label['x'] = max($label['x'], $occupied[$time] ?? $label['x']);
+      $occupied[$time] = $label['x'] + strlen($label['text']) * $fontSize * 0.63 + 4;
+    }
+    unset($label);
     return $labels;
+  }
+
+  /** Measure levels attached to a bar start so print layout can keep them beside its tempo. */
+  public static function startLabelWidth(Score $score, int $bar, float $rowHeight): float {
+    $time = $score->start($bar);
+    $width = 0.0;
+    $fontSize = max(12, $rowHeight / 7.5);
+    foreach ($score->scoreDynamics as $mark) {
+      if ($mark['time'] === $time && $mark['level'] !== '') {
+        $width += strlen($mark['level']) * $fontSize * 0.63 + 4;
+      }
+    }
+    foreach ($score->notes as $note) {
+      if ($note['bar'] === $bar && $note['slot'] === 0 && ($note['dynamicLevel'] ?? '') !== '') {
+        $width += strlen($note['dynamicLevel']) * $fontSize * 0.63 + 4;
+      }
+    }
+    return $width;
   }
 
   public static function drawLabels(\FFI $cairo, \FFI\CData $context, array $labels, float $baseline, float $rowHeight): void {
@@ -63,7 +102,13 @@ final class DynamicPainter {
       $rgb = sscanf($label['color'], '#%02x%02x%02x');
       $cairo->cairo_set_source_rgb($context, $rgb[0] / 255, $rgb[1] / 255, $rgb[2] / 255);
       $cairo->cairo_move_to($context, $label['x'], $baseline);
-      $cairo->cairo_show_text($context, $label['text']);
+      if ($label['filled'] ?? false) {
+        $cairo->cairo_show_text($context, $label['text']);
+      } else {
+        $cairo->cairo_set_line_width($context, max(1, $rowHeight / 90));
+        $cairo->cairo_text_path($context, $label['text']);
+        $cairo->cairo_stroke($context);
+      }
     }
   }
 
@@ -77,6 +122,24 @@ final class DynamicPainter {
     $lineEnd = $score->start($lastBar) + 2 * $score->beats($lastBar);
     $radius = Prescription::dotRadius($rowHeight);
     $segments = [];
+    foreach ($score->scoreDynamics as $mark) {
+      if ($mark['direction'] === '' || $mark['end'] <= $lineStart || $mark['time'] >= $lineEnd) {
+        continue;
+      }
+      $left = self::timeX($score, $positions, max($lineStart, $mark['time']));
+      $right = self::timeX($score, $positions, min($lineEnd, $mark['end']));
+      if ($left === null || $right === null || $right <= $left + 2) {
+        continue;
+      }
+      $rise = $mark['direction'] === 'crescendo';
+      $duration = $mark['end'] - $mark['time'];
+      $from = max($lineStart, $mark['time']);
+      $to = min($lineEnd, $mark['end']);
+      $segments[] = ['left' => $left, 'right' => $right,
+        'leftHeight' => $rise ? ($from - $mark['time']) / $duration : ($mark['end'] - $from) / $duration,
+        'rightHeight' => $rise ? ($to - $mark['time']) / $duration : ($mark['end'] - $to) / $duration,
+        'color' => '#000000', 'filled' => true];
+    }
     foreach (Dynamics::groups($score) as $group) {
       if ($group['end'] <= $lineStart || $group['start'] >= $lineEnd) {
         continue;
@@ -98,7 +161,7 @@ final class DynamicPainter {
         'left' => $left, 'right' => $right,
         'leftHeight' => $rise ? ($from - $group['start']) / $duration : ($group['end'] - $from) / $duration,
         'rightHeight' => $rise ? ($to - $group['start']) / $duration : ($group['end'] - $to) / $duration,
-        'color' => BarPainter::color($score, $group['melody']),
+        'color' => BarPainter::color($score, $group['melody']), 'filled' => false,
       ];
     }
     return $segments;
@@ -118,7 +181,11 @@ final class DynamicPainter {
       $cairo->cairo_line_to($context, $right, $bottom - $height * $segment['rightHeight']);
       $cairo->cairo_line_to($context, $left, $bottom - $height * $segment['leftHeight']);
       $cairo->cairo_close_path($context);
-      $cairo->cairo_stroke($context);
+      if ($segment['filled'] ?? false) {
+        $cairo->cairo_fill($context);
+      } else {
+        $cairo->cairo_stroke($context);
+      }
     }
   }
 

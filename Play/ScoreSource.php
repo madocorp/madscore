@@ -26,6 +26,8 @@ final class ScoreSource implements Source {
   private int $nextEvent = 0;
   private int $frame = 0;
   private int $totalFrames;
+  private int $sharedCacheFrame = -1;
+  private array $sharedGainCache = [];
 
   /** Freeze the requested half-beat span and optional melody from a score. */
   public function __construct(Score $score, ?int $melody = null, ?int $start = null, ?int $end = null) {
@@ -36,6 +38,7 @@ final class ScoreSource implements Source {
     if ($start < 0 || $end > $scoreEnd || $start >= $end || ($melody !== null && !isset($score->melodies[$melody]))) {
       throw new \InvalidArgumentException('Invalid score playback range or melody.');
     }
+    $score = $score->visibleCopy();
     $barStarts = [0];
     $seconds = [0.0];
     foreach ($score->bars as $bar) {
@@ -45,7 +48,9 @@ final class ScoreSource implements Source {
     $rangeStart = self::secondsAt($start, $barStarts, $seconds);
     $rangeEnd = self::secondsAt($end, $barStarts, $seconds);
     $this->totalFrames = max(1, (int)round(($rangeEnd - $rangeStart) * self::SAMPLE_RATE));
-    [$levels, $dynamics] = self::dynamicPlayback($score, $barStarts, $seconds, $rangeStart);
+    $dynamicLevels = DynamicLevel::playbackLevels($score);
+    [$levels, $dynamics, $localTimes] = self::dynamicPlayback($score, $barStarts, $seconds, $rangeStart, $dynamicLevels);
+    $shared = self::sharedMarks($score, $barStarts, $seconds, $rangeStart, $dynamicLevels);
     $glissandoEnds = [];
     foreach ($score->notes as $index => $note) {
       if (($note['glissandoToNext'] ?? false) && ($next = $score->nextAdjacent($index)) !== null) {
@@ -56,11 +61,14 @@ final class ScoreSource implements Source {
       if (isset($glissandoEnds[$index])) {
         continue;
       }
-      if ($melody !== null && $note['melody'] !== $melody) {
+      if (($melody !== null && $note['melody'] !== $melody) || $score->melodyMuted($note['melody'])) {
         continue;
       }
       $settings = $score->melodies[$note['melody']];
-      if ($levels[$index] == 0.0 && !isset($dynamics[$index])) {
+      if ($settings['volume'] === 0) {
+        continue;
+      }
+      if ($levels[$index] == 0.0 && !isset($dynamics[$index]) && $shared === []) {
         continue;
       }
       $noteStart = $score->start($note['bar']) + $note['slot'];
@@ -84,14 +92,15 @@ final class ScoreSource implements Source {
         $this->events[] = [
           'start' => $onset, 'end' => min($this->totalFrames, $ending),
           'onset' => $onset, 'drum' => $settings['pattern'], 'volume' => isset($dynamics[$index]) ? 1.0 : $levels[$index],
-          'dynamic' => $dynamics[$index] ?? null,
+          'dynamic' => $dynamics[$index] ?? null, 'baseVolume' => $settings['volume'] / 100,
+          'localTime' => $localTimes[$index], 'shared' => $shared, 'shift' => 0,
         ];
         continue;
       }
       if ($target !== null) {
         $this->addGlissandoEvents($note, $target, $noteStart, $noteEnd, $settings['pattern'],
           isset($dynamics[$index]) ? 1.0 : $levels[$index], $dynamics[$index] ?? null,
-          $barStarts, $seconds, $rangeStart);
+          $barStarts, $seconds, $rangeStart, $settings['volume'] / 100, $localTimes[$index], $shared);
         continue;
       }
       $writtenEnd = self::secondsAt($noteEnd, $barStarts, $seconds);
@@ -132,7 +141,8 @@ final class ScoreSource implements Source {
           'frequency' => $frequency,
           'partials' => Waveform::partials($settings['pattern'], $frequency, self::SAMPLE_RATE),
           'volume' => isset($dynamics[$index]) ? 1.0 : $levels[$index],
-          'dynamic' => $dynamics[$index] ?? null,
+          'dynamic' => $dynamics[$index] ?? null, 'baseVolume' => $settings['volume'] / 100,
+          'localTime' => $localTimes[$index], 'shared' => $shared, 'shift' => 0,
         ];
       }
     }
@@ -144,7 +154,8 @@ final class ScoreSource implements Source {
 
   /** Give every white key from the first pitch through the last an equal written duration. */
   private function addGlissandoEvents(array $note, array $target, int $start, int $end, string $pattern,
-    float $volume, ?array $dynamic, array $barStarts, array $seconds, float $rangeStart): void {
+    float $volume, ?array $dynamic, array $barStarts, array $seconds, float $rangeStart,
+    float $baseVolume, int $localTime, array $shared): void {
     $keys = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
     $first = 7 * $note['octave'] + array_search($note['pitch'], $keys, true);
     $last = 7 * $target['octave'] + array_search($target['pitch'], $keys, true);
@@ -167,7 +178,8 @@ final class ScoreSource implements Source {
         'onset' => $onset, 'ending' => $ending,
         'frequency' => $frequency,
         'partials' => Waveform::partials($pattern, $frequency, self::SAMPLE_RATE),
-        'volume' => $volume, 'dynamic' => $dynamic,
+        'volume' => $volume, 'dynamic' => $dynamic, 'baseVolume' => $baseVolume,
+        'localTime' => $localTime, 'shared' => $shared, 'shift' => 0,
       ];
     }
   }
@@ -211,6 +223,8 @@ final class ScoreSource implements Source {
             $copy['dynamic']['start'] += $shift;
             $copy['dynamic']['end'] += $shift;
           }
+          $copy['localTime'] += $shift;
+          $copy['shift'] += $shift;
           if ($copy['end'] > $copy['start']) {
             $expanded[] = $copy;
           }
@@ -246,7 +260,7 @@ final class ScoreSource implements Source {
         }
         if (isset($event['drum'])) {
           $sum += Drum::sample($event['drum'], $this->frame - $event['onset'], self::SAMPLE_RATE)
-            * $event['volume'] * self::dynamicGain($event['dynamic'], $this->frame);
+            * $event['baseVolume'] * $this->eventGain($event, $this->frame);
           $sounding++;
           continue;
         }
@@ -258,7 +272,7 @@ final class ScoreSource implements Source {
           $wave += $gain * sin($multiple * $phase);
         }
         $cutStart = $event['onset'] < 0 ? min(1.0, ($this->frame + 1) / self::EDGE_FRAMES) : 1.0;
-        $sum += $wave * $event['volume'] * self::dynamicGain($event['dynamic'], $this->frame)
+        $sum += $wave * $event['baseVolume'] * $this->eventGain($event, $this->frame)
           * min($attack, $release) * $cutStart;
         $sounding++;
       }
@@ -273,16 +287,20 @@ final class ScoreSource implements Source {
     $this->active = [];
     $this->nextEvent = 0;
     $this->frame = 0;
+    $this->sharedCacheFrame = -1;
+    $this->sharedGainCache = [];
   }
 
   /** Prepare each melody's persistent levels and note-to-note ramps. */
-  private static function dynamicPlayback(Score $score, array $barStarts, array $seconds, float $rangeStart): array {
+  private static function dynamicPlayback(Score $score, array $barStarts, array $seconds, float $rangeStart,
+    array $dynamicLevels): array {
     $groups = [];
     foreach (Dynamics::groups($score) as $group) {
       $groups[$group['first']] = $group;
     }
     $levels = [];
     $ramps = [];
+    $localTimes = [];
     $endTargets = [];
     foreach ($score->melodies as $melody => $settings) {
       $indices = [];
@@ -294,16 +312,24 @@ final class ScoreSource implements Source {
       usort($indices, static fn (int $a, int $b): int =>
         ($score->start($score->notes[$a]['bar']) + $score->notes[$a]['slot'])
         <=> ($score->start($score->notes[$b]['bar']) + $score->notes[$b]['slot']));
-      $current = $settings['volume'] / 100;
+      $current = 1.0;
+      $lastLocalTime = PHP_INT_MIN;
       foreach ($indices as $index) {
         $note = $score->notes[$index];
+        $noteTime = (int)round((self::secondsAt($score->start($note['bar']) + $note['slot'], $barStarts, $seconds)
+          - $rangeStart) * self::SAMPLE_RATE);
         if (isset($endTargets[$index])) {
           $current = $endTargets[$index];
         }
         if (($note['dynamicLevel'] ?? '') !== '') {
-          $current = DynamicLevel::percent($note['dynamicLevel']) / 100;
+          $current = $dynamicLevels[$note['dynamicLevel']] ?? DynamicLevel::percent($note['dynamicLevel']) / 100;
+          $lastLocalTime = $noteTime;
+        }
+        if (isset($groups[$index])) {
+          $lastLocalTime = $noteTime;
         }
         $levels[$index] = $current;
+        $localTimes[$index] = $lastLocalTime;
         if (!isset($groups[$index])) {
           continue;
         }
@@ -321,8 +347,8 @@ final class ScoreSource implements Source {
             continue;
           }
           $position = $score->start($point['bar']) + $point['slot'];
-          $target = $mark !== '' ? DynamicLevel::percent($mark) / 100
-            : ($group['direction'] === 'crescendo' ? 1.0 : 0.20);
+          $target = $mark !== '' ? ($dynamicLevels[$mark] ?? DynamicLevel::percent($mark) / 100)
+            : $dynamicLevels[$group['direction'] === 'crescendo' ? 'fff' : 'ppp'];
           $ramp = [
             'start' => (int)round((self::secondsAt($anchorPosition, $barStarts, $seconds) - $rangeStart) * self::SAMPLE_RATE),
             'end' => (int)round((self::secondsAt($position, $barStarts, $seconds) - $rangeStart) * self::SAMPLE_RATE),
@@ -338,7 +364,7 @@ final class ScoreSource implements Source {
         $endTargets[$group['last']] = $anchorLevel;
       }
     }
-    return [$levels, $ramps];
+    return [$levels, $ramps, $localTimes];
   }
 
   /** Interpolate the written volume level until the closing note begins. */
@@ -349,6 +375,77 @@ final class ScoreSource implements Source {
     $progress = max(0.0, min(1.0,
       ($frame - $dynamic['start']) / max(1, $dynamic['end'] - $dynamic['start'])));
     return $dynamic['from'] + ($dynamic['to'] - $dynamic['from']) * $progress;
+  }
+
+  private static function sharedMarks(Score $score, array $barStarts, array $seconds, float $rangeStart,
+    array $dynamicLevels): array {
+    $marks = [];
+    foreach ($score->scoreDynamics as $mark) {
+      $marks[] = [
+        'time' => (int)round((self::secondsAt($mark['time'], $barStarts, $seconds) - $rangeStart) * self::SAMPLE_RATE),
+        'end' => $mark['end'] === null ? null
+          : (int)round((self::secondsAt($mark['end'], $barStarts, $seconds) - $rangeStart) * self::SAMPLE_RATE),
+        'level' => $mark['level'], 'direction' => $mark['direction'],
+        'gain' => $mark['level'] === '' ? null : $dynamicLevels[$mark['level']],
+        'limit' => $dynamicLevels[$mark['direction'] === 'decrescendo' ? 'ppp' : 'fff'],
+      ];
+    }
+    return $marks;
+  }
+
+  /** A shared mark replaces earlier local marks; a later local mark can take over. */
+  private function eventGain(array $event, int $frame): float {
+    $local = $event['volume'] * self::dynamicGain($event['dynamic'], $frame);
+    if ($event['shared'] === []) {
+      return $local;
+    }
+    if ($this->sharedCacheFrame !== $frame) {
+      $this->sharedCacheFrame = $frame;
+      $this->sharedGainCache = [];
+    }
+    $shift = $event['shift'];
+    [$shared, $sharedTime] = $this->sharedGainCache[$shift]
+      ??= self::sharedGain($event['shared'], $frame - $shift);
+    return $shared !== null && $sharedTime + $event['shift'] >= $event['localTime'] ? $shared : $local;
+  }
+
+  /** Evaluate the shared level and any active wedge at one frame. */
+  private static function sharedGain(array $marks, int $frame): array {
+    $gain = null;
+    $priority = PHP_INT_MIN;
+    $ramp = null;
+    $levels = [];
+    foreach ($marks as $mark) {
+      if ($mark['level'] !== '') {
+        $levels[$mark['time']] = $mark['gain'];
+      }
+    }
+    foreach ($marks as $mark) {
+      if ($mark['time'] > $frame) {
+        break;
+      }
+      if ($ramp !== null) {
+        $progress = max(0.0, min(1.0, ($mark['time'] - $ramp['start']) / max(1, $ramp['end'] - $ramp['start'])));
+        $gain = $ramp['from'] + ($ramp['to'] - $ramp['from']) * $progress;
+        $priority = min($mark['time'], $ramp['end']);
+        $ramp = null;
+      }
+      if ($mark['level'] !== '') {
+        $gain = $mark['gain'];
+        $priority = $mark['time'];
+      }
+      if ($mark['direction'] !== '') {
+        $ramp = ['start' => $mark['time'], 'end' => $mark['end'], 'from' => $gain ?? 1.0,
+          'to' => $levels[$mark['end']] ?? $mark['limit']];
+        $priority = $mark['time'];
+      }
+    }
+    if ($ramp !== null) {
+      $progress = max(0.0, min(1.0, ($frame - $ramp['start']) / max(1, $ramp['end'] - $ramp['start'])));
+      $gain = $ramp['from'] + ($ramp['to'] - $ramp['from']) * $progress;
+      $priority = min($frame, $ramp['end']);
+    }
+    return [$gain, $priority];
   }
 
   /** Convert a half-beat position through each bar's BPM. */
