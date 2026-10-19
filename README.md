@@ -86,7 +86,7 @@ Linked notes at
 the same pitch keep their separate attacks without a gap in MIDI playback.
 Set `MADSCORE_SOUNDFONT` to a specific SoundFont path if desired.
 
-Load `example.json` for a compact tour of the current features: five melodies,
+Load [`Assets/example.json`](Assets/example.json) for a compact tour of the current features: five melodies,
 drums, changing beats and tempo, a repeated section, bar notes, black keys,
 fingerings, staccato, slurs, a trill, a glissando, fermatas, and both melody and
 score wide dynamic marks. Use Ctrl+M or Ctrl+E to export it.
