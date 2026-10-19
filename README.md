@@ -28,13 +28,13 @@ manager. Package names vary by system.
 
 ## Installation
 
-madscore is installed manually; it does not use Composer. From a madscore
-checkout, this example installs both projects for one Linux user:
+madscore is installed manually; it does not use Composer. This example installs
+both projects for one Linux user:
 
 ```sh
 mkdir -p "$HOME/.local/share" "$HOME/.local/bin"
 git clone https://github.com/madocorp/SPTK.git "$HOME/.local/share/SPTK"
-cp -a . "$HOME/.local/share/madscore"
+git clone https://github.com/madocorp/madscore.git "$HOME/.local/share/madscore"
 ln -sfn "$HOME/.local/share/SPTK" "$HOME/.local/share/madscore/SPTK"
 ln -s "$HOME/.local/share/madscore/madscore.php" "$HOME/.local/bin/madscore"
 ```
