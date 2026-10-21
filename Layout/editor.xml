@@ -124,22 +124,6 @@ CTRL+* Melody wedge</Text>
           <Empty width="1*" navigate="false" />
         </Layout>
       </Layout>
-      <Layout id="composerPanel" overwrite="#noteBox" direction="vertical" width="5*">
-        <Title navigate="false">Composer</Title>
-        <Text id="composerHelp" height="4" navigate="false">Adds muted melody versions.
-Uses unmuted pitched melodies.
-Selection or full score.
-Unmute one to hear/edit it.</Text>
-        <Button id="composerVersions" label="Versions: 3" action="MADSCORE\App\Controller::cycleComposerSetting" />
-        <Button id="composerDensity" label="Density: Balanced" action="MADSCORE\App\Controller::cycleComposerSetting" />
-        <Button id="composerRegister" label="Register: Middle" action="MADSCORE\App\Controller::cycleComposerSetting" />
-        <Empty height="1*" navigate="false" />
-        <Layout direction="horizontal" height="1">
-          <Button id="composerGenerate" label="Generate" action="MADSCORE\App\Controller::generateComposer" />
-          <Button id="composerCancel" label="Cancel" action="MADSCORE\App\Controller::closeComposer" />
-          <Empty width="1*" navigate="false" />
-        </Layout>
-      </Layout>
       <Separator />
       <Layout id="cursorBox" direction="vertical" width="2*" navigateChildren="false">
         <Title id="cursorTitle" height="1" navigate="false">Cursor C4</Title>
@@ -166,7 +150,6 @@ CTRL+C/V Copy/Paste</Text>
         <Button id="loadButton" hotkey="ctrl+o" label="Load" action="MADSCORE\App\Controller::loadDialog" />
         <Button id="exportPdfButton" hotkey="ctrl+e" label="Export PDF" action="MADSCORE\App\Controller::exportPdf" />
         <Button id="exportMidiButton" hotkey="ctrl+m" label="Export MIDI" action="MADSCORE\App\Controller::exportMidi" />
-        <Button id="composerButton" label="Composer" action="MADSCORE\App\Controller::openComposer" />
         <Button id="settingsButton" hotkey="f1" label="Settings" action="MADSCORE\App\Controller::openSettings" />
         <Empty height="0*" navigate="false" />
       </Layout>

@@ -74,11 +74,6 @@ FluidSynth and the built-in PHP sound. Drum hits have fixed sound durations;
 their written lengths still occupy time in the melody. Drum notes use a pointed
 hourglass shape instead of a round note head.
 
-Actions also offers Composer. It uses unmuted pitched melodies in the selected
-time range, or the whole score if there is no selection. Generated versions are
-added as muted melodies. Unmute a version to hear it with the score, or use
-**M** to hear it alone.
-
 ## Expression marks
 
 - **S** toggles staccato, which shortens the sound. **H** toggles a fermata,
