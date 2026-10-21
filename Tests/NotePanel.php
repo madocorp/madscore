@@ -30,9 +30,9 @@ foreach (['melodyBox', 'actionsBox'] as $boxId) {
     return $leaf->instance() instanceof SPTK\Widgets\Empty\Placeholder
       && $leaf->grid()->x === $box->x && $leaf->grid()->y >= $box->y;
   }));
-  expectNotePanel(count($fillers) === 1 && $fillers[0]->grid()->height === 0
+  expectNotePanel(count($fillers) === 1 && $fillers[0]->grid()->height <= 1
     && $fillers[0]->grid()->y + $fillers[0]->grid()->height === $box->y + $box->height,
-    "The {$boxId} filler adds no extra bottom row.");
+    "The {$boxId} filler reaches the compact settings panel bottom.");
 }
 $cursorBox = $editor->layout->findTile('cursorBox')->grid();
 $cursorFillers = array_values(array_filter($editor->layout->leaves(), static function ($leaf) use ($cursorBox): bool {

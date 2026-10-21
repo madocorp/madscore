@@ -4,6 +4,10 @@
   <Event type="keyDown" key="enter" action="MADSCORE\App\Controller::toggleView" />
   <Event type="keyDown" key="p" action="MADSCORE\App\Controller::toggleScorePlayback" />
   <Event type="keyDown" key="m" action="MADSCORE\App\Controller::toggleMelodyPlayback" />
+  <Event type="keyDown" key="b" action="MADSCORE\App\Controller::previousPreviewPage" />
+  <Event type="keyDown" key="n" action="MADSCORE\App\Controller::nextPreviewPage" />
+  <Event type="keyDown" key="f" action="MADSCORE\App\Controller::firstPreviewPage" />
+  <Event type="keyDown" key="l" action="MADSCORE\App\Controller::lastPreviewPage" />
   <Layout direction="vertical">
     <Layout id="board" direction="horizontal" height="1*"><Empty navigate="false" /></Layout>
     <StatusBar height="1" />

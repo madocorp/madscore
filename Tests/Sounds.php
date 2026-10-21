@@ -62,6 +62,16 @@ $window = (new ReflectionClass(SPTK\Core\Window::class))->newInstanceWithoutCons
 $picker = $window->screen('editor')->widget('soundPicker');
 expectSound(count($picker->items()) === 175 && $picker->getValue() === 'gm:40',
   'The editor shows the full catalog and selects the saved instrument.');
-expectSound($window->screen('editor')->show('soundPicker'), 'The full sound picker opens over the Note tile.');
+$editor = $window->screen('editor');
+$editor->measureGrid(new SPTK\Layout\Tile(0, 0, 160, 50));
+$panel = $editor->layout->findNode('settingsPanel')->grid();
+$boardHeight = $editor->layout->findNode('board')->grid()->height;
+expectSound($editor->show('soundPicker'), 'The full sound picker opens over the Note tile.');
+$editor->measureGrid(new SPTK\Layout\Tile(0, 0, 160, 50));
+$pickerTile = $editor->layout->findTile('soundPicker')->grid();
+expectSound($editor->layout->findNode('settingsPanel')->grid()->height === $panel->height
+  && $editor->layout->findNode('board')->grid()->height === $boardHeight
+  && $pickerTile->y === $panel->y && $pickerTile->height === $panel->height,
+  'The instrument list stays inside the existing settings panel and leaves the score visible.');
 
 echo "Sound checks passed\n";

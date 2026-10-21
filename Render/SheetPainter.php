@@ -12,7 +12,49 @@ final class SheetPainter {
 
   private const INSET = 5;
 
-  public static function render(Score $score, int $firstBar, int $columns, int $width, int $height, ?array $cursor = null, ?int $melody = null, ?array $selection = null, bool $design = false, int $firstRow = 0): RasterImage {
+  /** Locate one full beat in a design sheet rendered at these dimensions. */
+  public static function beatRect(Score $score, int $firstBar, int $columns, int $width, int $height,
+    int $bar, int $beat): array {
+    $width = max(1, $width);
+    $height = max(1, $height);
+    $columns = max(1, $columns);
+    $insetX = min(self::INSET, intdiv($width - 1, 2));
+    $insetY = min(self::INSET, intdiv($height - 1, 2));
+    $sheetWidth = $width - 2 * $insetX;
+    $sheetHeight = $height - 2 * $insetY;
+    $topSpace = max(48, intdiv($sheetHeight, 10));
+    $tileHeight = max(1, intdiv($sheetHeight - $topSpace, 4));
+    $states = [];
+    for ($index = $firstBar; $index < $firstBar + $columns; $index++) {
+      $states[$index] = ['change' => $index === 0];
+    }
+    $bars = range($firstBar, $firstBar + $columns - 1);
+    $markerWidth = min(48, max(20, (int)ceil($tileHeight / 12 * 1.9 + 6)));
+    $markers = 1;
+    foreach (array_slice($bars, 1) as $index) {
+      $markers += (int)$states[$index]['change'];
+    }
+    $usable = max($columns, $sheetWidth - $markers * $markerWidth);
+    $widths = [];
+    for ($column = 0; $column < $columns; $column++) {
+      $widths[] = intdiv($usable * ($column + 1), $columns) - intdiv($usable * $column, $columns);
+    }
+    foreach (Prescription::positions($bars, $widths, $states, $markerWidth) as $position) {
+      if ($position['bar'] !== $bar) {
+        continue;
+      }
+      $unit = ($position['right'] - $position['left']) / $score->beats($bar);
+      $left = $insetX + $position['left'] + $beat * $unit;
+      $right = $left + $unit;
+      return [(int)floor($left), $insetY + $topSpace - (int)ceil($tileHeight / 6),
+        max(1, (int)ceil($right) - (int)floor($left)), min($height, 4 * $tileHeight + (int)ceil($tileHeight / 6))];
+    }
+    throw new \OutOfBoundsException('Playback beat is outside the rendered sheet.');
+  }
+
+  public static function render(Score $score, int $firstBar, int $columns, int $width, int $height, ?array $cursor = null,
+    ?int $melody = null, ?array $selection = null, bool $design = false, int $firstRow = 0,
+    bool $showCursor = true): RasterImage {
     $score = $score->visibleCopy();
     $width = max(1, $width);
     $height = max(1, $height);
@@ -125,7 +167,7 @@ final class SheetPainter {
       if ($selection !== null) {
         self::drawSelection($cairo, $context, $score, $positions, $states, $tileHeight, $topSpace, $selection, $design);
       }
-      if ($selection === null && $cursor !== null && $melody !== null) {
+      if ($showCursor && $selection === null && $cursor !== null && $melody !== null) {
         self::drawCursor($cairo, $context, $score, $positions, $states, $tileHeight, $topSpace, $cursor, $melody, $design);
       }
       if ($cairo->cairo_status($context) !== 0) {

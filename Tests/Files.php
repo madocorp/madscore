@@ -15,7 +15,8 @@ expectFiles(count($screens) === 3 && $screens[0]->id === 'editor' && $screens[1]
   && $screens[2]->id === 'settings', 'The settings screen is available without a separate Files screen.');
 expectFiles($screens[0]->widget('saveButton')->hotkey() === 'ctrl+s'
   && $screens[0]->widget('writeButton')->hotkey() === 'ctrl+w'
-  && $screens[0]->widget('loadButton')->hotkey() === 'ctrl+o',
+  && $screens[0]->widget('loadButton')->hotkey() === 'ctrl+o'
+  && $screens[0]->widget('newScore') !== null,
   'File action buttons own their modifier shortcuts.');
 $window = (new ReflectionClass(SPTK\Core\Window::class))->newInstanceWithoutConstructor();
 (new ReflectionProperty(SPTK\Core\Window::class, 'screens'))->setValue($window, $screens);
@@ -48,6 +49,11 @@ try {
   expectFiles(str_starts_with(file_get_contents($path . '.mid'), 'MThd')
     && json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR)['title'] === 'Written again',
     'MIDI export writes beside the score without changing it.');
+  MADSCORE\App\Files::restorePath(null);
+  $score->title = 'New unsaved score';
+  MADSCORE\App\Files::write(new SPTK\Events\EventContext('activate'));
+  expectFiles(json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR)['title'] === 'Written again',
+    'Write cannot overwrite the previous file after its path is cleared.');
   MADSCORE\App\Files::restorePath('relative.json');
   expectFiles(MADSCORE\App\Files::currentPath() === null, 'Invalid session paths do not become write targets.');
   MADSCORE\App\Files::write(new SPTK\Events\EventContext('activate'));

@@ -28,10 +28,11 @@ final class ScoreSource implements Source {
   private int $totalFrames;
   private int $sharedCacheFrame = -1;
   private array $sharedGainCache = [];
+  private float $dynamicBaseline;
 
   /** Freeze the requested half-beat span and optional melody from a score. */
   public function __construct(Score $score, ?int $melody = null, ?int $start = null, ?int $end = null) {
-    $wholeScore = $start === null && $end === null;
+    $wholeScore = $end === null;
     $scoreEnd = $score->start(count($score->bars));
     $start ??= 0;
     $end ??= $scoreEnd;
@@ -45,10 +46,11 @@ final class ScoreSource implements Source {
       $barStarts[] = end($barStarts) + 2 * $bar['beats'];
       $seconds[] = end($seconds) + $bar['beats'] * 60.0 / (float)$bar['tempo'];
     }
-    $rangeStart = self::secondsAt($start, $barStarts, $seconds);
+    $rangeStart = $wholeScore ? 0.0 : self::secondsAt($start, $barStarts, $seconds);
     $rangeEnd = self::secondsAt($end, $barStarts, $seconds);
     $this->totalFrames = max(1, (int)round(($rangeEnd - $rangeStart) * self::SAMPLE_RATE));
     $dynamicLevels = DynamicLevel::playbackLevels($score);
+    $this->dynamicBaseline = DynamicLevel::baseline($dynamicLevels);
     [$levels, $dynamics, $localTimes] = self::dynamicPlayback($score, $barStarts, $seconds, $rangeStart, $dynamicLevels);
     $shared = self::sharedMarks($score, $barStarts, $seconds, $rangeStart, $dynamicLevels);
     $glissandoEnds = [];
@@ -147,7 +149,7 @@ final class ScoreSource implements Source {
       }
     }
     if ($wholeScore) {
-      $this->expandSectionRepeats($score, $seconds);
+      $this->expandSectionRepeats($score, $barStarts, $seconds, $start);
     }
     usort($this->events, static fn (array $a, array $b): int => $a['start'] <=> $b['start']);
   }
@@ -185,59 +187,54 @@ final class ScoreSource implements Source {
   }
 
   /** Copy each section into playback once plus its marked extra plays. */
-  private function expandSectionRepeats(Score $score, array $seconds): void {
-    $leaders = [];
-    foreach ($score->bars as $bar => $settings) {
-      if ($settings['sectionLeader']) {
-        $leaders[] = $bar;
-      }
-    }
-    if (array_sum(array_map(static fn (int $bar): int => $score->bars[$bar]['repeats'], $leaders)) === 0) {
+  private function expandSectionRepeats(Score $score, array $barStarts, array $seconds, int $start): void {
+    if ($start === 0 && array_sum(array_column($score->bars, 'repeats')) === 0) {
       return;
     }
-    $leaders[] = count($score->bars);
+    $timeline = new PlaybackTimeline($score, $start);
     $original = $this->events;
     $expanded = [];
-    $extraFrames = 0;
-    for ($section = 0; $section < count($leaders) - 1; $section++) {
-      $first = $leaders[$section];
-      $begin = (int)round($seconds[$first] * self::SAMPLE_RATE);
-      $finish = (int)round($seconds[$leaders[$section + 1]] * self::SAMPLE_RATE);
+    $elapsed = 0;
+    foreach ($timeline->passes as $passIndex => [$sourceStart, $sourceEnd, $jump]) {
+      $begin = (int)round(self::secondsAt($sourceStart, $barStarts, $seconds) * self::SAMPLE_RATE);
+      $finish = (int)round(self::secondsAt($sourceEnd, $barStarts, $seconds) * self::SAMPLE_RATE);
       $duration = $finish - $begin;
-      $repeats = $score->bars[$first]['repeats'];
-      for ($pass = 0; $pass <= $repeats; $pass++) {
-        $shift = $extraFrames + $pass * $duration;
-        $jump = $pass < $repeats;
-        foreach ($original as $event) {
-          if ($event['onset'] < $begin || $event['onset'] >= $finish) {
-            continue;
-          }
-          $copy = $event;
-          $copy['start'] += $shift;
-          $copy['onset'] += $shift;
-          $copy['end'] = min($event['end'], $jump ? $finish : $this->totalFrames) + $shift;
-          if (isset($copy['ending'])) {
-            $copy['ending'] = min($copy['ending'], $jump ? $finish : $this->totalFrames) + $shift;
-          }
-          if ($copy['dynamic'] !== null) {
-            $copy['dynamic']['start'] += $shift;
-            $copy['dynamic']['end'] += $shift;
-          }
-          $copy['localTime'] += $shift;
-          $copy['shift'] += $shift;
-          if ($copy['end'] > $copy['start']) {
-            $expanded[] = $copy;
-          }
+      $shift = $elapsed - $begin;
+      foreach ($original as $event) {
+        if ($event['onset'] >= $finish
+          || ($event['onset'] < $begin && ($passIndex !== 0 || $event['end'] <= $begin))) {
+          continue;
+        }
+        $copy = $event;
+        $copy['start'] = max(0, $copy['start'] + $shift);
+        $copy['onset'] += $shift;
+        $copy['end'] = min($event['end'], $jump ? $finish : $this->totalFrames) + $shift;
+        if (isset($copy['ending'])) {
+          $copy['ending'] = min($copy['ending'], $jump ? $finish : $this->totalFrames) + $shift;
+        }
+        if ($copy['dynamic'] !== null) {
+          $copy['dynamic']['start'] += $shift;
+          $copy['dynamic']['end'] += $shift;
+        }
+        $copy['localTime'] += $shift;
+        $copy['shift'] += $shift;
+        if ($copy['end'] > $copy['start']) {
+          $expanded[] = $copy;
         }
       }
-      $extraFrames += $repeats * $duration;
+      $elapsed += $duration;
     }
     $this->events = $expanded;
-    $this->totalFrames += $extraFrames;
+    $this->totalFrames += $elapsed - (int)round(end($seconds) * self::SAMPLE_RATE);
   }
 
   public function spec(): array {
     return ['format' => SDL::SDL_AUDIO_F32LE, 'channels' => 1, 'freq' => self::SAMPLE_RATE];
+  }
+
+  /** Include any intentional final note or drum tail beyond the written bars. */
+  public function durationSeconds(): float {
+    return $this->totalFrames / self::SAMPLE_RATE;
   }
 
   /** Produce little-endian float PCM for the next portion of the score. */
@@ -312,7 +309,7 @@ final class ScoreSource implements Source {
       usort($indices, static fn (int $a, int $b): int =>
         ($score->start($score->notes[$a]['bar']) + $score->notes[$a]['slot'])
         <=> ($score->start($score->notes[$b]['bar']) + $score->notes[$b]['slot']));
-      $current = 1.0;
+      $current = DynamicLevel::baseline($dynamicLevels);
       $lastLocalTime = PHP_INT_MIN;
       foreach ($indices as $index) {
         $note = $score->notes[$index];
@@ -405,12 +402,12 @@ final class ScoreSource implements Source {
     }
     $shift = $event['shift'];
     [$shared, $sharedTime] = $this->sharedGainCache[$shift]
-      ??= self::sharedGain($event['shared'], $frame - $shift);
+      ??= self::sharedGain($event['shared'], $frame - $shift, $this->dynamicBaseline);
     return $shared !== null && $sharedTime + $event['shift'] >= $event['localTime'] ? $shared : $local;
   }
 
   /** Evaluate the shared level and any active wedge at one frame. */
-  private static function sharedGain(array $marks, int $frame): array {
+  private static function sharedGain(array $marks, int $frame, float $baseline): array {
     $gain = null;
     $priority = PHP_INT_MIN;
     $ramp = null;
@@ -435,7 +432,7 @@ final class ScoreSource implements Source {
         $priority = $mark['time'];
       }
       if ($mark['direction'] !== '') {
-        $ramp = ['start' => $mark['time'], 'end' => $mark['end'], 'from' => $gain ?? 1.0,
+        $ramp = ['start' => $mark['time'], 'end' => $mark['end'], 'from' => $gain ?? $baseline,
           'to' => $levels[$mark['end']] ?? $mark['limit']];
         $priority = $mark['time'];
       }

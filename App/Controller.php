@@ -2,8 +2,8 @@
 
 namespace MADSCORE\App;
 
-use MADSCORE\Play\{MidiPlayback, ScoreSource};
-use MADSCORE\Render\PagePainter;
+use MADSCORE\Play\{MidiPlayback, PlaybackTimeline, ScoreSource, SheetCache};
+use MADSCORE\Render\{PagePainter, PagePreview, SheetPainter};
 use MADSCORE\Score\Dynamics;
 use MADSCORE\Score\DynamicLevel;
 use MADSCORE\Score\MelodyRange;
@@ -13,10 +13,12 @@ use MADSCORE\Score\Score;
 use MADSCORE\Score\Sound;
 
 use SPTK\App;
-use SPTK\Core\{Screen, Window};
+use SPTK\Core\{Screen, Style, Window};
 use SPTK\Events\EventContext;
+use SPTK\Events\KeyNormalizer;
 use SPTK\Layout\{LayoutLeaf, LayoutNode};
 use SPTK\SDLWrapper\SDL;
+use SPTK\Widgets\Image\Image;
 
 /** Owns the score, visible sheet, and editor navigation. */
 final class Controller {
@@ -30,6 +32,7 @@ final class Controller {
   private static int $firstBar = 0;
   private static int $firstRow = 0;
   private static int $previewPage = 0;
+  private static ?string $previewImagePath = null;
   private static string $view = 'editor';
   private static int $bar = 0;
   private static int $slot = 0;
@@ -44,6 +47,18 @@ final class Controller {
   private static ?MelodySelection $selection = null;
   private static bool $sessionLoadFailed = false;
   private static ?string $playbackMode = null;
+  private static ?array $playbackFrame = null;
+  private static ?PlaybackTimeline $playbackTimeline = null;
+  private static ?SheetCache $playbackCache = null;
+  private static ?int $playbackTimer = null;
+  private static int $playbackBeatIndex = -1;
+  private static float $playbackEndSeconds = 0.0;
+  private static array $playbackHeldKeys = [];
+  private static ?int $playbackDrainTimer = null;
+  private static ?string $playbackDrainView = null;
+  private static bool $playbackDrainBatch = false;
+  private static bool $playbackSuppressText = false;
+  private static ?array $playbackReturn = null;
   private static string $playbackSound = 'midi';
   private static ?int $pendingDeleteMelody = null;
   private static ?ScoreHistory $history = null;
@@ -93,6 +108,17 @@ final class Controller {
 
   /** Store the current score and editor position when the app closes. */
   public static function persistSession(EventContext $event): void {
+    if (self::$previewImagePath !== null) {
+      @unlink(self::$previewImagePath);
+      self::$previewImagePath = null;
+    }
+    if (self::$playbackFrame !== null) {
+      self::$playbackCache?->close();
+      self::$playbackCache = null;
+      self::$firstBar = self::$playbackReturn['firstBar'];
+      self::$view = self::$playbackReturn['view'];
+      self::$playbackFrame = null;
+    }
     if (isset(self::$score) && !self::$sessionLoadFailed) {
       Session::save(self::sessionState());
     }
@@ -200,6 +226,9 @@ final class Controller {
   public static function resize(EventContext $event): void {
     if (!isset(self::$window) || $event->input !== self::$window) {
       return;
+    }
+    if (self::$playbackFrame !== null) {
+      self::stopPlayback('Playback stopped after window resize.');
     }
     $columns = self::fitColumns();
     if ($columns !== self::$columns) {
@@ -1083,8 +1112,27 @@ final class Controller {
     if (self::isDesign()) {
       return;
     }
-    self::$previewPage = max(0, min(count(PagePainter::pages(self::$score)) - 1, self::$previewPage + $direction));
-    self::invalidateSheet();
+    $page = max(0, min(count(PagePainter::pages(self::$score)) - 1, self::$previewPage + $direction));
+    if ($page !== self::$previewPage) {
+      self::$previewPage = $page;
+      self::invalidateSheet();
+    }
+  }
+
+  public static function previousPreviewPage(EventContext $event): void {
+    self::scrollRows(-1);
+  }
+
+  public static function nextPreviewPage(EventContext $event): void {
+    self::scrollRows(1);
+  }
+
+  public static function firstPreviewPage(EventContext $event): void {
+    self::previewEdge(false);
+  }
+
+  public static function lastPreviewPage(EventContext $event): void {
+    self::previewEdge(true);
   }
 
   /** Jump to the first or last PDF preview page. */
@@ -1092,14 +1140,17 @@ final class Controller {
     if (self::isDesign()) {
       return;
     }
-    self::$previewPage = $last ? count(PagePainter::pages(self::$score)) - 1 : 0;
-    self::invalidateSheet();
+    $page = $last ? count(PagePainter::pages(self::$score)) - 1 : 0;
+    if ($page !== self::$previewPage) {
+      self::$previewPage = $page;
+      self::invalidateSheet();
+    }
   }
 
   /** Keep preview navigation visible in its only status bar. */
   private static function showPreviewHelp(): void {
     self::screen('sheet')->statusBar?->display(
-      'V/Esc/Return: back to editor   PgUp/PgDown: page   Home/End: first/last page', 'hint', 'continuous');
+      'V/Esc/Return: editor   B/N: page   F/L: first/last   Arrows/PgUp/PgDown: scroll   +/-: zoom   Space: fit', 'hint', 'continuous');
   }
 
   /** Return from tile navigation to the score editor with Escape. */
@@ -1136,16 +1187,19 @@ final class Controller {
     App::eventLoop()->stop();
   }
 
-  /** Toggle playback of the score or active melody within the selected span. */
+  /** Toggle playback of the score or active melody from the selection or cursor. */
   public static function togglePlayback(bool $selectedMelody): void {
     $mode = $selectedMelody ? 'melody' : 'score';
+    $cache = null;
+    $return = null;
     try {
       $audio = App::audio();
       if (self::$playbackMode === $mode && $audio->playingMusic()) {
-        $audio->stopMusic(5);
-        self::$playbackMode = null;
-        self::status('Playback stopped.');
+        self::stopPlayback('Playback stopped.');
         return;
+      }
+      if (self::$playbackMode !== null) {
+        self::stopPlayback(null);
       }
       if ($selectedMelody && self::$score->melodyMuted(self::$melody)) {
         self::status('Melody ' . (self::$melody + 1) . ' is muted. Unmute it to play.');
@@ -1153,9 +1207,30 @@ final class Controller {
       }
       $selection = self::selectionStateForSheet();
       $melody = $selectedMelody ? self::$melody : null;
-      $start = $selection['start'] ?? null;
+      $start = $selection['start'] ?? self::$score->start(self::$bar) + self::$slot;
       $end = $selection['end'] ?? null;
+      if (self::isDesign() && !self::commitEditorFields()) {
+        return;
+      }
+      $timeline = new PlaybackTimeline(self::$score, $start, $end);
+      $firstBeat = $timeline->beats[0];
+      $firstPage = intdiv($firstBeat['bar'], self::$columns);
+      $return = ['view' => self::$view, 'firstBar' => self::$firstBar];
+      if (!self::isDesign()) {
+        self::$view = 'editor';
+        self::$sheet = self::$sheets['editor'];
+        self::$window->setCurrentScreenId('editor');
+      }
+      self::$firstBar = $firstPage * self::$columns;
+      self::$window->refreshLayout();
+      [$width, $height] = self::$sheets['editor']->instance()->surfaceSize();
+      if ($width < 1 || $height < 1) {
+        throw new \RuntimeException('The score sheet has no drawable area.');
+      }
+      $cache = new SheetCache(self::$score->visibleCopy(), self::$columns, $width, $height,
+        self::cursorStateForSheet(), self::$melody, $firstPage);
       $midiFailure = self::$playbackSound === 'midi' ? MidiPlayback::unavailableReason() : null;
+      $midiPlayed = false;
       if (self::$playbackSound === 'midi' && $midiFailure === null) {
         try {
           $wave = MidiPlayback::render(self::$score, $melody, $start, $end);
@@ -1164,30 +1239,241 @@ final class Controller {
           } finally {
             unlink($wave);
           }
-          self::$playbackMode = $mode;
-          self::status('Playing ' . ($selectedMelody ? 'melody' : 'score')
-            . ($selection === null ? '' : ' selection') . ' with MIDI.');
-          return;
+          $midiPlayed = true;
         } catch (\Throwable $error) {
           $midiFailure = $error->getMessage();
         }
       }
+      if ($midiPlayed) {
+        self::beginPlayback($mode, $timeline, $cache, $return, $firstBeat, $timeline->durationSeconds);
+        self::status('Playing ' . ($selectedMelody ? 'melody' : 'score')
+          . ($selection === null ? '' : ' selection') . ' with MIDI.');
+        return;
+      }
       $source = new ScoreSource(self::$score, $melody, $start, $end);
       $audio->playMusic($source);
-      self::$playbackMode = $mode;
+      self::beginPlayback($mode, $timeline, $cache, $return, $firstBeat, $source->durationSeconds());
       self::status('Playing ' . ($selectedMelody ? 'melody' : 'score')
         . ($selection === null ? '' : ' selection') . ' with built-in sound.'
         . ($midiFailure === null ? '' : ' MIDI: ' . $midiFailure));
     } catch (\Throwable $error) {
+      if (self::$playbackFrame !== null) {
+        self::stopPlayback(null);
+      } else {
+        $cache?->close();
+        if (isset($audio)) {
+          $audio->stopMusic();
+        }
+        if ($return !== null) {
+          self::$firstBar = $return['firstBar'];
+          self::$view = $return['view'];
+          self::$sheet = self::$sheets[self::$view];
+          self::$window->setCurrentScreenId(self::$view);
+          self::invalidateSheet();
+        }
+      }
       self::status('Playback failed: ' . $error->getMessage());
+    }
+  }
+
+  /** Expose the current prepared page and beat to the retained canvas. */
+  public static function playbackFrame(): ?array {
+    return self::$playbackFrame;
+  }
+
+  /** Install the playback input guard and show the first beat. */
+  private static function beginPlayback(string $mode, PlaybackTimeline $timeline, SheetCache $cache,
+    array $return, array $firstBeat, float $endSeconds): void {
+    self::clearPlaybackInputDrain(false);
+    self::$playbackMode = $mode;
+    self::$playbackTimeline = $timeline;
+    self::$playbackCache = $cache;
+    self::$playbackReturn = $return;
+    self::$playbackBeatIndex = 0;
+    self::$playbackEndSeconds = $endSeconds;
+    self::showPlaybackBeat($firstBeat);
+    self::screen('editor')->setInputGuard(self::playbackInput(...));
+    self::invalidateSheet();
+    self::$playbackTimer = App::eventLoop()->after(25, self::playbackTick(...));
+  }
+
+  /** Move only the beat overlay, changing the page texture when needed. */
+  private static function showPlaybackBeat(array $beat): void {
+    $cache = self::$playbackCache;
+    [$width, $height] = self::$sheets['editor']->instance()->surfaceSize();
+    $page = intdiv($beat['bar'], self::$columns);
+    self::$firstBar = $page * self::$columns;
+    self::$playbackFrame = ['cache' => $cache, 'page' => $page, 'width' => $width,
+      'height' => $height, 'rect' => SheetPainter::beatRect(self::$score, self::$firstBar,
+        self::$columns, $width, $height, $beat['bar'], $beat['slot'])];
+  }
+
+  /** Follow the sound player's consumed position, allowing small output latency. */
+  private static function playbackTick(): void {
+    self::$playbackTimer = null;
+    if (self::$playbackFrame === null) {
+      return;
+    }
+    try {
+      $position = App::audio()->musicPositionSeconds();
+      if ($position === null) {
+        self::stopPlayback('Playback finished.');
+        return;
+      }
+      if ($position >= self::$playbackEndSeconds) {
+        self::stopPlayback('Playback finished.');
+        return;
+      }
+      $beatIndex = self::$playbackTimeline->beatAt($position);
+      if ($beatIndex === self::$playbackBeatIndex) {
+        self::$playbackTimer = App::eventLoop()->after(25, self::playbackTick(...));
+        return;
+      }
+      $beat = self::$playbackTimeline->beats[$beatIndex];
+      $page = intdiv($beat['bar'], self::$columns);
+      if ($page !== self::$playbackFrame['page'] && self::$playbackCache->page($page) === null) {
+        if (($failure = self::$playbackCache->failure()) !== null) {
+          self::stopPlayback('Playback stopped: ' . $failure);
+          return;
+        }
+      } else {
+        $before = self::$playbackFrame;
+        self::showPlaybackBeat($beat);
+        self::$playbackBeatIndex = $beatIndex;
+        if ($before['page'] !== self::$playbackFrame['page'] || $before['rect'] !== self::$playbackFrame['rect']) {
+          self::invalidateSheet();
+        }
+      }
+    } catch (\Throwable $error) {
+      self::stopPlayback('Playback stopped: ' . $error->getMessage());
+      return;
+    }
+    self::$playbackTimer = App::eventLoop()->after(25, self::playbackTick(...));
+  }
+
+  /** Consume editor input while playing, except stop and sound-mode switches. */
+  private static function playbackInput(mixed $event): bool {
+    if ($event->type === SDL::SDL_EVENT_KEY_UP) {
+      unset(self::$playbackHeldKeys[(int)$event->key->key]);
+      return true;
+    }
+    if ($event->type !== SDL::SDL_EVENT_KEY_DOWN) {
+      return true;
+    }
+    self::$playbackHeldKeys[(int)$event->key->key] = true;
+    if ($event->key->repeat) {
+      return true;
+    }
+    $key = KeyNormalizer::normalize((int)$event->key->key, (int)$event->key->mod);
+    $modifiers = KeyNormalizer::normalizeModifiers((int)$event->key->mod);
+    if ($modifiers === 0 && $key === SDL::KEY_ESCAPE) {
+      self::stopPlayback('Playback stopped.');
+    } else if ($modifiers === 0 && in_array(($name = KeyNormalizer::keyName($key, 0)), ['p', 'm'], true)) {
+      self::togglePlayback($name === 'm');
+    }
+    return true;
+  }
+
+  /** Restore the editor state and release prepared playback pages. */
+  private static function stopPlayback(?string $message): void {
+    if (self::$playbackFrame === null) {
+      return;
+    }
+    App::audio()->stopMusic();
+    if (self::$playbackTimer !== null) {
+      App::eventLoop()->removeTimer(self::$playbackTimer);
+      self::$playbackTimer = null;
+    }
+    self::screen('editor')->setInputGuard(null);
+    self::$sheets['editor']->instance()->resetPlayback();
+    self::$playbackFrame = null;
+    self::$playbackTimeline = null;
+    self::$playbackBeatIndex = -1;
+    self::$playbackEndSeconds = 0.0;
+    self::$playbackMode = null;
+    self::$playbackCache?->close();
+    self::$playbackCache = null;
+    self::$firstBar = self::$playbackReturn['firstBar'];
+    $view = self::$playbackReturn['view'];
+    self::$playbackReturn = null;
+    self::$view = $view;
+    self::$sheet = self::$sheets[$view];
+    self::$window->setCurrentScreenId($view);
+    self::drainPlaybackInput($view);
+    self::invalidateSheet();
+    if ($message !== null) {
+      self::status($message);
+    }
+  }
+
+  /** Consume input already queued at the stop boundary and held-key repeats. */
+  private static function drainPlaybackInput(string $view): void {
+    self::clearPlaybackInputDrain(false);
+    self::$playbackDrainView = $view;
+    self::$playbackDrainBatch = true;
+    self::screen($view)->setInputGuard(self::playbackDrainGuard(...));
+    self::$playbackDrainTimer = App::eventLoop()->after(1, self::finishPlaybackInputDrain(...));
+  }
+
+  /** Release a held playback key without forwarding its repeat or text. */
+  private static function playbackDrainGuard(mixed $event): bool {
+    if ($event->type === SDL::SDL_EVENT_KEY_DOWN) {
+      $key = (int)$event->key->key;
+      if (self::$playbackDrainBatch) {
+        self::$playbackHeldKeys[$key] = true;
+        return true;
+      }
+      if (isset(self::$playbackHeldKeys[$key])) {
+        self::$playbackSuppressText = true;
+        return true;
+      }
+      self::$playbackSuppressText = false;
+      return false;
+    }
+    if ($event->type === SDL::SDL_EVENT_KEY_UP && isset(self::$playbackHeldKeys[(int)$event->key->key])) {
+      unset(self::$playbackHeldKeys[(int)$event->key->key]);
+      if (self::$playbackHeldKeys === [] && !self::$playbackDrainBatch) {
+        self::drainPlaybackInput(self::$playbackDrainView);
+      }
+      return true;
+    }
+    if ($event->type === SDL::SDL_EVENT_TEXT_INPUT && self::$playbackSuppressText) {
+      self::$playbackSuppressText = false;
+      return true;
+    }
+    return self::$playbackDrainBatch;
+  }
+
+  /** Let fresh editor input through after SDL's current event batch is drained. */
+  private static function finishPlaybackInputDrain(): void {
+    self::$playbackDrainTimer = null;
+    self::$playbackDrainBatch = false;
+    self::$playbackSuppressText = false;
+    if (self::$playbackHeldKeys === []) {
+      self::clearPlaybackInputDrain();
+    }
+  }
+
+  /** Remove an old drain guard before another playback starts. */
+  private static function clearPlaybackInputDrain(bool $clearHeld = true): void {
+    if (self::$playbackDrainTimer !== null) {
+      App::eventLoop()->removeTimer(self::$playbackDrainTimer);
+      self::$playbackDrainTimer = null;
+    }
+    if (self::$playbackDrainView !== null) {
+      self::screen(self::$playbackDrainView)->setInputGuard(null);
+      self::$playbackDrainView = null;
+    }
+    self::$playbackDrainBatch = false;
+    if ($clearHeld) {
+      self::$playbackHeldKeys = [];
     }
   }
 
   /** Let the user compare the built-in synthesis with MIDI SoundFont playback. */
   public static function togglePlaybackSound(EventContext $event): void {
     if (self::$playbackMode !== null) {
-      App::audio()->stopMusic();
-      self::$playbackMode = null;
+      self::stopPlayback(null);
     }
     self::$playbackSound = self::$playbackSound === 'midi' ? 'built-in' : 'midi';
     self::screen('settings')->widget('playbackSound')->setLabel('Playback: '
@@ -1350,10 +1636,17 @@ final class Controller {
       throw new \LogicException('The score board is missing from the ' . $view . ' screen.');
     }
     $board = new LayoutNode('horizontal', $oldBoard->width(), $oldBoard->height(), id: 'board');
-    $canvas = new SheetCanvas();
-    $canvas->setId('sheet');
-    $canvas->setTips($view === 'editor' ? 'Score editor.' : 'PDF preview.', $view === 'editor' ? 'Return adds or changes a note; Space adds a note or follows its pitch.' : 'V/Esc/Return opens editor; Page Up and Down turn pages; Home and End jump to page edges.');
-    $sheet = new LayoutLeaf('Canvas', '1*', '1*', $canvas, paintBackground: false);
+    if ($view === 'editor') {
+      $widget = new SheetCanvas();
+      $widget->setTips('Score editor.', 'Return adds or changes a note; Space adds a note or follows its pitch.');
+    } else {
+      $widget = new Image(APP_DIR . '/Assets/preview-blank.png', bg: (new Style())->background,
+        fit: 'contain', padding: true);
+      $widget->setTips('PDF preview.', 'Arrows and Page Up/Down scroll; + and - zoom; Space fits; B/N turn pages; F/L jump to first/last page; V returns to editor.');
+    }
+    $widget->setId('sheet');
+    $sheet = new LayoutLeaf($view === 'editor' ? 'Canvas' : 'Image', '1*', '1*', $widget,
+      paintBackground: $view !== 'editor');
     $board->addLeaf($sheet);
     if (!$screen->layout->replaceChild($oldBoard, $board)) {
       throw new \LogicException('The score board could not be installed on the ' . $view . ' screen.');
@@ -1467,7 +1760,31 @@ final class Controller {
 
   /** Mark the retained sheet surface for repainting on the next frame. */
   private static function invalidateSheet(): void {
-    self::$sheet->instance()->invalidate();
+    if (self::isDesign()) {
+      self::$sheet->instance()->invalidate();
+    } else {
+      self::refreshPreviewImage();
+    }
+  }
+
+  /** Replace the viewer source with a crisp raster of the selected PDF page. */
+  private static function refreshPreviewImage(): void {
+    $path = tempnam(sys_get_temp_dir(), 'madscore-preview-');
+    if ($path === false) {
+      throw new \RuntimeException('Could not create a PDF preview image.');
+    }
+    try {
+      PagePreview::writePng(self::$score, self::$previewPage, $path,
+        (int)round(PagePainter::A4_WIDTH_POINTS * 2), (int)round(PagePainter::A4_HEIGHT_POINTS * 2));
+      self::$sheets['sheet']->instance()->setSource($path);
+    } catch (\Throwable $error) {
+      @unlink($path);
+      throw $error;
+    }
+    if (self::$previewImagePath !== null) {
+      @unlink(self::$previewImagePath);
+    }
+    self::$previewImagePath = $path;
   }
 
   /** Choose a bar count that leaves room for its beat positions. */

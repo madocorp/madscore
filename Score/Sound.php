@@ -70,6 +70,24 @@ final class Sound {
     return isset(self::DRUM_NAMES[$key]) ? $key : null;
   }
 
+  /** Choose how written dynamics act on a General MIDI instrument. */
+  public static function dynamicControl(string $instrument): string {
+    if (self::drumKey($instrument) !== null) {
+      return 'velocity';
+    }
+    $program = self::program($instrument);
+    if ($program === null) {
+      throw new \DomainException('Unknown MIDI instrument: ' . $instrument);
+    }
+    // Struck and plucked sounds cannot grow louder after their attack.
+    if ($program <= 15 || ($program >= 24 && $program <= 39)
+      || in_array($program, [45, 46, 47, 55, 104, 105, 106, 107, 108], true)
+      || $program >= 112) {
+      return 'velocity';
+    }
+    return 'expression';
+  }
+
   /** A single picker includes melodic programs and percussion sounds. */
   public static function items(): array {
     $items = [];
