@@ -32,6 +32,11 @@ final class DynamicLevel {
     return self::LETTERS[$mark] ?? (int)$mark;
   }
 
+  /** An unmarked note sits halfway between mezzo-piano and mezzo-forte. */
+  public static function baseline(array $levels): float {
+    return ($levels['mp'] + $levels['mf']) / 2;
+  }
+
   /** Fit the levels used in a score to an audible range without exceeding 20–100%. */
   public static function playbackLevels(Score $score): array {
     $used = [];

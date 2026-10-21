@@ -61,6 +61,12 @@ function midiNoteExpressions(MADSCORE\Score\Score $score): array {
   return $result;
 }
 
+function midiNoteVelocities(MADSCORE\Score\Score $score): array {
+  return array_map(static fn (array $event): int => ord($event[3][1]),
+    array_values(array_filter(midiMelodyEvents($score),
+      static fn (array $event): bool => ($event[1] & 0xf0) === 0x90)));
+}
+
 $screen = (new SPTK\XmlParser\XmlParser())->windows[0]['screens'][0];
 expectMidi($screen->widget('exportMidiButton')->hotkey() === 'ctrl+m', 'Ctrl+M activates MIDI export.');
 $score = new MADSCORE\Score\Score(2);
@@ -124,6 +130,15 @@ expectMidi(array_column($clipTempos, 0) === [0, 720]
   && array_column($clipOns, 0) === [0, 720],
   'Selected MIDI starts at zero, clips a crossing note, keeps tempo changes, and plays no repeats.');
 
+$cursorMidi = MADSCORE\Play\MidiWriter::encode($score, 0, 1);
+$cursorConductorLength = unpack('N', substr($cursorMidi, 18, 4))[1];
+$cursorTrackAt = 22 + $cursorConductorLength;
+$cursorTrackLength = unpack('N', substr($cursorMidi, $cursorTrackAt + 4, 4))[1];
+$cursorOns = array_values(array_filter(midiEvents(substr($cursorMidi, $cursorTrackAt + 8, $cursorTrackLength)),
+  static fn (array $event): bool => ($event[1] & 0xf0) === 0x90));
+expectMidi(array_column($cursorOns, 0) === [0, 720, 1680, 2640],
+  'MIDI begins on a crossing note at the cursor and keeps subsequent section repeats.');
+
 $shared = new MADSCORE\Score\Score();
 $shared->ensureBar(1);
 foreach ([0, 2, 4, 6] as $slot) {
@@ -135,6 +150,38 @@ $shared->setScoreDynamicWedge(2, 6, 'crescendo');
 $shared->setScoreDynamicLevel(6, 'f');
 expectMidi(midiNoteExpressions($shared) === [76, 76, 86, 95, 95],
   'A shared crescendo reaches its written f target and holds it afterward.');
+$pianoDynamics = MADSCORE\Score\Score::fromData($shared->data());
+$pianoDynamics->setMelodyInstrument(0, 'gm:0');
+expectMidi(midiNoteVelocities($pianoDynamics) === [60, 60, 68, 75, 75]
+  && !array_filter(midiMelodyEvents($pianoDynamics),
+    static fn (array $event): bool => ($event[1] & 0xf0) === 0xb0 && ord($event[3][0]) === 11),
+  'Piano dynamics change note velocity without changing the volume of ringing notes.');
+expectMidi(MADSCORE\Score\Sound::dynamicControl('gm:16') === 'expression'
+  && MADSCORE\Score\Sound::dynamicControl('gm:40') === 'expression'
+  && MADSCORE\Score\Sound::dynamicControl('gm:73') === 'expression'
+  && MADSCORE\Score\Sound::dynamicControl('gm:45') === 'velocity'
+  && MADSCORE\Score\Sound::dynamicControl('gm:46') === 'velocity'
+  && MADSCORE\Score\Sound::dynamicControl('drum:36') === 'velocity',
+  'Organs, bowed strings, and winds use expression; plucked and struck sounds use velocity.');
+$openingDynamics = new MADSCORE\Score\Score();
+$openingDynamics->place(0, 0, 0, 4, 1, 2);
+$markedNote = $openingDynamics->place(0, 0, 2, 4, 1, 2);
+$openingDynamics->place(0, 0, 4, 4, 1, 2);
+$openingDynamics->setDynamicLevel($markedNote, 'p');
+expectMidi(midiNoteExpressions($openingDynamics) === [70, 51, 51],
+  'An organ starts between mp and mf, then holds its first written level.');
+$openingDynamics->setMelodyInstrument(0, 'gm:0');
+expectMidi(midiNoteVelocities($openingDynamics) === [55, 40, 40],
+  'A piano starts between mp and mf, then holds its first written level.');
+$unmarkedWedge = new MADSCORE\Score\Score();
+$unmarkedWedge->place(0, 0, 0, 4, 1, 2);
+$unmarkedWedge->place(0, 0, 4, 4, 1, 2);
+$unmarkedWedge->setScoreDynamicWedge(0, 4, 'crescendo');
+expectMidi(midiNoteExpressions($unmarkedWedge) === [70, 127],
+  'An organ crescendo without an opening mark starts from the baseline.');
+$unmarkedWedge->setMelodyInstrument(0, 'gm:0');
+expectMidi(midiNoteVelocities($unmarkedWedge) === [55, 100],
+  'A piano crescendo without an opening mark starts from the baseline.');
 
 $levelStep = new MADSCORE\Score\Score();
 $levelStep->ensureBar(1);

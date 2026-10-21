@@ -160,6 +160,11 @@ final class Files {
     Controller::status($message);
   }
 
+  /** Start an unnamed, empty document from the Load panel. */
+  public static function createNew(EventContext $event): void {
+    self::finishOpen(new Score(), null, 'New empty score. Use Ctrl+S to save it.');
+  }
+
   public static function cancel(EventContext $event): bool {
     Controller::hideFilePanel('savePanel');
     Controller::hideFilePanel('loadPanel');

@@ -27,7 +27,7 @@
       <Empty navigate="false" />
     </Layout>
     <Separator />
-    <Layout direction="horizontal" height="auto">
+    <Layout id="settingsPanel" direction="horizontal" height="19">
       <Layout direction="vertical" width="2*">
         <Title id="barSettingsTitle" height="1" navigate="false">[R] Bar 1</Title>
         <Input id="tempo" height="2" label="Tempo (BPM)">
@@ -120,11 +120,11 @@ CTRL+* Melody wedge</Text>
         </FileSelector>
         <Layout direction="horizontal" height="1">
           <Button id="confirmLoad" label="Load" action="MADSCORE\App\Files::open" />
+          <Button id="newScore" label="New" action="MADSCORE\App\Files::createNew" />
           <Button id="cancelLoad" label="Cancel" action="MADSCORE\App\Files::cancel" />
           <Empty width="1*" navigate="false" />
         </Layout>
       </Layout>
-      <Separator />
       <Layout id="cursorBox" direction="vertical" width="2*" navigateChildren="false">
         <Title id="cursorTitle" height="1" navigate="false">Cursor C4</Title>
         <Text id="cursorLength" height="1" navigate="false">Length 1 beat</Text>
@@ -142,7 +142,7 @@ CTRL+A Select all
       <Separator />
       <Layout id="actionsBox" direction="vertical" width="2*">
         <Title navigate="false">Actions</Title>
-        <Text id="actionsHelp" height="3" navigate="false" highlighter="MADSCORE\App\HelpHighlighter">P/M Play all/one
+        <Text id="actionsHelp" height="5" navigate="false" highlighter="MADSCORE\App\HelpHighlighter">P/M Play all/one
 V Preview
 CTRL+C/V Copy/Paste</Text>
         <Button id="saveButton" hotkey="ctrl+s" label="Save as" action="MADSCORE\App\Controller::saveDialog" />

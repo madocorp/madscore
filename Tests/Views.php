@@ -93,6 +93,28 @@ expectView($printBands === [6, 5, 4, 3]
   && MADSCORE\Render\Prescription::soundingBands($symmetric, 0) === [3, 6],
   'The lower G-sharp prints on the bottom staff without adding its stored octave.');
 $symmetricPreview = MADSCORE\Render\PagePreview::render($symmetric, 0, 842, 595);
+$blankPreview = new SPTK\Core\RasterImage(APP_DIR . '/Assets/preview-blank.png');
+expectView($blankPreview->width === 1 && $blankPreview->height === 1
+  && ((unpack('L', $blankPreview->pixels)[1] >> 8) & 0xffffff) === 0x0000aa,
+  'The initial PDF viewer source is a plain blue pixel.');
+$viewerPath = tempnam(sys_get_temp_dir(), 'madscore-viewer-');
+try {
+  MADSCORE\Render\PagePreview::writePng($symmetric, 0, $viewerPath, 1684, 1191);
+  $viewer = new SPTK\Widgets\Image\Image($viewerPath, fit: 'contain', padding: false);
+  expectView([$viewer->source()->width, $viewer->source()->height] === [1684, 1191],
+    'SPTK image viewer can open a detailed PDF preview page.');
+  $viewport = new SPTK\Layout\Tile(0, 0, 842, 595);
+  $fitted = $viewer->destination($viewport);
+  $viewer->handleInput((object)['type' => SPTK\SDLWrapper\SDL::SDL_EVENT_KEY_DOWN,
+    'key' => (object)['key' => SPTK\SDLWrapper\SDL::KEY_PLUS, 'mod' => 0]]);
+  $zoomed = $viewer->destination($viewport);
+  $viewer->handleInput((object)['type' => SPTK\SDLWrapper\SDL::SDL_EVENT_KEY_DOWN,
+    'key' => (object)['key' => SPTK\SDLWrapper\SDL::KEY_DOWN, 'mod' => 0]]);
+  expectView($zoomed->width > $fitted->width && $viewer->destination($viewport)->y < $zoomed->y,
+    'The PDF preview viewer zooms and scrolls the rendered page.');
+} finally {
+  unlink($viewerPath);
+}
 $printedPitch = false;
 for ($y = 250; $y < 295; $y++) {
   for ($x = 20; $x < 50; $x++) {

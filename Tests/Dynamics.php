@@ -266,8 +266,9 @@ $standaloneAudio = (new MADSCORE\Play\ScoreSource($standalone))->read($frames);
 $beforeLevel = dynamicStrength($standaloneAudio, (int)(0.12 * MADSCORE\Play\ScoreSource::SAMPLE_RATE), 2400);
 $atLevel = dynamicStrength($standaloneAudio, (int)(0.62 * MADSCORE\Play\ScoreSource::SAMPLE_RATE), 2400);
 $afterLevel = dynamicStrength($standaloneAudio, (int)(1.12 * MADSCORE\Play\ScoreSource::SAMPLE_RATE), 2400);
-expectDynamic($atLevel < $beforeLevel * 0.65 && abs($afterLevel / $atLevel - 1) < 0.08,
-  'A standalone level changes playback on its note and holds on the next note.');
+expectDynamic($atLevel > $beforeLevel * 0.65 && $atLevel < $beforeLevel * 0.80
+  && abs($afterLevel / $atLevel - 1) < 0.08,
+  'The opening note uses the mp–mf baseline; a later p mark persists on the next note.');
 $score->setDynamicToNext($first, 'crescendo');
 $score->setDynamicToNext($middle, 'crescendo');
 $score->setDynamicToNext($middle, '');

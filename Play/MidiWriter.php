@@ -26,7 +26,7 @@ final class MidiWriter {
     foreach ($score->bars as $bar) {
       $starts[] = end($starts) + $bar['beats'] * 2;
     }
-    $wholeScore = $start === null && $end === null;
+    $wholeScore = $end === null;
     $start ??= 0;
     $end ??= end($starts);
     if ($start < 0 || $end > end($starts) || $start >= $end
@@ -34,34 +34,18 @@ final class MidiWriter {
       throw new \InvalidArgumentException('Invalid MIDI playback range or melody.');
     }
     $score = $score->visibleCopy();
+    $timeline = new PlaybackTimeline($score, $start, $wholeScore ? null : $end);
     $passes = [];
     $outputStart = 0;
-    if ($wholeScore) {
-      $sections = [];
-      foreach ($score->bars as $index => $bar) {
-        if ($bar['sectionLeader']) {
-          $sections[] = $index;
-        }
-      }
-      $sections[] = count($score->bars);
-      for ($section = 0; $section < count($sections) - 1; $section++) {
-        $first = $sections[$section];
-        $last = $sections[$section + 1];
-        $length = $starts[$last] - $starts[$first];
-        for ($pass = 0; $pass <= $score->bars[$first]['repeats']; $pass++) {
-          $passes[] = [$starts[$first], $starts[$last], $outputStart,
-            $pass < $score->bars[$first]['repeats']];
-          $outputStart += $length;
-        }
-      }
-    } else {
-      $passes[] = [$start, $end, 0, true];
-      $outputStart = $end - $start;
+    foreach ($timeline->passes as [$sourceStart, $sourceEnd, $jump]) {
+      $passes[] = [$sourceStart, $sourceEnd, $outputStart, $jump];
+      $outputStart += $sourceEnd - $sourceStart;
     }
     $scoreEnd = $outputStart * self::TICKS_PER_SLOT;
     $conductor = [];
     $tracks = [];
     $melodyChannels = [];
+    $dynamicControls = [];
     $freeChannels = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15];
     $glissandoEnds = [];
     foreach ($score->notes as $index => $note) {
@@ -75,6 +59,7 @@ final class MidiWriter {
       }
       $tracks[$melody] = [];
       $instrument = $settings['instrument'] ?? Sound::legacyInstrument($settings['pattern']);
+      $dynamicControls[$melody] = Sound::dynamicControl($instrument);
       if (($program = Sound::program($instrument)) !== null) {
         $channel = array_shift($freeChannels);
         if ($channel === null) {
@@ -87,7 +72,7 @@ final class MidiWriter {
       }
     }
     $levels = self::noteLevels($score, $starts);
-    foreach ($passes as [$sourceStart, $sourceEnd, $offset, $jump]) {
+    foreach ($passes as $passIndex => [$sourceStart, $sourceEnd, $offset, $jump]) {
       foreach ($score->bars as $barIndex => $bar) {
         if ($starts[$barIndex + 1] <= $sourceStart || $starts[$barIndex] >= $sourceEnd) {
           continue;
@@ -107,7 +92,9 @@ final class MidiWriter {
         $tick = ($offset + $mark['time'] - $sourceStart) * self::TICKS_PER_SLOT;
         $value = max(0, min(127, (int)round(127 * DynamicLevel::percent($mark['level']) / 100)));
         foreach ($melodyChannels as $melody => $channel) {
-          self::event($tracks[$melody], $tick, -2, chr(0xb0 | $channel) . "\x0b" . chr($value));
+          if ($dynamicControls[$melody] === 'expression') {
+            self::event($tracks[$melody], $tick, -2, chr(0xb0 | $channel) . "\x0b" . chr($value));
+          }
         }
       }
       foreach ($score->notes as $index => $note) {
@@ -116,7 +103,7 @@ final class MidiWriter {
         }
         $start = $starts[$note['bar']] + $note['slot'];
         if (!isset($tracks[$note['melody']]) || $start >= $sourceEnd
-          || ($wholeScore && $start < $sourceStart)) {
+          || ($wholeScore && $start < $sourceStart && $passIndex !== 0)) {
           continue;
         }
         $settings = $score->melodies[$note['melody']];
@@ -142,11 +129,15 @@ final class MidiWriter {
           continue;
         }
         $channel = $melodyChannels[$note['melody']];
-        $expression = max(0, min(127, (int)round(127 * $levels[$index])));
+        $useExpression = $dynamicControls[$note['melody']] === 'expression';
+        $noteGain = $useExpression ? $gain : $gain * $levels[$index];
         $next = ($note['glissandoToNext'] ?? false) ? $score->nextAdjacent($index) : null;
         if ($next !== null) {
-          self::event($track, max(0, $onset), $onset < 0 ? -3 : 1,
-            chr(0xb0 | $channel) . "\x0b" . chr($expression));
+          if ($useExpression) {
+            $expression = max(0, min(127, (int)round(127 * $levels[$index])));
+            self::event($track, max(0, $onset), $onset < 0 ? -3 : 1,
+              chr(0xb0 | $channel) . "\x0b" . chr($expression));
+          }
           $target = $score->notes[$next];
           $writtenEnd = $starts[$target['bar']] + $target['slot'] + $target['length'];
           $keys = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
@@ -158,7 +149,7 @@ final class MidiWriter {
             $pitch = 69 + (intdiv($key, 7) - 4) * 12 + Pitch::naturalPosition($keys[$key % 7]) - 1;
             $begin = $onset + (int)round(($writtenEnd - $start) * self::TICKS_PER_SLOT * $step / $count);
             $end = $onset + (int)round(($writtenEnd - $start) * self::TICKS_PER_SLOT * ($step + 1) / $count);
-            self::note($track, $channel, $pitch, $begin, min($end, $jump ? $limit : PHP_INT_MAX), $gain);
+            self::note($track, $channel, $pitch, $begin, min($end, $jump ? $limit : PHP_INT_MAX), $noteGain);
           }
           unset($track);
           continue;
@@ -167,8 +158,11 @@ final class MidiWriter {
           unset($track);
           continue;
         }
-        self::event($track, max(0, $onset), $onset < 0 ? -3 : 1,
-          chr(0xb0 | $channel) . "\x0b" . chr($expression));
+        if ($useExpression) {
+          $expression = max(0, min(127, (int)round(127 * $levels[$index])));
+          self::event($track, max(0, $onset), $onset < 0 ? -3 : 1,
+            chr(0xb0 | $channel) . "\x0b" . chr($expression));
+        }
         $end = $onset + ($writtenEnd - $start) * self::TICKS_PER_SLOT;
         $legatoSamePitch = false;
         if ($note['fermata'] ?? false) {
@@ -194,7 +188,7 @@ final class MidiWriter {
           $finish = $pulse === $pulses - 1 ? $end : min($end, $begin + 120);
           $pitch = 69 + ($note['octave'] - 4) * 12 + Pitch::position($note) - 1
             + ($pulse % 2 ? $trill : 0);
-          self::note($track, $channel, $pitch, $begin, min($finish, $jump ? $limit : PHP_INT_MAX), $gain);
+          self::note($track, $channel, $pitch, $begin, min($finish, $jump ? $limit : PHP_INT_MAX), $noteGain);
         }
         if ($legatoSamePitch) {
           // Keep the previous voice under the next attack. Note-off precedes
@@ -218,7 +212,7 @@ final class MidiWriter {
     return 'MThd' . pack('Nnnn', 6, 1, count($chunks), self::TICKS_PER_BEAT) . implode('', $chunks);
   }
 
-  /** Sample volume marks and ramps at note onsets for MIDI velocity. */
+  /** Sample written dynamics at note onsets for velocity or expression. */
   private static function noteLevels(Score $score, array $starts): array {
     $result = [];
     $localTime = [];
@@ -228,12 +222,13 @@ final class MidiWriter {
     foreach (DynamicLevel::marks() as $mark) {
       $written[$mark] = DynamicLevel::percent($mark) / 100;
     }
+    $baseline = DynamicLevel::baseline($written);
     foreach ($score->melodies as $melody => $_) {
       $indices = array_keys(array_filter($score->notes, static fn (array $note): bool => $note['melody'] === $melody));
       usort($indices, static fn (int $a, int $b): int =>
         ($starts[$score->notes[$a]['bar']] + $score->notes[$a]['slot'])
         <=> ($starts[$score->notes[$b]['bar']] + $score->notes[$b]['slot']));
-      $level = 1.0;
+      $level = $baseline;
       $markedAt = PHP_INT_MIN;
       foreach ($indices as $index) {
         $note = $score->notes[$index];
@@ -278,7 +273,7 @@ final class MidiWriter {
     }
     foreach ($score->notes as $index => $note) {
       $time = $starts[$note['bar']] + $note['slot'];
-      [$gain, $priority] = self::sharedLevelAt($shared, $sharedTargets, $written, $time);
+      [$gain, $priority] = self::sharedLevelAt($shared, $sharedTargets, $written, $time, $baseline);
       if ($gain !== null && $priority >= $localTime[$index]) {
         $result[$index] = $gain;
       }
@@ -287,7 +282,8 @@ final class MidiWriter {
   }
 
   /** Match score playback's persistent shared levels and wedges at one onset. */
-  private static function sharedLevelAt(array $marks, array $targets, array $written, int $time): array {
+  private static function sharedLevelAt(array $marks, array $targets, array $written, int $time,
+    float $baseline): array {
     $gain = null;
     $priority = PHP_INT_MIN;
     $ramp = null;
@@ -307,7 +303,7 @@ final class MidiWriter {
         $priority = $mark['time'];
       }
       if ($mark['direction'] !== '') {
-        $ramp = ['start' => $mark['time'], 'end' => $mark['end'], 'from' => $gain ?? 1.0,
+        $ramp = ['start' => $mark['time'], 'end' => $mark['end'], 'from' => $gain ?? $baseline,
           'to' => $targets[$mark['end']] ?? $written[$mark['direction'] === 'crescendo' ? 'fff' : 'ppp']];
         $priority = $mark['time'];
       }

@@ -11,6 +11,31 @@ final class PagePreview {
   public static function render(Score $score, int $page, int $width, int $height): RasterImage {
     $width = max(1, $width);
     $height = max(1, $height);
+    $cairo = Cairo::library();
+    $surface = self::surface($score, $page, $width, $height);
+    try {
+      return Cairo::raster($surface, $width, $height);
+    } finally {
+      $cairo->cairo_surface_destroy($surface);
+    }
+  }
+
+  /** Give SPTK's image viewer a detailed page without a second pixel conversion. */
+  public static function writePng(Score $score, int $page, string $path, int $width, int $height): void {
+    $cairo = Cairo::library();
+    $surface = self::surface($score, $page, max(1, $width), max(1, $height));
+    try {
+      if ($cairo->cairo_surface_write_to_png($surface, $path) !== 0) {
+        throw new \RuntimeException('Could not write the PDF preview image.');
+      }
+    } finally {
+      $cairo->cairo_surface_destroy($surface);
+    }
+  }
+
+  private static function surface(Score $score, int $page, int $width, int $height): \FFI\CData {
+    $width = max(1, $width);
+    $height = max(1, $height);
     $pages = PagePainter::pages($score);
     $page = max(0, min(count($pages) - 1, $page));
     $cairo = Cairo::library();
@@ -34,10 +59,12 @@ final class PagePreview {
       if ($cairo->cairo_status($context) !== 0) {
         throw new \RuntimeException('Cairo could not draw the PDF preview.');
       }
-      return Cairo::raster($surface, $width, $height);
+      return $surface;
+    } catch (\Throwable $error) {
+      $cairo->cairo_surface_destroy($surface);
+      throw $error;
     } finally {
       $cairo->cairo_destroy($context);
-      $cairo->cairo_surface_destroy($surface);
     }
   }
 }

@@ -68,13 +68,17 @@ sit below it; each control shows its shortcut. Arrow keys move through notes
 and gaps, **Return** places or changes a note, and **Esc** moves between the
 sheet and the controls.
 
-- **P** plays the score; **M** plays the active melody. Press the same key again
-  to stop.
+- **P** plays the score; **M** plays the active melody. Playback starts at the
+  cursor, or plays the selected span. It hides the edit cursor and follows each
+  beat across the score. Press **Esc** or the same play
+  key to stop; **P** and **M** also switch between score and melody playback.
 - **Ctrl+S** saves a JSON score, **Ctrl+O** loads one, and **Ctrl+W** overwrites
-  the current file. After saving, **Ctrl+E** exports PDF and **Ctrl+M** exports
-  MIDI beside it.
-- **V** opens the PDF preview. **F1** opens Settings, where you can choose the
-  playback sound and the default file directory.
+  the current file. The Load panel also has **New** for an empty score; save it
+  with **Ctrl+S** before using **Ctrl+W**. After saving, **Ctrl+E** exports PDF
+  and **Ctrl+M** exports MIDI beside it.
+- **V** opens the PDF preview. Use **+/-** to zoom, arrows to scroll, and **B/N**
+  to turn pages. **F1** opens Settings, where you can choose the playback sound
+  and the default file directory.
 
 The app restores your working score and position when it starts again. Load
 [the example score](Assets/example.json) to explore its melodies, drums, and
