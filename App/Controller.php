@@ -2,7 +2,6 @@
 
 namespace MADSCORE\App;
 
-use MADSCORE\Composer\Generator;
 use MADSCORE\Play\{MidiPlayback, ScoreSource};
 use MADSCORE\Render\PagePainter;
 use MADSCORE\Score\Dynamics;
@@ -49,9 +48,6 @@ final class Controller {
   private static ?int $pendingDeleteMelody = null;
   private static ?ScoreHistory $history = null;
   private static ?array $musicClipboard = null;
-  private static int $composerVersions = 3;
-  private static string $composerDensity = 'balanced';
-  private static string $composerRegister = 'middle';
 
   /** Bind the new score and build its first visible four-staff grid. */
   public static function initialize(EventContext $event): void {
@@ -967,77 +963,6 @@ final class Controller {
     self::status('Melody ' . (self::$melody + 1) . ($muted ? ' muted.' : ' unmuted.'));
   }
 
-  public static function openComposer(EventContext $event): void {
-    if (!self::isDesign() || !self::commitEditorFields()) {
-      return;
-    }
-    $screen = self::screen('editor');
-    $screen->restore('savePanel');
-    $screen->restore('loadPanel');
-    self::refreshComposerSettings();
-    if ($screen->show('composerPanel')) {
-      self::$window->refreshLayout();
-    }
-  }
-
-  public static function closeComposer(EventContext $event): void {
-    if (self::screen('editor')->restore('composerPanel')) {
-      self::$window->refreshLayout();
-    }
-  }
-
-  public static function cycleComposerSetting(EventContext $event): void {
-    switch ($event->widget?->id()) {
-      case 'composerVersions':
-        self::$composerVersions = self::$composerVersions % 5 + 1;
-        break;
-      case 'composerDensity':
-        $values = ['sparse', 'balanced', 'busy'];
-        self::$composerDensity = $values[(array_search(self::$composerDensity, $values, true) + 1) % count($values)];
-        break;
-      case 'composerRegister':
-        $values = ['low', 'middle', 'high'];
-        self::$composerRegister = $values[(array_search(self::$composerRegister, $values, true) + 1) % count($values)];
-        break;
-    }
-    self::refreshComposerSettings();
-    self::$window->refreshLayout();
-  }
-
-  private static function refreshComposerSettings(): void {
-    $screen = self::screen('editor');
-    $screen->widget('composerVersions')->setLabel('Versions: ' . self::$composerVersions);
-    $screen->widget('composerDensity')->setLabel('Density: ' . ucfirst(self::$composerDensity));
-    $screen->widget('composerRegister')->setLabel('Register: ' . ucfirst(self::$composerRegister));
-  }
-
-  /** Commit every version together so one undo removes the whole batch. */
-  public static function generateComposer(EventContext $event): void {
-    if (!self::isDesign()) {
-      return;
-    }
-    $selection = self::selectionStateForSheet();
-    $start = $selection['start'] ?? 0;
-    $end = $selection['end'] ?? self::$score->start(count(self::$score->bars));
-    try {
-      $first = count(self::$score->melodies);
-      $next = Generator::generate(self::$score, $start, $end, self::$composerVersions,
-        self::$composerDensity, self::$composerRegister);
-      self::$score = $next;
-      self::$history?->observe($next);
-      self::$melody = $first;
-      self::$octave = MelodyRange::bands($next, $first)[1];
-      self::clearSelection();
-      self::screen('editor')->restore('composerPanel');
-      self::refreshMelodyFields();
-      self::focusWithoutHistory();
-      self::$window->refreshLayout();
-      self::status('Added ' . self::$composerVersions . ' muted melody versions. Unmute one to listen.');
-    } catch (\DomainException $error) {
-      self::status($error->getMessage());
-    }
-  }
-
   /** Ask the status bar before deleting the selected melody and its notes. */
   public static function requestDeleteMelody(EventContext $event): void {
     if (!self::isDesign() || !self::commitEditorFields()) {
@@ -1354,7 +1279,6 @@ final class Controller {
     $screen = self::screen('editor');
     $other = $id === 'savePanel' ? 'loadPanel' : 'savePanel';
     $screen->restore($other);
-    $screen->restore('composerPanel');
     if ($screen->show($id)) {
       self::$window->refreshLayout();
     }
