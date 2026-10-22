@@ -79,11 +79,20 @@ sheet and the controls.
 - **V** opens the PDF preview. Use **+/-** to zoom, arrows to scroll, and **B/N**
   to turn pages. **F1** opens Settings, where you can choose the playback sound
   and the default file directory.
+- **C** opens the Composer tile. Its buttons switch between the main score,
+  motif, and phrase editors; each editor keeps its own notes.
 
 The app restores your working score and position when it starts again. Load
 [the example score](Assets/example.json) to explore its melodies, drums, and
 notation marks. For more detail, see the [editor reference](Docs/editor.md).
 For the notation itself, read the offline [Tristaff tutorial](Tristaff/index.html).
+
+Saved JSON uses a project wrapper: `title`, `author`, `catalog`, and `items`.
+The item with ID and type `main` is the finished score; motif and phrase items
+can also be stored. Each item's `score` holds `bars`, `melodies`, `notes`, and
+`scoreDynamics`. The session stores the project and active item alongside the
+cursor and other editor state. Earlier bare-score JSON files and sessions are
+not loaded.
 
 ## Tests
 

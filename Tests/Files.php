@@ -25,6 +25,9 @@ $screens[0]->statusBar->setScheduler(static function(int $delay, callable $callb
 $score = new MADSCORE\Score\Score();
 $score->title = 'File round trip';
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'score'))->setValue(null, $score);
+(new ReflectionProperty(MADSCORE\App\Controller::class, 'project'))->setValue(null,
+  MADSCORE\Score\Project::fromScore($score));
+(new ReflectionProperty(MADSCORE\App\Controller::class, 'activeItemId'))->setValue(null, 'main');
 MADSCORE\App\Files::restorePath(null);
 MADSCORE\App\Files::initialize();
 expectFiles($screens[0]->widget('saveDirectory')->path() === MADSCORE\App\Settings::defaultDirectory()
@@ -36,8 +39,23 @@ $badPath = $path . '.bad.json';
 try {
   $write = new ReflectionMethod(MADSCORE\App\Files::class, 'writeScore');
   expectFiles($write->invoke(null, $path), 'Atomic JSON save succeeds.');
-  $loaded = MADSCORE\Score\Score::fromData(json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR));
-  expectFiles($loaded->data() === $score->data(), 'Saved score can be loaded without changing its music.');
+  $saved = json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
+  $loaded = MADSCORE\Score\Project::fromData($saved);
+  expectFiles($saved === MADSCORE\Score\Project::fromScore($score)->data()
+    && $saved['items'][0]['id'] === 'main' && $saved['items'][0]['type'] === 'main'
+    && !isset($saved['items'][0]['score']['title']) && $loaded->score('main')->data() === $score->data(),
+    'Saved project has one main item and loads without changing the score.');
+  try {
+    MADSCORE\Score\Project::fromData($score->data());
+    throw new RuntimeException('The old bare score format was accepted.');
+  } catch (DomainException $error) {
+    expectFiles(true, 'The old bare score format is rejected.');
+  }
+  $extra = $saved;
+  $extra['items'][] = ['id' => 'A', 'type' => 'motif', 'name' => 'Motif A',
+    'music' => ['scale' => 'C major', 'homeNote' => 'C'], 'score' => $saved['items'][0]['score']];
+  expectFiles(MADSCORE\Score\Project::fromData($extra)->data() === $extra,
+    'Project items survive a saved-file round trip.');
   expectFiles(glob($path . '.tmp-*') === [], 'Successful save leaves no temporary file.');
   MADSCORE\App\Files::restorePath($path);
   expectFiles(MADSCORE\App\Files::currentPath() === $path, 'Named path can be restored for Ctrl+W.');

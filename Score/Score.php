@@ -21,7 +21,7 @@ final class Score {
   public array $scoreDynamics = [];
   public array $melodies;
 
-  /** Start every melody with the current organ voice at full volume. */
+  /** Start every melody with acoustic grand piano at half volume. */
   public function __construct(int $melodyCount = 1) {
     if ($melodyCount < 1) {
       throw new \DomainException('A score needs at least one melody.');
@@ -35,7 +35,7 @@ final class Score {
   /** Append an instrument and return its index. */
   public function addMelody(): int {
     $index = count($this->melodies);
-    $this->melodies[] = ['instrument' => 'gm:19', 'pattern' => 'organ', 'volume' => 100, 'muted' => false,
+    $this->melodies[] = ['instrument' => 'gm:0', 'pattern' => Sound::fallback('gm:0'), 'volume' => 50, 'muted' => false,
       'color' => self::COLORS[$index % count(self::COLORS)]];
     return $index;
   }
@@ -163,6 +163,7 @@ final class Score {
       $next['sectionLeader'] = false;
       $next['repeats'] = 0;
       $next['note'] = '';
+      unset($next['motifVersion']);
       $this->bars[] = $next;
     }
   }
@@ -199,6 +200,7 @@ final class Score {
     $this->bars[$bar]['sectionLeader'] = $leader;
     if (!$leader) {
       $this->bars[$bar]['repeats'] = 0;
+      unset($this->bars[$bar]['motifVersion']);
     }
   }
 
@@ -1140,6 +1142,7 @@ final class Score {
     }
     $score = new self();
     $score->melodies = [];
+    $motifLabels = [];
     foreach ($data['melodies'] as $index => $settings) {
       if (!is_array($settings) || !is_string($settings['pattern'] ?? null)
         || !is_int($settings['volume'] ?? null) || !is_string($settings['color'] ?? null)) {
@@ -1161,6 +1164,17 @@ final class Score {
         throw new \DomainException('Invalid melody mute setting.');
       }
       $score->setMelodyMuted($index, $settings['muted'] ?? false);
+      if (array_key_exists('generation', $settings)) {
+        $score->melodies[$index]['generation'] = PhraseGenerator::validateMetadata($settings['generation']);
+      }
+      if (array_key_exists('motif', $settings)) {
+        $motif = MotifScoreGenerator::validateMetadata($settings['motif']);
+        if (isset($motifLabels[$motif['label']])) {
+          throw new \DomainException('Duplicate motif label.');
+        }
+        $motifLabels[$motif['label']] = true;
+        $score->melodies[$index]['motif'] = $motif;
+      }
     }
     foreach (['title', 'author', 'catalog'] as $field) {
       if (!is_string($data[$field] ?? null) || !mb_check_encoding($data[$field], 'UTF-8') || preg_match('/[\x00-\x1f\x7f]/', $data[$field])) {
@@ -1194,7 +1208,16 @@ final class Score {
         || preg_match('/[\x00-\x1f\x7f]/', $note)) {
         throw new \DomainException('Invalid bar note.');
       }
-      $score->bars[] = ['beats' => $bar['beats'], 'tempo' => $tempo, 'sectionLeader' => $leader, 'repeats' => $repeats, 'note' => $note];
+      $savedBar = ['beats' => $bar['beats'], 'tempo' => $tempo,
+        'sectionLeader' => $leader, 'repeats' => $repeats, 'note' => $note];
+      if (array_key_exists('motifVersion', $bar)) {
+        if (!$leader || $index === 0) {
+          throw new \DomainException('A generated motif version needs its own section.');
+        }
+        $savedBar['motifVersion'] = MotifVersions::validateSpec($bar['motifVersion'],
+          $score->sectionNumber($index - 1));
+      }
+      $score->bars[] = $savedBar;
     }
     foreach ($data['notes'] as $inputNote) {
       if (!self::validNote($inputNote, $score)) {

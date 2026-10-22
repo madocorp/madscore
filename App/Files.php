@@ -5,10 +5,11 @@ namespace MADSCORE\App;
 use MADSCORE\Play\MidiWriter;
 use MADSCORE\Render\PdfWriter;
 use MADSCORE\Score\LegacyImporter;
+use MADSCORE\Score\Project;
 use MADSCORE\Score\Score;
 use SPTK\Events\EventContext;
 
-/** Named score files and the editor's temporary file panels. */
+  /** Named project files and the editor's temporary file panels. */
 final class Files {
 
   private static ?string $path = null;
@@ -145,8 +146,8 @@ final class Files {
       if ($source === false) {
         throw new \RuntimeException('Could not read score: ' . $path);
       }
-      $score = Score::fromData(json_decode($source, true, 512, JSON_THROW_ON_ERROR));
-      self::finishOpen($score, $path, 'Opened ' . basename($path));
+      $project = Project::fromData(json_decode($source, true, 512, JSON_THROW_ON_ERROR));
+      self::finishOpenProject($project, $path, 'Opened ' . basename($path));
     } catch (\Throwable $error) {
       Controller::status($error->getMessage());
     }
@@ -157,6 +158,13 @@ final class Files {
     Controller::hideFilePanel('loadPanel');
     self::$path = $path;
     Controller::loadScore($score);
+    Controller::status($message);
+  }
+
+  private static function finishOpenProject(Project $project, ?string $path, string $message): void {
+    Controller::hideFilePanel('loadPanel');
+    self::$path = $path;
+    Controller::loadProject($project);
     Controller::status($message);
   }
 
@@ -221,7 +229,7 @@ final class Files {
   private static function writeScore(string $path): bool {
     $temp = null;
     try {
-      $encoded = json_encode(Controller::score()->data(), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . "\n";
+      $encoded = json_encode(Controller::projectData(), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . "\n";
       $temp = $path . '.tmp-' . bin2hex(random_bytes(6));
       if (file_put_contents($temp, $encoded) !== strlen($encoded) || !rename($temp, $path)) {
         throw new \RuntimeException('Could not save score: ' . $path);

@@ -70,7 +70,7 @@ final class MelodyRange {
     if ($bottoms === []) {
       throw new \DomainException('A melody must fit four octave rows from G-sharp to G-sharp.');
     }
-    $dominant = 4;
+    $dominant = Pitch::MIDDLE_C_BAND;
     for ($band = 0; $band <= 8; $band++) {
       if ($counts[$band] > $counts[$dominant]) {
         $dominant = $band;
@@ -80,7 +80,8 @@ final class MelodyRange {
     $bestKey = null;
     foreach ($bottoms as $bottom) {
       $row = $bottom + 3 - $dominant;
-      $key = [(int)($row === 1 || $row === 2), -abs($row - 1.5), -abs($bottom + 1.5 - 4), -$bottom];
+      $key = [(int)($row === 1 || $row === 2), -abs($row - 1.5),
+        -abs($bottom + 1.5 - Pitch::MIDDLE_C_BAND), -$bottom];
       if ($bestKey === null || $key > $bestKey) {
         $bestKey = $key;
         $best = $bottom;

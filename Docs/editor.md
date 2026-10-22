@@ -44,6 +44,53 @@ Marks inside long notes identify further beats. A note may cross a bar line.
 The cursor adds a new bar when it moves past the score's end. An unused last
 bar is removed when the cursor moves back. A sustained note keeps its bar.
 
+## Motif generator
+
+Press **C** on the editor sheet to open the Composer tile in place of the Note
+tile. In the main score, its **M** and **P** buttons open the motif and phrase
+editors. The first visit creates an empty item; later visits return to the last
+item used. Each item has its own editable score. Motifs use IDs A, B, C, and so on. The top
+row shows the item ID, an editable name, and its scale and home note. The motif
+and phrase Composer tiles have a row showing the current item. Activate that
+row to choose another item of the same type or **Create new item**;
+**Esc** cancels the list and **Return** loads the selected item. The mode
+buttons are at the bottom of the tile: **P/M** in Score, **S/M** in Phrase,
+and **S/P** in Motif. **Esc** closes the Composer tile and returns to the Note
+tile.
+
+The motif tile also offers generation. Enter a length of 3–32 beats and a
+count of 1–7 distinct pitches, then choose a scale and home note and select
+**Generate**. The scale selector offers the seven diatonic modes; the home note
+selector offers all twelve chromatic notes. With no previous motif, both
+selectors start at Random. A generated motif saves both the selector choices
+and the scale and home note it used. Its choices reappear when Composer opens.
+A Random choice stays Random; **Shift+C** draws a different value for that
+choice each time. Every selected
+pitch sounds at least once. The pitch count cannot exceed the beat count. The
+generator places at least one note per beat, using beat and half-beat notes.
+It sets bars to the motif length for 3–6 beats. Longer motifs use 3–6 beats
+per bar, minimizing unused beats and preferring a size near four on ties.
+Pitch moves stay within three scale steps; moves of one or two steps
+are the most likely.
+You can edit and lengthen notes afterward. Generation replaces or adds a motif
+melody in the active motif score, and is undoable. Phrase assembly tools are
+still to come.
+
+In the motif editor, press **Shift+C** to regenerate the selected motif melody with
+its saved length, pitch count, and selector choices. This replaces that
+melody's notes and can be undone.
+
+**Add version** offers six transformations: keep the opening and change the
+ending, change the last notes, transpose by scale steps, invert the pitch
+contour, reverse the pitches, or move half-beat splits. Operations that need a
+number ask for it next. Each version is appended as a new section in the same
+motif item. For motif A, the original is A, the next section is A1, and the third is A2.
+The section stores its algorithm, source section, and parameter. **Generate**
+replaces the original section and rebuilds generated versions from those saved
+settings, so edits made directly to generated sections are lost. Sections added
+by hand have no generation settings and are preserved. **Shift+C** uses the
+same rebuilding behavior.
+
 ## Selecting time
 
 **Shift+Left/Right** extends a selection in the active melody.
@@ -60,7 +107,8 @@ selected notes, and a second **Delete** closes the empty time.
 ## Melodies and sound
 
 Press **N** to add a melody. Melody settings choose its instrument, color,
-volume, and mute state. The sound picker includes General MIDI instruments and
+volume, and mute state. New melodies use Acoustic Grand Piano at 50% volume.
+The sound picker includes General MIDI instruments and
 drum sounds. A score stores the MIDI choice and an approximate built-in sound.
 
 Muted melodies remain in the JSON file, but are hidden from the sheet and
@@ -111,7 +159,7 @@ contains a repeated section.
 jumps to the first or last page. **V**, **Esc**, or **Return** closes it. The PDF
 uses landscape A4 vector pages. It may show more octave bands than the editor's
 four rows so that melodies in different ranges can appear together. A dot marks
-the A4–G♯5 band, and triangles mark higher or lower bands.
+the A3–G♯4 band containing middle C, and triangles mark higher or lower bands.
 
 ## Files and settings
 

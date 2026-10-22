@@ -58,6 +58,20 @@ final class EditorInput {
     $alt = ((int)$event->key->mod & SDL::MOD_ALT) !== 0;
     $mode = ((int)$event->key->mod & SDL::MOD_MODE) !== 0;
     $context = new EventContext('keyDown', $canvas, $event);
+    if (Controller::isDesign() && $shift && !$ctrl && !$alt && !$mode
+      && KeyNormalizer::keyName($key, 0) === 'c') {
+      if (!$event->key->repeat) {
+        Controller::regenerateComposerFromSheet();
+      }
+      return true;
+    }
+    if (Controller::isDesign() && !$shift && !$ctrl && !$alt && !$mode
+      && KeyNormalizer::keyName($key, 0) === 'c') {
+      if (!$event->key->repeat) {
+        Controller::openComposer();
+      }
+      return true;
+    }
     if ($ctrl && !$alt && !$shift && !$mode && !$event->key->repeat) {
       $name = KeyNormalizer::keyName($key, 0);
       if (Controller::isDesign() && $name >= '1' && $name <= '9') {
@@ -126,6 +140,12 @@ final class EditorInput {
             'y' => 'sound',
             't' => 'staccato',
           });
+        }
+        return true;
+      }
+      if ($name === 'c') {
+        if (!$event->key->repeat) {
+          Controller::openComposer();
         }
         return true;
       }

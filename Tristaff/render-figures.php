@@ -20,6 +20,7 @@ final class TutorialFigures {
 
   private const COLOR = '#087c75';
   private static int $slurHeight = 160;
+  private static int $slurBand = 4;
 
   /** Generate every figure used by the HTML guide. */
   public static function run(): void {
@@ -82,6 +83,7 @@ final class TutorialFigures {
         endBar: true, showSlots: $slots, paintBackground: false);
       if ($slur) {
         self::$slurHeight = $height;
+        self::$slurBand = $octave;
         SlurPainter::draw($cairo, $context, $score,
           [['bar' => 0, 'left' => 0, 'right' => $width]], self::slurRows(...));
       }
@@ -92,7 +94,7 @@ final class TutorialFigures {
 
   /** Give SlurPainter the same band geometry used by BarPainter. */
   private static function slurRows(int $bar): array {
-    return [4 => ['band' => 4, 'top' => 0, 'height' => self::$slurHeight]];
+    return [self::$slurBand => ['band' => self::$slurBand, 'top' => 0, 'height' => self::$slurHeight]];
   }
 
   /** Put each rendered note directly above its matching piano key. */
@@ -152,17 +154,17 @@ final class TutorialFigures {
   /** Show one melody moving through bands with real octave markers. */
   private static function drawOctaves(\FFI $cairo, \FFI\CData $context): void {
     $score = self::score();
-    foreach ([3, 4, 5] as $index => $octave) {
+    foreach ([2, 3, 4] as $index => $octave) {
       $score->place(0, 0, $index * 2, $octave, 4, 2);
     }
-    foreach ([5, 4, 3] as $row => $octave) {
+    foreach ([4, 3, 2] as $row => $octave) {
       $top = 15 + $row * 175;
       self::bar($cairo, $context, $score, $octave, 110, $top, 760, 160);
     }
     Prescription::drawMarkers($cairo, $context, [
-      5 => ['top' => 15, 'height' => 160],
-      4 => ['top' => 190, 'height' => 160],
-      3 => ['top' => 365, 'height' => 160],
+      4 => ['top' => 15, 'height' => 160],
+      3 => ['top' => 190, 'height' => 160],
+      2 => ['top' => 365, 'height' => 160],
     ], 65);
   }
 
@@ -278,13 +280,13 @@ final class TutorialFigures {
   /** Finish with one rendered phrase, its octave marker, and its tempo mark. */
   private static function drawPhrase(\FFI $cairo, \FFI\CData $context): void {
     $score = self::score();
-    $first = $score->place(0, 0, 0, 4, 4, 2);
-    $score->place(0, 0, 2, 4, 6, 2);
-    $score->place(0, 0, 4, 4, 8, 4);
+    $first = $score->place(0, 0, 0, 3, 4, 2);
+    $score->place(0, 0, 2, 3, 6, 2);
+    $score->place(0, 0, 4, 3, 8, 4);
     $score->setSlurToNext($first, true);
     TempoPainter::draw($cairo, $context, 28, 400, '120');
-    self::bar($cairo, $context, $score, 4, 100, 80, 800, 230, slur: true);
-    Prescription::drawMarkers($cairo, $context, [4 => ['top' => 80, 'height' => 230]], 65);
+    self::bar($cairo, $context, $score, 3, 100, 80, 800, 230, slur: true);
+    Prescription::drawMarkers($cairo, $context, [3 => ['top' => 80, 'height' => 230]], 65);
   }
 }
 

@@ -49,7 +49,8 @@ final class SheetCanvas extends Canvas {
       }
     }
     $this->resetPlayback();
-    $image = SheetPainter::render(Controller::score(), Controller::firstVisibleBar(), Controller::visibleColumns(), $surface->width(), $surface->height(), Controller::cursorStateForSheet(), Controller::melody(), Controller::selectionStateForSheet(), true);
+    $image = SheetPainter::render(Controller::score(), Controller::firstVisibleBar(), Controller::visibleColumns(), $surface->width(), $surface->height(), Controller::cursorStateForSheet(), Controller::melody(), Controller::selectionStateForSheet(), true,
+      composer: Controller::composerPreview());
     $texture = $textures->textureFromImage($image);
     $texture->copyTo($surface, 0, 0);
     $texture->destroy();

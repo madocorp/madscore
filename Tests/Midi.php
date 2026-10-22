@@ -275,7 +275,7 @@ expectMidi(array_map(static fn (array $event): int => $event[1] & 0xf0, $firstJo
   [0xb0, 0x80, 0xb0, 0x90],
   'The previous linked voice releases before the next same-pitch attack.');
 
-$example = MADSCORE\Score\Score::fromData(json_decode(file_get_contents(APP_DIR . '/Assets/example.json'), true, 512, JSON_THROW_ON_ERROR));
+$example = MADSCORE\Score\Project::fromData(json_decode(file_get_contents(APP_DIR . '/Assets/example.json'), true, 512, JSON_THROW_ON_ERROR))->score('main');
 expectMidi(count($example->melodies) === 5 && count($example->notes) > 60
   && str_starts_with(MADSCORE\Play\MidiWriter::encode($example), 'MThd'),
   'The example score loads and exports with its notation features.');

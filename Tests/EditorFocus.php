@@ -56,6 +56,22 @@ expectEditorFocus(!$editor->handleEvent(editorText('_')) && $editor->activeLeaf(
 $editor->activateLeaf($sheet);
 expectEditorFocus(!$editor->handleEvent(editorText('_')) && $editor->activeLeaf() === $sheet,
   'Underscore leaves the active score canvas alone.');
+$project = MADSCORE\Score\Project::fromScore(new MADSCORE\Score\Score());
+$motifId = $project->create('motif');
+(new ReflectionProperty(MADSCORE\App\Controller::class, 'project'))->setValue(null, $project);
+(new ReflectionProperty(MADSCORE\App\Controller::class, 'activeItemId'))->setValue(null, $motifId);
+$editor->statusBar->setScheduler(static function (int $durationMs, callable $dismiss): void {});
+expectEditorFocus($editor->handleEvent((object)['type' => SDL::SDL_EVENT_KEY_DOWN,
+    'key' => (object)['key' => ord('c'), 'mod' => SDL::MOD_SHIFT, 'repeat' => false]])
+  && str_contains($editor->statusBar->text(), 'No generated motif'),
+  'Shift+C reaches motif regeneration from the sheet.');
+$editor->statusBar->clear();
+$editor->selectLeaf($tempo);
+expectEditorFocus($editor->handleEvent((object)['type' => SDL::SDL_EVENT_KEY_DOWN,
+    'key' => (object)['key' => ord('c'), 'mod' => SDL::MOD_SHIFT, 'repeat' => false]])
+  && str_contains($editor->statusBar->text(), 'No generated motif'),
+  'Shift+C also reaches motif regeneration when the editor controls have focus.');
+(new ReflectionProperty(MADSCORE\App\Controller::class, 'activeItemId'))->setValue(null, 'main');
 $cursor = $editor->widget('cursorBox');
 expectEditorFocus($cursor !== null && !$cursor->canActivate(),
   'Cursor is one selectable readout tile without an action.');

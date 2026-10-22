@@ -54,7 +54,7 @@ final class SheetPainter {
 
   public static function render(Score $score, int $firstBar, int $columns, int $width, int $height, ?array $cursor = null,
     ?int $melody = null, ?array $selection = null, bool $design = false, int $firstRow = 0,
-    bool $showCursor = true): RasterImage {
+    bool $showCursor = true, ?array $composer = null): RasterImage {
     $score = $score->visibleCopy();
     $width = max(1, $width);
     $height = max(1, $height);
@@ -73,7 +73,7 @@ final class SheetPainter {
       }
     }
     for ($bar = count($states); $bar < $firstBar + $columns; $bar++) {
-      $state = $states[$bar - 1] ?? ['bands' => [5, 4, 3, 2], 'primary' => 4];
+      $state = $states[$bar - 1] ?? ['bands' => [4, 3, 2, 1], 'primary' => Prescription::REFERENCE_BAND];
       $state['change'] = false;
       $states[$bar] = $state;
     }
@@ -103,6 +103,9 @@ final class SheetPainter {
       $cairo->cairo_rectangle($context, -$insetX, 0, $width, $sheetHeight);
       $cairo->cairo_clip($context);
       $cairo->cairo_translate($context, 0, -($design ? 0 : max(0, min(5, $firstRow))) * $tileHeight);
+      if ($design && $composer !== null) {
+        self::drawComposerCurve($cairo, $context, $score, $positions, $composer, $topSpace, $tileHeight);
+      }
       foreach ($positions as $position) {
         $bar = $position['bar'];
         if ($bar >= count($score->bars)) {
@@ -178,6 +181,42 @@ final class SheetPainter {
       $cairo->cairo_destroy($context);
       $cairo->cairo_surface_destroy($surface);
     }
+  }
+
+  /** Draw the unrounded generator function faintly behind the visible notes. */
+  private static function drawComposerCurve(\FFI $cairo, \FFI\CData $context, Score $score,
+    array $positions, array $composer, int $topSpace, int $tileHeight): void {
+    $byBar = [];
+    foreach ($positions as $position) {
+      $byBar[$position['bar']] = $position;
+    }
+    $curve = $composer['curve'];
+    $last = count($curve) - 1;
+    $meter = $score->beats(0);
+    $cairo->cairo_set_source_rgba($context, 0.12, 0.43, 0.82, 0.24);
+    $cairo->cairo_set_line_width($context, 3);
+    $drawing = false;
+    foreach ($curve as $index => $value) {
+      $beat = $index / $last * ($composer['beats'] - 1);
+      $bar = (int)floor($beat / $meter);
+      if (!isset($byBar[$bar])) {
+        $drawing = false;
+        continue;
+      }
+      $position = $byBar[$bar];
+      $localBeat = $beat - $bar * $meter;
+      $x = $position['left'] + ($localBeat + 0.5)
+        * ($position['right'] - $position['left']) / $score->beats($bar);
+      $y = $topSpace + 2 * $tileHeight
+        - ($value - ($composer['startDegree'] ?? 0)) * $tileHeight * 0.22;
+      if ($drawing) {
+        $cairo->cairo_line_to($context, $x, $y);
+      } else {
+        $cairo->cairo_move_to($context, $x, $y);
+        $drawing = true;
+      }
+    }
+    $cairo->cairo_stroke($context);
   }
 
   private static function rows(array $state, int $tileHeight, int $topSpace, bool $design): array {

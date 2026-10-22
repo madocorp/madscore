@@ -17,7 +17,8 @@ $score->place(1, 2, 3, 6, 5, 2);
 $selection = new MADSCORE\App\MelodySelection();
 $selection->extend(12, 19, 1);
 MADSCORE\App\Files::restorePath(sys_get_temp_dir() . '/madscore-session-score.json');
-foreach (['score' => $score, 'bar' => 2, 'slot' => 3, 'octave' => 6, 'melody' => 1,
+foreach (['score' => $score, 'project' => MADSCORE\Score\Project::fromScore($score),
+  'activeItemId' => 'main', 'bar' => 2, 'slot' => 3, 'octave' => 6, 'melody' => 1,
   'cursorLength' => 2, 'cursorLengthExplicit' => true, 'pitchPosition' => 5, 'firstBar' => 1,
   'firstRow' => 2, 'view' => 'sheet', 'selection' => $selection] as $name => $value) {
   (new \ReflectionProperty(MADSCORE\App\Controller::class, $name))->setValue(null, $value);
@@ -28,7 +29,10 @@ $path = tempnam(sys_get_temp_dir(), 'madscore-session-');
 try {
   $state = $capture->invoke(null);
   MADSCORE\App\Session::save($state, $path);
-  expectSession(MADSCORE\App\Session::load($path) === $state, 'The session file preserves the score and editor state.');
+  expectSession(MADSCORE\App\Session::load($path) === $state
+    && $state['project']['items'][0]['id'] === 'main'
+    && !isset($state['project']['items'][0]['score']['title']),
+    'The session file preserves the project and editor state.');
   (new \ReflectionProperty(MADSCORE\App\Controller::class, 'score'))->setValue(null, new MADSCORE\Score\Score(12));
   $restore->invoke(null, MADSCORE\App\Session::load($path));
   expectSession($capture->invoke(null) === $state, 'Restoring the session returns the score, cursor, viewport, and selection.');
@@ -48,18 +52,34 @@ try {
   } catch (\DomainException $error) {
     expectSession($capture->invoke(null) === $state, 'A rejected session leaves the current editor state intact.');
   }
-  $legacy = $state;
-  unset($legacy['selection']['scope']);
-  $legacy['version'] = 1;
-  $legacy['score']['version'] = 7;
-  unset($legacy['score']['notes'][0]['articulation'], $legacy['score']['notes'][0]['slurToNext'], $legacy['score']['notes'][0]['fermata']);
-  $restore->invoke(null, $legacy);
-  $migrated = $capture->invoke(null);
-  expectSession(!array_key_exists('version', $migrated) && !array_key_exists('version', $migrated['score'])
-    && $migrated['score']['notes'][0]['articulation'] === 'ordinary'
-    && $migrated['score']['notes'][0]['slurToNext'] === false
-    && $migrated['score']['notes'][0]['fermata'] === false,
-    'Restoring the current saved session removes version tags and fills articulation defaults.');
+  $oldFormat = $state;
+  $oldFormat['score'] = $score->data();
+  unset($oldFormat['project']);
+  try {
+    $restore->invoke(null, $oldFormat);
+    throw new \RuntimeException('The old session format was accepted.');
+  } catch (\DomainException $error) {
+    expectSession($capture->invoke(null) === $state,
+      'An old session format leaves the current editor state intact.');
+  }
+  $motifProject = MADSCORE\Score\Project::fromScore($score);
+  $motifId = $motifProject->create('motif');
+  $motifScore = $motifProject->score($motifId);
+  $motifScore->place(0, 0, 0, 4, 4, 2);
+  $motifProject->setScore($motifId, $motifScore);
+  $motifState = $state;
+  $motifState['project'] = $motifProject->data();
+  $motifState['activeItemId'] = $motifId;
+  $motifState['cursor']['bar'] = 0;
+  $motifState['cursor']['slot'] = 0;
+  $motifState['cursor']['melody'] = 0;
+  $motifState['cursor']['octave'] = 4;
+  $motifState['cursor']['pitch'] = 4;
+  $motifState['firstBar'] = 0;
+  $motifState['selection'] = null;
+  $restore->invoke(null, $motifState);
+  expectSession($capture->invoke(null) === $motifState,
+    'The session restores the active motif and its separate score.');
   $restore->invoke(null, $state);
   file_put_contents($path, '{broken');
   MADSCORE\App\Session::backupInvalid($path);
