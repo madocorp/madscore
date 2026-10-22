@@ -5,6 +5,9 @@ namespace MADSCORE\Score;
 /** Converts written notes to chromatic positions and back. */
 final class Pitch {
 
+  /** The A3–G♯4 band that contains middle C (C4). */
+  public const MIDDLE_C_BAND = 3;
+
   private const NATURAL = ['A' => 1, 'B' => 3, 'C' => 4, 'D' => 6, 'E' => 8, 'F' => 9, 'G' => 11];
   private const SPELLING = [
     ['G', 1], ['A', 0], ['A', 1], ['B', 0],

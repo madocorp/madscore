@@ -9,6 +9,8 @@ use MADSCORE\Score\Score;
 /** Chooses readable octave bands and draws their identifying symbols. */
 final class Prescription {
 
+  public const REFERENCE_BAND = Pitch::MIDDLE_C_BAND;
+
   /** Return the active prescription for every bar. */
   public static function states(Score $score, ?int $previewStart = null, ?int $previewEnd = null, ?int $previewBand = null): array {
     $occupied = [];
@@ -156,13 +158,13 @@ final class Prescription {
       $step = $row['height'] / 12;
       $middle = $row['top'] + 5 * $step;
       $size = 2 * self::dotRadius($row['height']);
-      if ($band === 4) {
+      if ($band === self::REFERENCE_BAND) {
         $cairo->cairo_arc($context, $x, $middle, $size / 2, 0, 2 * M_PI);
         $cairo->cairo_fill($context);
         continue;
       }
-      $count = abs($band - 4);
-      $up = $band > 4;
+      $count = abs($band - self::REFERENCE_BAND);
+      $up = $band > self::REFERENCE_BAND;
       for ($index = 0; $index < $count; $index++) {
         $y = $middle + ($index - ($count - 1) / 2) * $size * 1.1;
         $halfWidth = $size / sqrt(3);
@@ -197,7 +199,8 @@ final class Prescription {
   }
 
   private static function bestBand(array $bands, array $counts): int {
-    usort($bands, static fn (int $a, int $b): int => ($counts[$b] <=> $counts[$a]) ?: (abs($a - 4) <=> abs($b - 4)) ?: ($a <=> $b));
+    usort($bands, static fn (int $a, int $b): int => ($counts[$b] <=> $counts[$a])
+      ?: (abs($a - self::REFERENCE_BAND) <=> abs($b - self::REFERENCE_BAND)) ?: ($a <=> $b));
     return $bands[0];
   }
 
@@ -219,7 +222,7 @@ final class Prescription {
             $groups = 1 + (int)($b !== $a + 1) + (int)($c !== $b + 1) + (int)($d !== $c + 1);
             $retained = count(array_intersect($candidate, $previous));
             $weight = array_sum(array_map(static fn (int $band): int => $future[$band], $candidate));
-            $distance = array_sum(array_map(static fn (int $band): int => abs($band - 4), $candidate));
+            $distance = array_sum(array_map(static fn (int $band): int => abs($band - self::REFERENCE_BAND), $candidate));
             $key = [(int)in_array($primary, $candidate, true), -$groups, $retained, $weight, -$distance, -$a];
             if ($bestKey === null || $key > $bestKey) {
               $bestKey = $key;

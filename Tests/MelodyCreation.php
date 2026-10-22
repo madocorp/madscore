@@ -15,10 +15,15 @@ $definition = (new SPTK\XmlParser\XmlParser())->windows[0];
 $window = (new ReflectionClass(SPTK\Core\Window::class))->newInstanceWithoutConstructor();
 (new ReflectionProperty(SPTK\Core\Window::class, 'screens'))->setValue($window, $definition['screens']);
 $score = new MADSCORE\Score\Score();
+expectMelodyCreation($score->melodies[0]['instrument'] === 'gm:0'
+  && $score->melodies[0]['pattern'] === MADSCORE\Score\Sound::fallback('gm:0')
+  && $score->melodies[0]['volume'] === 50,
+  'A new score starts with acoustic grand piano at 50% volume.');
 $score->setMelodyColor(0, '#123abc');
 $screen = $window->screen('editor');
 $screen->widget('tempo')->setValue('120');
 $screen->widget('beats')->setValue('4');
+$screen->widget('repeats')->setValue('0');
 $screen->widget('volume')->setValue('100');
 $screen->widget('color')->setValue('#123abc');
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'window'))->setValue(null, $window);
@@ -30,7 +35,10 @@ expectMelodyCreation($commit->invoke(null), 'Adding a melody can commit the curr
 expectMelodyCreation($score->melodies[0]['color'] === '#123abc', 'The existing melody keeps its chosen color.');
 for ($number = 2; $number <= 14; $number++) {
   $index = $score->addMelody();
-  expectMelodyCreation($index === $number - 1 && $score->melodies[$index]['color'] === MADSCORE\Score\Score::COLORS[$index % count(MADSCORE\Score\Score::COLORS)],
-    "Melody {$number} receives its numbered default color.");
+  expectMelodyCreation($index === $number - 1
+    && $score->melodies[$index]['color'] === MADSCORE\Score\Score::COLORS[$index % count(MADSCORE\Score\Score::COLORS)]
+    && $score->melodies[$index]['instrument'] === 'gm:0'
+    && $score->melodies[$index]['volume'] === 50,
+    "Melody {$number} receives its default color, grand piano, and volume.");
 }
 echo "Melody creation checks passed\n";

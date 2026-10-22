@@ -59,7 +59,7 @@ $drawing = new MADSCORE\Score\Score(12);
 $drawing->ensureBar(1);
 $plain = MADSCORE\Render\SheetPainter::render($drawing, 0, 2, 500, 490);
 $rows = MADSCORE\Render\Prescription::rows(MADSCORE\Render\Prescription::states($drawing)[0], 480, 48);
-$gapY = 5 + $rows[5]['top'] + $rows[5]['height'];
+$gapY = 5 + $rows[4]['top'] + $rows[4]['height'];
 $boundaryX = 262;
 expectSection(sectionRgb($plain, $boundaryX, $gapY) === 0xffffff, 'An ordinary bar edge leaves the octave gap open.');
 $drawing->setSectionLeader(1, true);
@@ -76,8 +76,8 @@ expectSection(sectionRgb($sectioned, 30, $gapY) !== 0xffffff, 'The first section
 expectSection(sectionRgb($sectioned, 494, $gapY) !== 0xffffff && sectionRgb($sectioned, 495, $gapY) === 0xffffff,
   'The last section separator aligns with the inset closing bar line.');
 expectSection(sectionRgb($sectioned, 492, $gapY) === 0xffffff, 'The closing edge is not inset from the bar boundary.');
-$highestGSharpTop = 5 + $rows[5]['top'] - $rows[5]['height'] / 6;
-$lowestGSharpBottom = 5 + $rows[2]['top'] + $rows[2]['height'];
+$highestGSharpTop = 5 + $rows[4]['top'] - $rows[4]['height'] / 6;
+$lowestGSharpBottom = 5 + $rows[1]['top'] + $rows[1]['height'];
 expectSection(sectionRgb($sectioned, $boundaryX, (int)ceil($highestGSharpTop)) !== 0xffffff, 'The separator reaches the top of the highest G-sharp.');
 expectSection(sectionRgb($sectioned, $boundaryX, (int)floor($highestGSharpTop) - 2) === 0xffffff, 'The separator does not extend above G-sharp.');
 expectSection(sectionRgb($sectioned, $boundaryX, (int)floor($lowestGSharpBottom) - 1) !== 0xffffff,
@@ -87,8 +87,8 @@ expectSection(sectionRgb($sectioned, $boundaryX, (int)ceil($lowestGSharpBottom) 
 
 $single = new MADSCORE\Score\Score(12);
 $oneBarSheet = MADSCORE\Render\SheetPainter::render($single, 0, 2, 500, 490);
-$staffY = 5 + (int)round($rows[4]['top'] + $rows[4]['height'] / 12);
-$staffInteriorY = 5 + (int)round($rows[4]['top'] + 3 * $rows[4]['height'] / 12);
+$staffY = 5 + (int)round($rows[3]['top'] + $rows[3]['height'] / 12);
+$staffInteriorY = 5 + (int)round($rows[3]['top'] + 3 * $rows[3]['height'] / 12);
 expectSection(sectionRgb($oneBarSheet, 261, $staffInteriorY) !== 0xffffff,
   'The final bar stays closed through the middle of its staff.');
 expectSection(sectionRgb($oneBarSheet, 380, $staffY) === 0xffffff, 'No octave staff continues past the final separator.');

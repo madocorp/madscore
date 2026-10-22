@@ -31,13 +31,15 @@ $primaryRgb = hexdec(substr(MADSCORE\Score\Score::COLORS[0], 1));
 $blank = MADSCORE\Render\SheetPainter::render($score, 0, 1, 250, 490);
 $state = MADSCORE\Render\Prescription::states($score)[0];
 $rows = MADSCORE\Render\Prescription::rows($state, 480, 48);
+expectSheet($state['primary'] === 3 && array_keys($rows) === [4, 3, 2, 1],
+  'An empty score centers its four rows on the middle-C band.');
 $primaryLine = 5 + (int)round($rows[$state['primary']]['top'] + $rows[$state['primary']]['height'] / 12);
-$emptyLine = 5 + (int)round($rows[5]['top'] + $rows[5]['height'] / 12);
+$emptyLine = 5 + (int)round($rows[4]['top'] + $rows[4]['height'] / 12);
 expectSheet(sheetRgb($blank, 100, $primaryLine) !== 0xffffff, 'The primary octave staff crosses an empty bar.');
 expectSheet(sheetRgb($blank, 100, $emptyLine) === 0xffffff, 'An unused secondary octave staff is omitted.');
 expectSheet(hasSheetColor($blank, 0x000000, 10, 195, 23, 210)
   && hasSheetColor($blank, 0x000000, 10, 86, 23, 102),
-  'The prescription draws black symbols for A440 and the octave above.');
+  'The prescription draws marks for the middle-C band and the octave above.');
 
 $high = new MADSCORE\Score\Score(12);
 $high->place(0, 0, 0, 8, 11, 2);

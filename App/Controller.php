@@ -7,7 +7,11 @@ use MADSCORE\Render\{PagePainter, PagePreview, SheetPainter};
 use MADSCORE\Score\Dynamics;
 use MADSCORE\Score\DynamicLevel;
 use MADSCORE\Score\MelodyRange;
+use MADSCORE\Score\MotifScoreGenerator;
+use MADSCORE\Score\MotifVersions;
 use MADSCORE\Score\Pitch;
+use MADSCORE\Score\Project;
+use MADSCORE\Score\PhraseGenerator;
 use MADSCORE\Score\RangeEdit;
 use MADSCORE\Score\Score;
 use MADSCORE\Score\Sound;
@@ -24,6 +28,8 @@ use SPTK\Widgets\Image\Image;
 final class Controller {
 
   private static Score $score;
+  private static Project $project;
+  private static string $activeItemId = 'main';
   private static Window $window;
   private static LayoutLeaf $sheet;
   /** @var array<string, LayoutLeaf> */
@@ -36,7 +42,7 @@ final class Controller {
   private static string $view = 'editor';
   private static int $bar = 0;
   private static int $slot = 0;
-  private static int $octave = 4;
+  private static int $octave = Pitch::MIDDLE_C_BAND;
   private static int $melody = 0;
   private static int $cursorLength = 2;
   private static bool $cursorLengthExplicit = false;
@@ -63,16 +69,33 @@ final class Controller {
   private static ?int $pendingDeleteMelody = null;
   private static ?ScoreHistory $history = null;
   private static ?array $musicClipboard = null;
+  private static bool $composerOpen = false;
+  private static bool $composerListOpen = false;
+  private static ?string $composerChoiceOpen = null;
+  private static bool $motifVersionPickerOpen = false;
+  private static ?string $motifVersionAlgorithm = null;
+  private static int $motifVersionSource = 0;
+  private static string $composerScaleSelection = 'random';
+  private static string $composerHomeNoteSelection = 'random';
+  private static array $recentItems = [];
 
   /** Bind the new score and build its first visible four-staff grid. */
   public static function initialize(EventContext $event): void {
     self::$window = App::eventLoop()->windows()[0];
     self::$score = new Score();
+    self::$project = Project::fromScore(self::$score);
+    self::$activeItemId = 'main';
     self::$cursorLengthExplicit = false;
     self::$lastCursorEndBar = 0;
     self::$selection = new MelodySelection();
     self::$sessionLoadFailed = false;
     self::$pendingDeleteMelody = null;
+    self::$composerOpen = false;
+    self::$composerListOpen = false;
+    self::$composerChoiceOpen = null;
+    self::$motifVersionPickerOpen = false;
+    self::$motifVersionAlgorithm = null;
+    self::$recentItems = [];
     $restoreWarning = null;
     try {
       $state = Session::load();
@@ -100,6 +123,7 @@ final class Controller {
     Settings::initialize();
     Files::initialize();
     self::refreshEditorFields();
+    self::refreshContextHeader();
     self::$window->refreshLayout();
     if ($restoreWarning !== null) {
       self::status($restoreWarning);
@@ -125,8 +149,10 @@ final class Controller {
   }
 
   private static function sessionState(): array {
+    self::$project->setScore(self::$activeItemId, self::$score);
     return [
-      'score' => self::$score->data(),
+      'project' => self::$project->data(),
+      'activeItemId' => self::$activeItemId,
       'cursor' => [
         'bar' => self::$bar,
         'slot' => self::$slot,
@@ -148,10 +174,15 @@ final class Controller {
 
   /** Validate persisted state before replacing the new editor defaults. */
   private static function restoreSession(array $state): void {
-    if (!is_array($state['score'] ?? null) || !is_array($state['cursor'] ?? null)) {
+    if (!is_array($state['project'] ?? null) || !is_array($state['cursor'] ?? null)) {
       throw new \DomainException('The previous editor session is invalid.');
     }
-    $score = Score::fromData($state['score']);
+    $project = Project::fromData($state['project']);
+    $activeItemId = $state['activeItemId'] ?? null;
+    if (!is_string($activeItemId)) {
+      throw new \DomainException('The previous editor item is invalid.');
+    }
+    $score = $project->score($activeItemId);
     $cursor = $state['cursor'];
     $bar = $cursor['bar'] ?? null;
     $slot = $cursor['slot'] ?? null;
@@ -203,6 +234,10 @@ final class Controller {
       $octave = MelodyRange::bands($score, $melody)[1];
     }
     self::$score = $score;
+    self::$project = $project;
+    self::$activeItemId = $activeItemId;
+    $activeType = $project->item($activeItemId)['type'];
+    self::$recentItems = $activeType === 'main' ? [] : [$activeType => $activeItemId];
     self::$bar = $bar;
     self::$slot = $slot;
     self::$octave = $octave;
@@ -330,11 +365,26 @@ final class Controller {
 
   /** Replace the document after a validated load or import. */
   public static function loadScore(Score $score): void {
+    self::loadProject(Project::fromScore($score));
+  }
+
+  public static function loadProject(Project $project, string $itemId = 'main'): void {
     self::$pendingDeleteMelody = null;
+    self::$composerOpen = false;
+    self::$composerListOpen = false;
+    self::$composerChoiceOpen = null;
+    self::$motifVersionPickerOpen = false;
+    self::$motifVersionAlgorithm = null;
+    if (!isset(self::$project) || self::$project !== $project) {
+      self::$recentItems = [];
+    }
     if (self::$playbackMode !== null) {
       App::audio()->stopMusic();
       self::$playbackMode = null;
     }
+    $score = $project->score($itemId);
+    self::$project = $project;
+    self::$activeItemId = $itemId;
     self::$score = $score;
     self::$history = new ScoreHistory($score);
     self::$selection = new MelodySelection();
@@ -356,7 +406,13 @@ final class Controller {
     self::screen('editor')->activateLeaf(self::$sheet);
     self::invalidateSheet();
     self::refreshEditorFields();
+    self::refreshContextHeader();
     self::$window->refreshLayout();
+  }
+
+  public static function projectData(): array {
+    self::$project->setScore(self::$activeItemId, self::$score);
+    return self::$project->data();
   }
 
   /** Return the selected colored melody index. */
@@ -818,6 +874,585 @@ final class Controller {
     return self::$window->screen($id) ?? throw new \RuntimeException('Missing screen: ' . $id);
   }
 
+  /** Rebuild the selected melody's saved curve for the editor sheet. */
+  public static function composerPreview(): ?array {
+    $settings = self::$score->melodies[self::$melody]['generation'] ?? null;
+    return is_array($settings) ? PhraseGenerator::fromMetadata($settings) : null;
+  }
+
+  public static function composerOpen(): bool {
+    return self::$composerOpen;
+  }
+
+  public static function openComposerShortcut(EventContext $event): bool {
+    if ($event->input->key->repeat) {
+      return true;
+    }
+    self::openComposer();
+    return true;
+  }
+
+  public static function openComposer(): void {
+    if (!self::isDesign() || self::$composerOpen || !self::commitEditorFields()) {
+      return;
+    }
+    $screen = self::screen('editor');
+    $screen->restore('savePanel');
+    $screen->restore('loadPanel');
+    $screen->restore('soundPicker');
+    $motif = self::$score->melodies[self::$melody]['motif'] ?? null;
+    if (self::$project->item(self::$activeItemId)['type'] === 'motif') {
+      if ($motif !== null) {
+        $screen->widget('composerBeats')->setValue((string)$motif['beats']);
+        $screen->widget('composerNotes')->setValue((string)$motif['pitchCount']);
+      } else {
+        foreach (array_reverse(self::$score->melodies) as $settings) {
+          if (isset($settings['motif'])) {
+            $motif = $settings['motif'];
+            break;
+          }
+        }
+      }
+    }
+    self::$composerScaleSelection = $motif === null || ($motif['randomScale'] ?? false)
+      ? 'random' : $motif['scale'];
+    self::$composerHomeNoteSelection = $motif === null || ($motif['randomHomeNote'] ?? false)
+      ? 'random' : ($motif['homeNote'] ?? 'C');
+    self::refreshComposerChoices();
+    $screen->widget('composerBeats')->setInputInterceptor(static function (mixed $input): bool {
+      if ($input->type === SDL::SDL_EVENT_TEXT_INPUT) {
+        return in_array(strtolower(\FFI::string($input->text->text)), ['c', 'v'], true);
+      }
+      if ($input->type !== SDL::SDL_EVENT_KEY_DOWN) {
+        return false;
+      }
+      $key = KeyNormalizer::normalize((int)$input->key->key, (int)$input->key->mod);
+      if ($key === SDL::KEY_ESCAPE) {
+        self::closeComposer();
+        return true;
+      }
+      return false;
+    });
+    self::$composerOpen = true;
+    self::refreshComposerItemField();
+    if ($screen->show(self::composerPanelId())) {
+      self::$window->refreshLayout();
+    }
+    self::invalidateSheet();
+  }
+
+  public static function closeComposer(?EventContext $event = null): void {
+    self::$composerOpen = false;
+    self::$composerListOpen = false;
+    self::$composerChoiceOpen = null;
+    self::$motifVersionPickerOpen = false;
+    self::$motifVersionAlgorithm = null;
+    $screen = self::screen('editor');
+    $changed = $screen->restore('composerItems');
+    $changed = $screen->restore('motifVersionPicker') || $changed;
+    $changed = $screen->restore('motifVersionParams') || $changed;
+    $changed = $screen->restore('composerScalePicker') || $changed;
+    $changed = $screen->restore('composerHomeNotePicker') || $changed;
+    foreach (['composerPanel', 'composerScorePanel', 'composerPhrasePanel'] as $panel) {
+      $changed = $screen->restore($panel) || $changed;
+    }
+    if ($changed) {
+      self::$window->refreshLayout();
+    }
+    self::invalidateSheet();
+  }
+
+  public static function closeComposerShortcut(EventContext $event): bool {
+    if (self::$motifVersionPickerOpen || self::$motifVersionAlgorithm !== null) {
+      self::cancelMotifVersion();
+      return true;
+    }
+    if (self::$composerChoiceOpen !== null) {
+      self::cancelComposerChoice();
+      return true;
+    }
+    if (self::$composerListOpen) {
+      self::cancelComposerItems();
+      return true;
+    }
+    if (!self::$composerOpen) {
+      return false;
+    }
+    self::closeComposer();
+    return true;
+  }
+
+  public static function composerViewShortcut(EventContext $event): bool {
+    if (!self::$composerOpen) {
+      return false;
+    }
+    if (!$event->input->key->repeat) {
+      self::closeComposer();
+      self::screen('editor')->activateLeaf(self::$sheets['editor']);
+      self::toggleView($event);
+    }
+    return true;
+  }
+
+  public static function generateComposer(EventContext $event): void {
+    if (self::$project->item(self::$activeItemId)['type'] !== 'motif') {
+      return;
+    }
+    self::composeMotif();
+  }
+
+  private static function composerPanelId(): string {
+    return match (self::$project->item(self::$activeItemId)['type']) {
+      'main' => 'composerScorePanel',
+      'motif' => 'composerPanel',
+      'phrase' => 'composerPhrasePanel',
+    };
+  }
+
+  private static function composerFocused(): bool {
+    if (!self::$composerOpen || self::$composerListOpen || self::$composerChoiceOpen !== null
+      || self::$motifVersionPickerOpen || self::$motifVersionAlgorithm !== null) {
+      return false;
+    }
+    $leaf = self::screen('editor')->selectedLeaf();
+    return $leaf !== null && in_array($leaf->instance()->id(), [
+      'scoreToMotif', 'scoreToPhrase',
+      'composerToScore', 'composerToPhrase', 'composerItem', 'composerBeats',
+      'composerNotes', 'composerScale', 'composerHomeNote', 'composerGenerate',
+      'composerAddVersion',
+      'phraseToScore', 'phraseToMotif', 'composerPhraseItem',
+    ], true);
+  }
+
+  private static function refreshComposerChoices(): void {
+    $screen = self::screen('editor');
+    $screen->widget('composerScale')->setLabel('Scale: '
+      . (self::$composerScaleSelection === 'random' ? 'Random' : self::$composerScaleSelection));
+    $screen->widget('composerHomeNote')->setLabel('Home note: '
+      . (self::$composerHomeNoteSelection === 'random' ? 'Random' : self::$composerHomeNoteSelection));
+  }
+
+  private static function showComposerChoice(string $choice): void {
+    if (!self::composerFocused()
+      || self::$project->item(self::$activeItemId)['type'] !== 'motif') {
+      return;
+    }
+    $screen = self::screen('editor');
+    $id = $choice === 'scale' ? 'composerScalePicker' : 'composerHomeNotePicker';
+    $screen->widget($id)->setValue($choice === 'scale'
+      ? self::$composerScaleSelection : self::$composerHomeNoteSelection);
+    $screen->restore('composerPanel');
+    self::$composerChoiceOpen = $choice;
+    $screen->show($id);
+    self::$window->refreshLayout();
+  }
+
+  public static function showComposerScalePicker(EventContext $event): void {
+    self::showComposerChoice('scale');
+  }
+
+  public static function showComposerHomeNotePicker(EventContext $event): void {
+    self::showComposerChoice('homeNote');
+  }
+
+  private static function cancelComposerChoice(): void {
+    if (self::$composerChoiceOpen === null) {
+      return;
+    }
+    $screen = self::screen('editor');
+    $screen->restore(self::$composerChoiceOpen === 'scale'
+      ? 'composerScalePicker' : 'composerHomeNotePicker');
+    self::$composerChoiceOpen = null;
+    $screen->show('composerPanel');
+    self::$window->refreshLayout();
+  }
+
+  public static function acceptComposerScale(EventContext $event): void {
+    if (self::$composerChoiceOpen !== 'scale') {
+      return;
+    }
+    $value = self::screen('editor')->widget('composerScalePicker')->activeValue();
+    if ($value !== 'random' && !isset(MotifScoreGenerator::SCALES[$value])) {
+      return;
+    }
+    self::$composerScaleSelection = $value;
+    self::refreshComposerChoices();
+    self::cancelComposerChoice();
+  }
+
+  public static function acceptComposerHomeNote(EventContext $event): void {
+    if (self::$composerChoiceOpen !== 'homeNote') {
+      return;
+    }
+    $value = self::screen('editor')->widget('composerHomeNotePicker')->activeValue();
+    if ($value !== 'random' && !isset(MotifScoreGenerator::HOME_NOTES[$value])) {
+      return;
+    }
+    self::$composerHomeNoteSelection = $value;
+    self::refreshComposerChoices();
+    self::cancelComposerChoice();
+  }
+
+  public static function composerSwitchMotif(EventContext $event): void {
+    if (self::composerFocused()) {
+      self::switchComposerType('motif');
+    }
+  }
+
+  public static function composerSwitchPhrase(EventContext $event): void {
+    if (self::composerFocused()) {
+      self::switchComposerType('phrase');
+    }
+  }
+
+  public static function composerSwitchScore(EventContext $event): void {
+    if (self::composerFocused()) {
+      self::switchComposerType('main');
+    }
+  }
+
+  private static function switchComposerType(string $type): void {
+    if (!self::$composerOpen || !self::commitEditorFields()) {
+      return;
+    }
+    self::$project->setScore(self::$activeItemId, self::$score);
+    $id = $type === 'main' ? 'main' : (self::$recentItems[$type] ?? self::$project->first($type));
+    if ($id === null) {
+      $id = self::$project->create($type);
+    }
+    self::switchProjectItem($id);
+  }
+
+  private static function switchProjectItem(string $id): void {
+    self::$project->setScore(self::$activeItemId, self::$score);
+    $item = self::$project->item($id);
+    if ($item['type'] !== 'main') {
+      self::$recentItems[$item['type']] = $id;
+    }
+    self::closeComposer();
+    self::loadProject(self::$project, $id);
+  }
+
+  private static function refreshComposerItemField(): void {
+    $item = self::$project->item(self::$activeItemId);
+    $label = $item['id'] . ' · ' . ($item['name'] ?? $item['id']);
+    if ($item['type'] === 'motif') {
+      self::screen('editor')->widget('composerItem')->setLabel($label);
+    } else if ($item['type'] === 'phrase') {
+      self::screen('editor')->widget('composerPhraseItem')->setLabel($label);
+    }
+  }
+
+  public static function showComposerItems(EventContext $event): void {
+    if (!self::composerFocused()) {
+      return;
+    }
+    $type = self::$project->item(self::$activeItemId)['type'];
+    if ($type === 'main') {
+      return;
+    }
+    $items = [];
+    foreach (self::$project->items() as $item) {
+      if ($item['type'] === $type) {
+        $items[] = ['value' => $item['id'], 'label' => $item['id'] . ' · ' . ($item['name'] ?? $item['id'])];
+      }
+    }
+    $items[] = ['value' => '__create__', 'label' => 'Create new item'];
+    $screen = self::screen('editor');
+    $screen->widget('composerItems')->setItems($items);
+    $screen->widget('composerItems')->setValue(self::$activeItemId);
+    $screen->restore(self::composerPanelId());
+    self::$composerListOpen = true;
+    $screen->show('composerItems');
+    self::$window->refreshLayout();
+  }
+
+  private static function cancelComposerItems(): void {
+    self::$composerListOpen = false;
+    $screen = self::screen('editor');
+    $screen->restore('composerItems');
+    $screen->show(self::composerPanelId());
+    self::$window->refreshLayout();
+  }
+
+  public static function acceptComposerItem(EventContext $event): void {
+    if (!self::$composerListOpen) {
+      return;
+    }
+    $id = self::screen('editor')->widget('composerItems')->activeValue();
+    if ($id === null) {
+      return;
+    }
+    if ($id === '__create__') {
+      try {
+        $type = self::$project->item(self::$activeItemId)['type'];
+        $id = self::$project->create($type);
+      } catch (\DomainException $error) {
+        self::status($error->getMessage());
+        return;
+      }
+    }
+    self::$composerListOpen = false;
+    self::switchProjectItem($id);
+  }
+
+  public static function showMotifVersionPicker(EventContext $event): void {
+    if (!self::composerFocused()
+      || self::$project->item(self::$activeItemId)['type'] !== 'motif') {
+      return;
+    }
+    if (!isset(self::$score->melodies[self::$melody]['motif'])) {
+      self::status('Generate the original motif before adding a version.');
+      return;
+    }
+    $screen = self::screen('editor');
+    $screen->restore('composerPanel');
+    self::$motifVersionPickerOpen = true;
+    $screen->show('motifVersionPicker');
+    self::$window->refreshLayout();
+  }
+
+  public static function acceptMotifVersionAlgorithm(EventContext $event): void {
+    if (!self::$motifVersionPickerOpen) {
+      return;
+    }
+    $screen = self::screen('editor');
+    $algorithm = $screen->widget('motifVersionPicker')->activeValue();
+    if (!isset(MotifVersions::ALGORITHMS[$algorithm])) {
+      return;
+    }
+    self::$motifVersionPickerOpen = false;
+    self::$motifVersionAlgorithm = $algorithm;
+    self::$motifVersionSource = self::$score->sectionNumber(self::$bar) - 1;
+    $screen->restore('motifVersionPicker');
+    if (in_array($algorithm, ['invert', 'reverse'], true)) {
+      self::appendMotifVersion([]);
+      return;
+    }
+    $parameter = match ($algorithm) {
+      'keep-opening' => ['Beats to keep', (string)max(1,
+        intdiv(self::$score->melodies[self::$melody]['motif']['beats'], 2))],
+      'new-ending' => ['Last notes to change', '2'],
+      'transpose' => ['Scale steps (−3 to 3, except 0)', '1'],
+      'rhythm' => ['Beats to shift splits', '1'],
+    };
+    $screen->widget('motifVersionTitle')->setText(MotifVersions::ALGORITHMS[$algorithm]);
+    $screen->widget('motifVersionValue')->setLabel($parameter[0]);
+    $screen->widget('motifVersionValue')->setValue($parameter[1]);
+    $screen->show('motifVersionParams');
+    self::$window->refreshLayout();
+  }
+
+  public static function cancelMotifVersion(?EventContext $event = null): void {
+    self::$motifVersionPickerOpen = false;
+    self::$motifVersionAlgorithm = null;
+    $screen = self::screen('editor');
+    $screen->restore('motifVersionPicker');
+    $screen->restore('motifVersionParams');
+    if (self::$composerOpen) {
+      $screen->show('composerPanel');
+    }
+    self::$window->refreshLayout();
+  }
+
+  public static function createMotifVersion(EventContext $event): void {
+    $algorithm = self::$motifVersionAlgorithm;
+    if ($algorithm === null) {
+      return;
+    }
+    $raw = trim(self::screen('editor')->widget('motifVersionValue')->getValue());
+    if (preg_match('/^-?[0-9]+$/D', $raw) !== 1) {
+      self::status('Enter a whole number for the version parameter.');
+      return;
+    }
+    $key = match ($algorithm) {
+      'keep-opening' => 'keepBeats',
+      'new-ending' => 'replaceNotes',
+      'transpose' => 'steps',
+      'rhythm' => 'shiftBeats',
+    };
+    self::appendMotifVersion([$key => (int)$raw]);
+  }
+
+  private static function appendMotifVersion(array $parameters): void {
+    $algorithm = self::$motifVersionAlgorithm;
+    if ($algorithm === null) {
+      return;
+    }
+    try {
+      $result = MotifVersions::append(self::$score, self::$melody,
+        ['algorithm' => $algorithm, 'source' => self::$motifVersionSource,
+          'parameters' => $parameters]);
+    } catch (\DomainException $error) {
+      self::status($error->getMessage());
+      if ($parameters === []) {
+        self::cancelMotifVersion();
+      }
+      return;
+    }
+    self::$score = $result['score'];
+    $section = 0;
+    foreach (self::$score->bars as $bar => $settings) {
+      if ($settings['sectionLeader'] && $section++ === $result['version']) {
+        self::$bar = $bar;
+        break;
+      }
+    }
+    self::$slot = 0;
+    self::$firstBar = self::$bar;
+    self::$columns = self::fitColumns();
+    self::clearSelection();
+    self::$history?->observe(self::$score);
+    self::refreshSelectedBarFields();
+    self::refreshMelodyFields();
+    self::refreshCursorReadout();
+    self::closeComposer();
+    self::screen('editor')->activateLeaf(self::$sheets['editor']);
+    self::invalidateSheet();
+    self::$window->refreshLayout();
+    self::status('Created ' . self::$activeItemId . $result['version'] . ' with '
+      . MotifVersions::ALGORITHMS[$algorithm] . '.');
+  }
+
+  public static function contextNameAccepted(EventContext $event): void {
+    if (self::$activeItemId === 'main') {
+      return;
+    }
+    try {
+      self::$project->setName(self::$activeItemId, (string)$event->widget?->getValue());
+      self::refreshComposerItemField();
+    } catch (\DomainException $error) {
+      self::status($error->getMessage());
+    }
+    self::refreshContextHeader();
+  }
+
+  private static function refreshContextHeader(): void {
+    $screen = self::screen('editor');
+    if (self::$activeItemId === 'main') {
+      $screen->restore('contextHeader');
+      return;
+    }
+    $item = self::$project->item(self::$activeItemId);
+    $music = $item['music'] ?? [];
+    if ($item['type'] === 'motif') {
+      $motif = self::$score->melodies[self::$melody]['motif'] ?? null;
+      if ($motif !== null) {
+        $music = ['scale' => $motif['scale'], 'homeNote' => $motif['homeNote']];
+      }
+    }
+    $screen->widget('contextId')->setText(ucfirst($item['type']) . ' ' . $item['id']);
+    $screen->widget('contextName')->setValue($item['name'] ?? $item['id']);
+    $screen->widget('contextInfo')->setText(
+      (isset($music['scale']) ? $music['scale'] : '')
+      . (isset($music['homeNote']) ? ' · Home ' . $music['homeNote'] : ''));
+    $screen->show('contextHeader', false);
+  }
+
+  public static function regenerateComposerFromSheet(): void {
+    if (!self::isDesign() || self::$project->item(self::$activeItemId)['type'] !== 'motif') {
+      return;
+    }
+    $motif = self::$score->melodies[self::$melody]['motif'] ?? null;
+    if ($motif === null) {
+      self::status('No generated motif in this melody. Use Composer to generate one.');
+      return;
+    }
+    self::applyMotif($motif['beats'], $motif['pitchCount'],
+      self::$melody,
+      ($motif['randomScale'] ?? false) ? null : $motif['scale'],
+      ($motif['randomHomeNote'] ?? false) ? null : $motif['homeNote']);
+  }
+
+  public static function regenerateComposerShortcut(EventContext $event): bool {
+    if (!self::isDesign() || self::$composerOpen) {
+      return false;
+    }
+    if (!$event->input->key->repeat) {
+      self::regenerateComposerFromSheet();
+    }
+    return true;
+  }
+
+  private static function composeMotif(): void {
+    if (!self::$composerOpen) {
+      return;
+    }
+    $screen = self::screen('editor');
+    $raw = trim($screen->widget('composerBeats')->getValue());
+    $rawNotes = trim($screen->widget('composerNotes')->getValue());
+    if (!ctype_digit($raw)) {
+      self::status('Motif length must be a whole number from 3 to 32 beats.');
+      return;
+    }
+    if (!ctype_digit($rawNotes)) {
+      self::status('Pitches to use must be a whole number from 1 to 7.');
+      return;
+    }
+    $replace = isset(self::$score->melodies[self::$melody]['motif']) ? self::$melody : null;
+    if ($replace === null) {
+      foreach (self::$score->melodies as $index => $settings) {
+        if (isset($settings['motif'])) {
+          $replace = $index;
+          break;
+        }
+      }
+    }
+    self::applyMotif((int)$raw, (int)$rawNotes, $replace,
+      self::$composerScaleSelection === 'random' ? null : self::$composerScaleSelection,
+      self::$composerHomeNoteSelection === 'random' ? null : self::$composerHomeNoteSelection);
+  }
+
+  private static function applyMotif(int $beats, int $pitchCount, ?int $melody = null,
+    ?string $scale = null, ?string $homeNote = null): void {
+    try {
+      $result = self::$project->item(self::$activeItemId)['type'] === 'motif'
+        ? MotifVersions::regenerate(self::$score, $melody, $beats, $pitchCount,
+          $scale, $homeNote)
+        : MotifScoreGenerator::place(self::$score, $beats, $pitchCount,
+          $melody, scale: $scale, homeNote: $homeNote);
+    } catch (\DomainException $error) {
+      self::status($error->getMessage());
+      return;
+    }
+    if (self::$project->item(self::$activeItemId)['type'] === 'motif') {
+      $result['score']->melodies[$result['melody']]['motif']['label'] = self::$activeItemId;
+      $result['label'] = self::$activeItemId;
+    }
+    if (self::$playbackMode !== null) {
+      App::audio()->stopMusic();
+      self::$playbackMode = null;
+    }
+    self::$score = $result['score'];
+    self::$melody = $result['melody'];
+    self::refreshContextHeader();
+    self::$bar = 0;
+    self::$slot = 0;
+    self::$octave = Pitch::MIDDLE_C_BAND;
+    self::$pitchPosition = 4;
+    self::$firstBar = 0;
+    self::$columns = self::fitColumns();
+    self::$cursorLength = 2;
+    self::$cursorLengthExplicit = false;
+    self::$lastCursorEndBar = 0;
+    self::clearSelection();
+    self::$history?->observe(self::$score);
+    self::refreshSelectedBarFields();
+    self::refreshMelodyFields();
+    self::refreshCursorReadout();
+    if (self::$composerOpen) {
+      self::closeComposer();
+    }
+    self::screen('editor')->activateLeaf(self::$sheets['editor']);
+    self::invalidateSheet();
+    self::$window->refreshLayout();
+    self::status('Motif ' . $result['label'] . ': ' . $beats . ' beats, '
+      . $result['motif']['barBeats'] . ' per bar, '
+      . $result['motif']['homeNote'] . ' ' . $result['motif']['scale'] . ', '
+      . $pitchCount . ' distinct pitches, ' . $result['motif']['eventCount']
+      . ' notes, ' . count($result['motif']['splits']) . ' splits. Press M to play.');
+  }
+
   /** Return the visible screen identifier for file actions. */
   public static function currentScreenId(): string {
     return self::$window->currentScreenId();
@@ -944,6 +1579,7 @@ final class Controller {
       }
     }
     self::refreshMelodyFields();
+    self::refreshContextHeader();
     self::focusWithoutHistory();
     self::$window->refreshLayout();
     self::status('Melody ' . (self::$melody + 1));
@@ -1534,6 +2170,9 @@ final class Controller {
 
   /** Show the sound choices in place of the melody settings tile. */
   public static function showSoundPicker(EventContext $event): void {
+    if (self::$composerOpen) {
+      self::closeComposer();
+    }
     if (self::$score->melodyMuted(self::$melody)) {
       self::status('This melody is muted and read-only. Unmute it to edit.');
       return;
@@ -1562,6 +2201,9 @@ final class Controller {
 
   /** Show one file form over the Note tile. */
   public static function showFilePanel(string $id): void {
+    if (self::$composerOpen) {
+      self::closeComposer();
+    }
     $screen = self::screen('editor');
     $other = $id === 'savePanel' ? 'loadPanel' : 'savePanel';
     $screen->restore($other);
@@ -1824,6 +2466,7 @@ final class Controller {
     $screen = self::screen('editor');
     $settings = self::$score->melodies[self::$melody];
     $screen->widget('selectedMelody')->setText('[Y] Melody ' . (self::$melody + 1)
+      . (isset($settings['motif']) ? ' · Motif ' . $settings['motif']['label'] : '')
       . (self::$score->melodyMuted(self::$melody) ? ' (muted)' : ''));
     self::prepareSoundPicker();
     $screen->widget('soundPicker')->setValue($settings['instrument']);
