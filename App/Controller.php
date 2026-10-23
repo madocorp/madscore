@@ -6,9 +6,12 @@ use MADSCORE\Play\{MidiPlayback, PlaybackTimeline, ScoreSource, SheetCache};
 use MADSCORE\Render\{PagePainter, PagePreview, SheetPainter};
 use MADSCORE\Score\Dynamics;
 use MADSCORE\Score\DynamicLevel;
+use MADSCORE\Score\ChordGenerator;
+use MADSCORE\Score\HarmonicContext;
 use MADSCORE\Score\MelodyRange;
 use MADSCORE\Score\MotifScoreGenerator;
 use MADSCORE\Score\MotifVersions;
+use MADSCORE\Score\MotifArrangement;
 use MADSCORE\Score\Pitch;
 use MADSCORE\Score\Project;
 use MADSCORE\Score\PhraseGenerator;
@@ -23,9 +26,12 @@ use SPTK\Events\KeyNormalizer;
 use SPTK\Layout\{LayoutLeaf, LayoutNode};
 use SPTK\SDLWrapper\SDL;
 use SPTK\Widgets\Image\Image;
+use SPTK\Widgets\Input\Input;
 
 /** Owns the score, visible sheet, and editor navigation. */
 final class Controller {
+
+  private const SCORE_PATTERN_HELP = "Create motifs first. Then replace this text with the list of motifs. Use this format: 'A B A1 | A B1 A2'. Then press the build button.";
 
   private static Score $score;
   private static Project $project;
@@ -70,14 +76,23 @@ final class Controller {
   private static ?ScoreHistory $history = null;
   private static ?array $musicClipboard = null;
   private static bool $composerOpen = false;
+  private static bool $chordOpen = false;
+  private static ?string $chordChoiceOpen = null;
+  private static string $chordScaleSelection = '';
+  private static string $chordHomeNoteSelection = '';
+  private static array $lastChordSettings = [];
   private static bool $composerListOpen = false;
+  private static bool $composerGenerateOpen = false;
   private static ?string $composerChoiceOpen = null;
   private static bool $motifVersionPickerOpen = false;
   private static ?string $motifVersionAlgorithm = null;
   private static int $motifVersionSource = 0;
   private static string $composerScaleSelection = 'random';
   private static string $composerHomeNoteSelection = 'random';
-  private static array $recentItems = [];
+  private static string $composerTypeSelection = 'random-step';
+  private static int $composerGenerateTarget = 0;
+  private static ?string $recentMotifId = null;
+  private static ?Score $pendingBuiltScore = null;
 
   /** Bind the new score and build its first visible four-staff grid. */
   public static function initialize(EventContext $event): void {
@@ -91,11 +106,17 @@ final class Controller {
     self::$sessionLoadFailed = false;
     self::$pendingDeleteMelody = null;
     self::$composerOpen = false;
+    self::$chordOpen = false;
+    self::$chordChoiceOpen = null;
+    self::$lastChordSettings = [];
     self::$composerListOpen = false;
+    self::$composerGenerateOpen = false;
     self::$composerChoiceOpen = null;
+    self::$composerGenerateTarget = 0;
     self::$motifVersionPickerOpen = false;
     self::$motifVersionAlgorithm = null;
-    self::$recentItems = [];
+    self::$recentMotifId = null;
+    self::$pendingBuiltScore = null;
     $restoreWarning = null;
     try {
       $state = Session::load();
@@ -149,6 +170,7 @@ final class Controller {
   }
 
   private static function sessionState(): array {
+    self::saveScorePattern();
     self::$project->setScore(self::$activeItemId, self::$score);
     return [
       'project' => self::$project->data(),
@@ -169,6 +191,7 @@ final class Controller {
       'filePath' => Files::currentPath(),
       'selection' => self::selectionStateForSheet(),
       'playbackSound' => self::$playbackSound,
+      'chordSettings' => self::$lastChordSettings,
     ];
   }
 
@@ -197,6 +220,7 @@ final class Controller {
     $previewPage = $state['previewPage'] ?? 0;
     $view = $state['view'] ?? 'editor';
     $playbackSound = $state['playbackSound'] ?? 'midi';
+    $chordSettings = $state['chordSettings'] ?? [];
     if (!is_int($bar) || $bar < 0 || $bar >= count($score->bars)
       || !is_int($slot) || $slot < 0 || $slot > 2 * $score->beats($bar)
       || !is_int($octave) || $octave < 0 || $octave > 8
@@ -210,6 +234,27 @@ final class Controller {
       || !in_array($view, ['editor', 'sheet'], true)
       || !in_array($playbackSound, ['midi', 'built-in'], true)) {
       throw new \DomainException('The previous editor position is invalid.');
+    }
+    if (!is_array($chordSettings)) {
+      throw new \DomainException('The previous chord settings are invalid.');
+    }
+    foreach ($chordSettings as $key => $settings) {
+      if (!is_string($key)
+        || preg_match('/^(?:main:[0-9]+|[A-Z]+)$/D', $key) !== 1
+        || !is_array($settings)
+        || array_keys($settings) !== ['count', 'series', 'degree', 'inversion', 'music']
+        || !is_int($settings['count']) || $settings['count'] < 2
+        || $settings['count'] > 7
+        || !is_int($settings['series']) || $settings['series'] < 1
+        || $settings['series'] > 16
+        || ($settings['degree'] !== null && (!is_int($settings['degree'])
+          || $settings['degree'] < 1 || $settings['degree'] > 7))
+        || ($settings['inversion'] !== null && (!is_int($settings['inversion'])
+          || $settings['inversion'] < 0
+          || $settings['inversion'] >= $settings['count']))) {
+        throw new \DomainException('The previous chord settings are invalid.');
+      }
+      HarmonicContext::validate($settings['music']);
     }
     $selection = new MelodySelection();
     if (($savedSelection = $state['selection'] ?? null) !== null) {
@@ -236,8 +281,7 @@ final class Controller {
     self::$score = $score;
     self::$project = $project;
     self::$activeItemId = $activeItemId;
-    $activeType = $project->item($activeItemId)['type'];
-    self::$recentItems = $activeType === 'main' ? [] : [$activeType => $activeItemId];
+    self::$recentMotifId = $activeItemId === 'main' ? null : $activeItemId;
     self::$bar = $bar;
     self::$slot = $slot;
     self::$octave = $octave;
@@ -250,6 +294,7 @@ final class Controller {
     self::$previewPage = min($previewPage, count(PagePainter::pages($score)) - 1);
     self::$view = $view;
     self::$playbackSound = $playbackSound;
+    self::$lastChordSettings = $chordSettings;
     self::$selection = $selection;
     self::$lastCursorEndBar = min(self::cursorEndBar(), count($score->bars) - 1);
     self::$displayedBar = -1;
@@ -370,13 +415,22 @@ final class Controller {
 
   public static function loadProject(Project $project, string $itemId = 'main'): void {
     self::$pendingDeleteMelody = null;
+    self::$pendingBuiltScore = null;
     self::$composerOpen = false;
+    self::$chordOpen = false;
+    self::$chordChoiceOpen = null;
+    self::screen('editor')->restore('chordScalePicker');
+    self::screen('editor')->restore('chordHomeNotePicker');
+    self::screen('editor')->restore('chordPanel');
     self::$composerListOpen = false;
+    self::$composerGenerateOpen = false;
     self::$composerChoiceOpen = null;
+    self::$composerGenerateTarget = 0;
     self::$motifVersionPickerOpen = false;
     self::$motifVersionAlgorithm = null;
     if (!isset(self::$project) || self::$project !== $project) {
-      self::$recentItems = [];
+      self::$recentMotifId = null;
+      self::$lastChordSettings = [];
     }
     if (self::$playbackMode !== null) {
       App::audio()->stopMusic();
@@ -411,6 +465,7 @@ final class Controller {
   }
 
   public static function projectData(): array {
+    self::saveScorePattern();
     self::$project->setScore(self::$activeItemId, self::$score);
     return self::$project->data();
   }
@@ -478,8 +533,8 @@ final class Controller {
     self::focusWithoutHistory();
   }
 
-  /** Place the preview note at the current time position. */
-  public static function dropNote(): void {
+  /** Place the preview note and optionally advance after a new insertion. */
+  public static function dropNote(bool $advanceAfterInsert = false): void {
     $index = self::$score->noteAt(self::$melody, self::$bar, self::$slot);
     $before = $index === null ? null : self::$score->notes[$index];
     $bar = $before['bar'] ?? self::$bar;
@@ -488,14 +543,23 @@ final class Controller {
     self::changedNote($before, self::$score->notes[$index]);
     self::selectNoteOnset($index);
     self::$cursorLengthExplicit = false;
+    if ($advanceAfterInsert && $before === null) {
+      self::advanceAfterInsertedNote();
+    }
     self::focusCursor();
+  }
+
+  private static function advanceAfterInsertedNote(): void {
+    [self::$bar, self::$slot] = self::$score->moveCursor(
+      self::$melody, self::$bar, self::$slot, 1);
+    self::syncNoteLength();
   }
 
   /** Place a note in a gap, or move the pitch cursor to an existing note. */
   public static function followNotePitch(): void {
     $index = self::currentNoteIndex();
     if ($index === null) {
-      self::dropNote();
+      self::dropNote(true);
       return;
     }
     $note = self::$score->notes[$index];
@@ -676,10 +740,10 @@ final class Controller {
     self::focusCursor();
   }
 
-  /** Insert a one-beat note or gap after the cursor span. */
+  /** Insert a one-beat note or gap at the cursor's left edge. */
   public static function insertInverseBeat(): void {
     [self::$bar, self::$slot, $inserted] = self::$score->insertInverseBeat(
-      self::$melody, self::$bar, self::$slot, self::cursorLength(), self::$octave, self::$pitchPosition);
+      self::$melody, self::$bar, self::$slot, self::$octave, self::$pitchPosition);
     self::clearSelection();
     self::$cursorLength = 2;
     self::$cursorLengthExplicit = $inserted === null;
@@ -762,14 +826,14 @@ final class Controller {
     self::status('Copied selection.');
   }
 
-  /** Replace the selection or insert a clip after the current note or gap. */
+  /** Replace the selection or insert a clip at the cursor's left edge. */
   public static function pasteSelection(): void {
     if (self::$musicClipboard === null) {
       self::status('Nothing copied yet.');
       return;
     }
     $range = self::selectionStateForSheet();
-    $at = self::$score->start(self::$bar) + self::$slot + self::cursorLength();
+    $at = self::cursorState()['start'];
     $start = $range['start'] ?? $at;
     $duration = self::$musicClipboard['duration'];
     $next = RangeEdit::paste(self::$score, self::$musicClipboard, $range, self::$melody, $at);
@@ -884,6 +948,315 @@ final class Controller {
     return self::$composerOpen;
   }
 
+  /** Use the motif's key or the current score section's explicit key. */
+  private static function currentMusic(): ?array {
+    if (self::$activeItemId === 'main') {
+      return self::$score->sectionMusic(self::$bar);
+    }
+    return self::$score->sectionMusic(0);
+  }
+
+  /** Chord choices belong to one motif or one main-score section. */
+  private static function chordSettingsKey(): string {
+    return self::$activeItemId === 'main'
+      ? 'main:' . self::$score->sectionStart(self::$bar)
+      : self::$activeItemId;
+  }
+
+  private static function previousChordSettings(): ?array {
+    $saved = self::$lastChordSettings[self::chordSettingsKey()] ?? null;
+    return $saved !== null && $saved['music'] === self::currentMusic()
+      ? $saved : null;
+  }
+
+  public static function openChordShortcut(EventContext $event): bool {
+    if ($event->widget instanceof Input && $event->widget->editing()) {
+      return false;
+    }
+    if (!$event->input->key->repeat) {
+      self::openChord();
+    }
+    return true;
+  }
+
+  public static function rerollChordShortcut(EventContext $event): bool {
+    if ($event->widget instanceof Input && $event->widget->editing()) {
+      return false;
+    }
+    if (!$event->input->key->repeat) {
+      self::rerollChord();
+    }
+    return true;
+  }
+
+  public static function openChord(): void {
+    if (!self::isDesign() || self::$chordOpen || !self::commitEditorFields()) {
+      return;
+    }
+    if (self::$composerOpen) {
+      self::closeComposer();
+    }
+    $screen = self::screen('editor');
+    $screen->restore('savePanel');
+    $screen->restore('loadPanel');
+    $screen->restore('soundPicker');
+    $music = self::currentMusic();
+    $previous = self::previousChordSettings();
+    $existing = ChordGenerator::groupAt(self::$score, self::$bar, self::$slot,
+      self::$melody);
+    $selected = self::$score->noteAt(self::$melody, self::$bar, self::$slot);
+    $fixed = $selected !== null && $existing === null;
+    if ($existing !== null) {
+      foreach (self::$score->notes as $note) {
+        if (($note['chord']['id'] ?? null) === $existing['id']
+          && ($note['chord']['fixed'] ?? false) === true) {
+          $fixed = true;
+          break;
+        }
+      }
+    }
+    $screen->widget('chordTitle')->setText($fixed
+      ? 'Chord generator · Keep melody note' : 'Chord generator');
+    $count = $existing['count'] ?? $previous['count'] ?? 3;
+    $screen->widget('chordNotes')->setValue((string)$count);
+    $screen->widget('chordSeries')->setValue((string)($existing !== null
+      ? 1 : ($previous['series'] ?? 1)));
+    $screen->widget('chordDegree')->setValue((string)($previous['degree'] ?? 'random'));
+    $inversion = $previous['inversion'] ?? null;
+    $screen->widget('chordInversion')->setValue((string)($inversion !== null
+      && $inversion < $count ? $inversion : 'random'));
+    self::$chordScaleSelection = $music['scale'] ?? $existing['scale'] ?? '';
+    self::$chordHomeNoteSelection = $music['homeNote'] ?? $existing['homeNote'] ?? '';
+    self::refreshChordChoices();
+    foreach (['chordNotes', 'chordSeries', 'chordDegree', 'chordInversion'] as $field) {
+      $screen->widget($field)->setInputInterceptor(static function (mixed $input): bool {
+        if ($input->type === SDL::SDL_EVENT_KEY_DOWN
+          && KeyNormalizer::normalize((int)$input->key->key, (int)$input->key->mod)
+            === SDL::KEY_ESCAPE) {
+          self::closeChord();
+          return true;
+        }
+        return false;
+      });
+    }
+    self::$chordOpen = true;
+    $screen->show('chordPanel');
+    self::$window->refreshLayout();
+  }
+
+  private static function refreshChordChoices(): void {
+    $screen = self::screen('editor');
+    $screen->widget('chordScale')->setLabel('Scale: '
+      . (self::$chordScaleSelection === '' ? 'Choose' : self::$chordScaleSelection));
+    $screen->widget('chordHomeNote')->setLabel('Home note: '
+      . (self::$chordHomeNoteSelection === '' ? 'Choose' : self::$chordHomeNoteSelection));
+  }
+
+  private static function showChordChoice(string $choice): void {
+    if (!self::$chordOpen || self::$chordChoiceOpen !== null) {
+      return;
+    }
+    $screen = self::screen('editor');
+    $id = $choice === 'scale' ? 'chordScalePicker' : 'chordHomeNotePicker';
+    $selected = $choice === 'scale'
+      ? self::$chordScaleSelection : self::$chordHomeNoteSelection;
+    $screen->widget($id)->setValue($selected !== '' ? $selected
+      : ($choice === 'scale' ? 'Major' : 'C'));
+    $screen->restore('chordPanel');
+    self::$chordChoiceOpen = $choice;
+    $screen->show($id);
+    self::$window->refreshLayout();
+  }
+
+  public static function showChordScalePicker(EventContext $event): void {
+    self::showChordChoice('scale');
+  }
+
+  public static function showChordHomeNotePicker(EventContext $event): void {
+    self::showChordChoice('homeNote');
+  }
+
+  private static function cancelChordChoice(): void {
+    if (self::$chordChoiceOpen === null) {
+      return;
+    }
+    $screen = self::screen('editor');
+    $screen->restore(self::$chordChoiceOpen === 'scale'
+      ? 'chordScalePicker' : 'chordHomeNotePicker');
+    self::$chordChoiceOpen = null;
+    $screen->show('chordPanel');
+    self::$window->refreshLayout();
+  }
+
+  public static function acceptChordScale(EventContext $event): void {
+    if (self::$chordChoiceOpen !== 'scale') {
+      return;
+    }
+    $value = self::screen('editor')->widget('chordScalePicker')->activeValue();
+    if ($value === null || !isset(MotifScoreGenerator::SCALES[$value])) {
+      return;
+    }
+    self::$chordScaleSelection = $value;
+    self::refreshChordChoices();
+    self::cancelChordChoice();
+  }
+
+  public static function acceptChordHomeNote(EventContext $event): void {
+    if (self::$chordChoiceOpen !== 'homeNote') {
+      return;
+    }
+    $value = self::screen('editor')->widget('chordHomeNotePicker')->activeValue();
+    if ($value === null || !isset(MotifScoreGenerator::HOME_NOTES[$value])) {
+      return;
+    }
+    self::$chordHomeNoteSelection = $value;
+    self::refreshChordChoices();
+    self::cancelChordChoice();
+  }
+
+  public static function closeChordShortcut(EventContext $event): bool {
+    if (!self::$chordOpen) {
+      return false;
+    }
+    if (self::$chordChoiceOpen !== null) {
+      self::cancelChordChoice();
+      return true;
+    }
+    self::closeChord();
+    return true;
+  }
+
+  private static function closeChord(): void {
+    self::$chordOpen = false;
+    self::$chordChoiceOpen = null;
+    $screen = self::screen('editor');
+    $changed = $screen->restore('chordScalePicker');
+    $changed = $screen->restore('chordHomeNotePicker') || $changed;
+    $changed = $screen->restore('chordPanel') || $changed;
+    if ($changed) {
+      self::$window->refreshLayout();
+    }
+  }
+
+  public static function generateChords(EventContext $event): void {
+    if (!self::$chordOpen || !self::isDesign()) {
+      return;
+    }
+    try {
+      $count = self::chordNumber('chordNotes', 2, 7);
+      $series = self::chordNumber('chordSeries', 1, 16);
+      $degree = self::chordNumber('chordDegree', 1, 7, true);
+      $inversion = self::chordNumber('chordInversion', 0, $count - 1, true);
+      $music = HarmonicContext::validate([
+        'scale' => self::$chordScaleSelection,
+        'homeNote' => self::$chordHomeNoteSelection,
+      ]);
+    } catch (\DomainException $error) {
+      self::status($error->getMessage());
+      return;
+    }
+    self::placeChord(['count' => $count, 'series' => $series,
+      'degree' => $degree, 'inversion' => $inversion, 'music' => $music],
+      $series);
+  }
+
+  /** Complete one chord edit and remember the settings for the current context. */
+  private static function placeChord(array $settings, int $series): bool {
+    try {
+      $existing = ChordGenerator::groupAt(self::$score, self::$bar, self::$slot,
+        self::$melody);
+      $anchor = 20 + 12 * self::$octave + self::$pitchPosition;
+      $next = ChordGenerator::place(self::$score, self::$bar, self::$slot,
+        self::cursorLength(), $settings['count'], $series, $settings['music'],
+        $anchor, self::$melody, $settings['degree'], $settings['inversion'],
+        replaceId: $existing['id'] ?? null);
+      $next->setSectionMusic(self::$activeItemId === 'main' ? self::$bar : 0,
+        $settings['music']);
+    } catch (\DomainException $error) {
+      self::status($error->getMessage());
+      return false;
+    }
+    self::$score = Score::fromData($next->data());
+    self::$lastChordSettings[self::chordSettingsKey()] = $settings;
+    self::followChordPitch();
+    self::$history?->observe(self::$score);
+    if (self::$chordOpen) {
+      self::closeChord();
+    }
+    self::refreshContextHeader();
+    self::refreshSelectedBarFields();
+    self::refreshMelodyFields();
+    self::focusCursor(false);
+    self::$window->refreshLayout();
+    self::status('Placed ' . $series . ($series === 1 ? ' chord.' : ' chords.'));
+    return true;
+  }
+
+  private static function chordNumber(string $field, int $minimum, int $maximum,
+    bool $random = false): ?int {
+    $raw = strtolower(trim(self::screen('editor')->widget($field)->getValue()));
+    if ($random && $raw === 'random') {
+      return null;
+    }
+    if (!ctype_digit($raw) || (int)$raw < $minimum || (int)$raw > $maximum) {
+      $label = match ($field) {
+        'chordNotes' => 'Notes per chord',
+        'chordSeries' => 'Number of chords',
+        'chordDegree' => 'Degree',
+        'chordInversion' => 'Inversion',
+        default => $field,
+      };
+      throw new \DomainException("$label must be a whole number from $minimum to $maximum"
+        . ($random ? ', or random.' : '.'));
+    }
+    return (int)$raw;
+  }
+
+  private static function rerollChord(): void {
+    if (!self::isDesign() || self::$chordOpen || self::$composerOpen
+      || !self::commitEditorFields()) {
+      return;
+    }
+    $existing = ChordGenerator::groupAt(self::$score, self::$bar, self::$slot,
+      self::$melody);
+    if ($existing === null) {
+      $previous = self::previousChordSettings();
+      if ($previous === null) {
+        self::openChord();
+        return;
+      }
+      self::placeChord($previous, 1);
+      return;
+    }
+    try {
+      $next = ChordGenerator::reroll(self::$score, self::$bar, self::$slot,
+        melody: self::$melody);
+    } catch (\DomainException $error) {
+      self::status($error->getMessage());
+      return;
+    }
+    self::$score = $next;
+    self::$lastChordSettings[self::chordSettingsKey()] ??= [
+      'count' => $existing['count'], 'series' => 1,
+      'degree' => null, 'inversion' => null,
+      'music' => ['scale' => $existing['scale'], 'homeNote' => $existing['homeNote']],
+    ];
+    self::followChordPitch();
+    self::$history?->observe(self::$score);
+    self::focusCursor(false);
+    self::$window->refreshLayout();
+    self::status('Changed the chord at the cursor.');
+  }
+
+  /** Keep the design cursor inside the active melody's visible pitch rows. */
+  private static function followChordPitch(): void {
+    $pitch = MelodyRange::cursorPitch(self::$score, self::$melody,
+      self::$bar, self::$slot);
+    if ($pitch !== null) {
+      [self::$octave, self::$pitchPosition] = $pitch;
+    }
+  }
+
   public static function openComposerShortcut(EventContext $event): bool {
     if ($event->input->key->repeat) {
       return true;
@@ -896,12 +1269,15 @@ final class Controller {
     if (!self::isDesign() || self::$composerOpen || !self::commitEditorFields()) {
       return;
     }
+    if (self::$chordOpen) {
+      self::closeChord();
+    }
     $screen = self::screen('editor');
     $screen->restore('savePanel');
     $screen->restore('loadPanel');
     $screen->restore('soundPicker');
     $motif = self::$score->melodies[self::$melody]['motif'] ?? null;
-    if (self::$project->item(self::$activeItemId)['type'] === 'motif') {
+    if (self::$activeItemId !== 'main') {
       if ($motif !== null) {
         $screen->widget('composerBeats')->setValue((string)$motif['beats']);
         $screen->widget('composerNotes')->setValue((string)$motif['pitchCount']);
@@ -918,23 +1294,29 @@ final class Controller {
       ? 'random' : $motif['scale'];
     self::$composerHomeNoteSelection = $motif === null || ($motif['randomHomeNote'] ?? false)
       ? 'random' : ($motif['homeNote'] ?? 'C');
+    self::$composerTypeSelection = $motif['type'] ?? 'random-step';
     self::refreshComposerChoices();
-    $screen->widget('composerBeats')->setInputInterceptor(static function (mixed $input): bool {
-      if ($input->type === SDL::SDL_EVENT_TEXT_INPUT) {
-        return in_array(strtolower(\FFI::string($input->text->text)), ['c', 'v'], true);
-      }
-      if ($input->type !== SDL::SDL_EVENT_KEY_DOWN) {
-        return false;
-      }
-      $key = KeyNormalizer::normalize((int)$input->key->key, (int)$input->key->mod);
-      if ($key === SDL::KEY_ESCAPE) {
-        self::closeComposer();
+    foreach (['composerBeats', 'composerNotes', 'motifVersionValue'] as $field) {
+      $screen->widget($field)->setInputInterceptor(static function (mixed $input) use ($field): bool {
+        if ($input->type !== SDL::SDL_EVENT_KEY_DOWN
+          || KeyNormalizer::normalize((int)$input->key->key, (int)$input->key->mod)
+            !== SDL::KEY_ESCAPE) {
+          return false;
+        }
+        if ($field === 'motifVersionValue') {
+          self::cancelMotifVersion();
+        } else {
+          self::cancelGenerateComposer();
+        }
         return true;
-      }
-      return false;
-    });
+      });
+    }
     self::$composerOpen = true;
     self::refreshComposerItemField();
+    if (self::$activeItemId === 'main') {
+      $screen->widget('scorePattern')->setValue(
+        self::$project->pattern() ?? self::SCORE_PATTERN_HELP);
+    }
     if ($screen->show(self::composerPanelId())) {
       self::$window->refreshLayout();
     }
@@ -942,18 +1324,22 @@ final class Controller {
   }
 
   public static function closeComposer(?EventContext $event = null): void {
+    self::saveScorePattern();
     self::$composerOpen = false;
     self::$composerListOpen = false;
+    self::$composerGenerateOpen = false;
     self::$composerChoiceOpen = null;
     self::$motifVersionPickerOpen = false;
     self::$motifVersionAlgorithm = null;
     $screen = self::screen('editor');
     $changed = $screen->restore('composerItems');
+    $changed = $screen->restore('composerGeneratePanel') || $changed;
     $changed = $screen->restore('motifVersionPicker') || $changed;
     $changed = $screen->restore('motifVersionParams') || $changed;
     $changed = $screen->restore('composerScalePicker') || $changed;
     $changed = $screen->restore('composerHomeNotePicker') || $changed;
-    foreach (['composerPanel', 'composerScorePanel', 'composerPhrasePanel'] as $panel) {
+    $changed = $screen->restore('composerTypePicker') || $changed;
+    foreach (['composerPanel', 'composerScorePanel'] as $panel) {
       $changed = $screen->restore($panel) || $changed;
     }
     if ($changed) {
@@ -975,6 +1361,10 @@ final class Controller {
       self::cancelComposerItems();
       return true;
     }
+    if (self::$composerGenerateOpen) {
+      self::cancelGenerateComposer();
+      return true;
+    }
     if (!self::$composerOpen) {
       return false;
     }
@@ -986,6 +1376,10 @@ final class Controller {
     if (!self::$composerOpen) {
       return false;
     }
+    if (self::$activeItemId !== 'main' && !self::$composerGenerateOpen
+      && self::composerFocused()) {
+      return false;
+    }
     if (!$event->input->key->repeat) {
       self::closeComposer();
       self::screen('editor')->activateLeaf(self::$sheets['editor']);
@@ -995,18 +1389,68 @@ final class Controller {
   }
 
   public static function generateComposer(EventContext $event): void {
-    if (self::$project->item(self::$activeItemId)['type'] !== 'motif') {
+    if (self::$activeItemId === 'main' || !self::$composerGenerateOpen) {
       return;
     }
     self::composeMotif();
   }
 
+  public static function showGenerateComposer(EventContext $event): void {
+    if (!self::composerFocused() || self::$activeItemId === 'main') {
+      return;
+    }
+    $screen = self::screen('editor');
+    self::$composerGenerateTarget = self::$score->sectionNumber(self::$bar) - 1;
+    $label = self::motifSectionLabel(self::$composerGenerateTarget);
+    $screen->widget('composerGenerateTitle')->setText('Source: none → Target: ' . $label);
+    $sectionStart = self::$score->sectionStart(self::$bar);
+    $nextStart = count(self::$score->bars);
+    for ($bar = $sectionStart + 1; $bar < count(self::$score->bars); $bar++) {
+      if (self::$score->bars[$bar]['sectionLeader']) {
+        $nextStart = $bar;
+        break;
+      }
+    }
+    $beats = intdiv(self::$score->start($nextStart) - self::$score->start($sectionStart), 2);
+    $screen->widget('composerBeats')->setValue((string)max(3, min(32, $beats)));
+    $settings = self::$score->bars[$sectionStart]['motifVersion'] ?? null;
+    $sectionMusic = self::$score->sectionMusic($sectionStart);
+    if (self::$composerGenerateTarget > 0 && $sectionMusic !== null) {
+      self::$composerScaleSelection = $sectionMusic['scale'];
+      self::$composerHomeNoteSelection = $sectionMusic['homeNote'];
+    }
+    if (($settings['algorithm'] ?? null) === 'generate') {
+      $screen->widget('composerBeats')->setValue((string)$settings['parameters']['beats']);
+      $screen->widget('composerNotes')->setValue((string)$settings['parameters']['pitchCount']);
+      self::$composerTypeSelection = $settings['parameters']['type'];
+      self::$composerScaleSelection = $settings['parameters']['scale'] ?? 'random';
+      self::$composerHomeNoteSelection = $settings['parameters']['homeNote'] ?? 'random';
+    } else if (self::$composerGenerateTarget === 0) {
+      self::$composerTypeSelection = self::$score->melodies[self::$melody]['motif']['type']
+        ?? 'random-step';
+    }
+    self::refreshComposerChoices();
+    $screen->restore('composerPanel');
+    self::$composerGenerateOpen = true;
+    $screen->show('composerGeneratePanel');
+    self::$window->refreshLayout();
+  }
+
+  public static function cancelGenerateComposer(?EventContext $event = null): void {
+    if (!self::$composerGenerateOpen) {
+      return;
+    }
+    self::$composerGenerateOpen = false;
+    $screen = self::screen('editor');
+    $screen->restore('composerGeneratePanel');
+    if (self::$composerOpen) {
+      $screen->show('composerPanel');
+    }
+    self::$window->refreshLayout();
+  }
+
   private static function composerPanelId(): string {
-    return match (self::$project->item(self::$activeItemId)['type']) {
-      'main' => 'composerScorePanel',
-      'motif' => 'composerPanel',
-      'phrase' => 'composerPhrasePanel',
-    };
+    return self::$activeItemId === 'main' ? 'composerScorePanel' : 'composerPanel';
   }
 
   private static function composerFocused(): bool {
@@ -1016,16 +1460,18 @@ final class Controller {
     }
     $leaf = self::screen('editor')->selectedLeaf();
     return $leaf !== null && in_array($leaf->instance()->id(), [
-      'scoreToMotif', 'scoreToPhrase',
-      'composerToScore', 'composerToPhrase', 'composerItem', 'composerBeats',
-      'composerNotes', 'composerScale', 'composerHomeNote', 'composerGenerate',
+      'scoreToMotif', 'scoreBuild',
+      'composerToScore', 'composerItem', 'composerOpenGenerate', 'composerBeats',
+      'composerNotes', 'composerType', 'composerScale', 'composerHomeNote', 'composerGenerate',
       'composerAddVersion',
-      'phraseToScore', 'phraseToMotif', 'composerPhraseItem',
+      'scorePattern',
     ], true);
   }
 
   private static function refreshComposerChoices(): void {
     $screen = self::screen('editor');
+    $screen->widget('composerType')->setLabel('Type: '
+      . MotifScoreGenerator::TYPES[self::$composerTypeSelection]);
     $screen->widget('composerScale')->setLabel('Scale: '
       . (self::$composerScaleSelection === 'random' ? 'Random' : self::$composerScaleSelection));
     $screen->widget('composerHomeNote')->setLabel('Home note: '
@@ -1033,15 +1479,22 @@ final class Controller {
   }
 
   private static function showComposerChoice(string $choice): void {
-    if (!self::composerFocused()
-      || self::$project->item(self::$activeItemId)['type'] !== 'motif') {
+    if (!self::$composerGenerateOpen || !self::composerFocused()
+      || self::$activeItemId === 'main') {
       return;
     }
     $screen = self::screen('editor');
-    $id = $choice === 'scale' ? 'composerScalePicker' : 'composerHomeNotePicker';
-    $screen->widget($id)->setValue($choice === 'scale'
-      ? self::$composerScaleSelection : self::$composerHomeNoteSelection);
-    $screen->restore('composerPanel');
+    $id = match ($choice) {
+      'scale' => 'composerScalePicker',
+      'homeNote' => 'composerHomeNotePicker',
+      'type' => 'composerTypePicker',
+    };
+    $screen->widget($id)->setValue(match ($choice) {
+      'scale' => self::$composerScaleSelection,
+      'homeNote' => self::$composerHomeNoteSelection,
+      'type' => self::$composerTypeSelection,
+    });
+    $screen->restore('composerGeneratePanel');
     self::$composerChoiceOpen = $choice;
     $screen->show($id);
     self::$window->refreshLayout();
@@ -1055,15 +1508,22 @@ final class Controller {
     self::showComposerChoice('homeNote');
   }
 
+  public static function showComposerTypePicker(EventContext $event): void {
+    self::showComposerChoice('type');
+  }
+
   private static function cancelComposerChoice(): void {
     if (self::$composerChoiceOpen === null) {
       return;
     }
     $screen = self::screen('editor');
-    $screen->restore(self::$composerChoiceOpen === 'scale'
-      ? 'composerScalePicker' : 'composerHomeNotePicker');
+    $screen->restore(match (self::$composerChoiceOpen) {
+      'scale' => 'composerScalePicker',
+      'homeNote' => 'composerHomeNotePicker',
+      'type' => 'composerTypePicker',
+    });
     self::$composerChoiceOpen = null;
-    $screen->show('composerPanel');
+    $screen->show('composerGeneratePanel');
     self::$window->refreshLayout();
   }
 
@@ -1093,67 +1553,123 @@ final class Controller {
     self::cancelComposerChoice();
   }
 
-  public static function composerSwitchMotif(EventContext $event): void {
-    if (self::composerFocused()) {
-      self::switchComposerType('motif');
+  public static function acceptComposerType(EventContext $event): void {
+    if (self::$composerChoiceOpen !== 'type') {
+      return;
     }
+    $value = self::screen('editor')->widget('composerTypePicker')->activeValue();
+    if (!isset(MotifScoreGenerator::TYPES[$value])) {
+      return;
+    }
+    self::$composerTypeSelection = $value;
+    self::refreshComposerChoices();
+    self::cancelComposerChoice();
   }
 
-  public static function composerSwitchPhrase(EventContext $event): void {
+  public static function composerSwitchMotif(EventContext $event): void {
     if (self::composerFocused()) {
-      self::switchComposerType('phrase');
+      self::switchComposerItem(false);
     }
   }
 
   public static function composerSwitchScore(EventContext $event): void {
     if (self::composerFocused()) {
-      self::switchComposerType('main');
+      self::switchComposerItem(true);
     }
   }
 
-  private static function switchComposerType(string $type): void {
+  public static function requestBuildScore(EventContext $event): void {
+    if (!self::composerFocused() || self::$activeItemId !== 'main'
+      || !self::commitEditorFields()) {
+      return;
+    }
+    self::saveScorePattern();
+    self::$pendingBuiltScore = null;
+    self::$project->setScore('main', self::$score);
+    try {
+      self::$pendingBuiltScore = MotifArrangement::build(self::$project,
+        self::screen('editor')->widget('scorePattern')->getValue());
+    } catch (\DomainException $error) {
+      self::status($error->getMessage());
+      return;
+    }
+    self::screen('editor')->statusBar->confirm(
+      'Replace the main score with the motif pattern? Ctrl+Z can restore it.',
+      self::confirmBuildScore(...), self::cancelBuildScore(...));
+  }
+
+  private static function cancelBuildScore(): void {
+    self::$pendingBuiltScore = null;
+  }
+
+  private static function confirmBuildScore(): void {
+    $built = self::$pendingBuiltScore;
+    self::$pendingBuiltScore = null;
+    if ($built === null || self::$activeItemId !== 'main') {
+      return;
+    }
+    self::$score = $built;
+    self::$history?->observe(self::$score);
+    self::$bar = self::$slot = self::$melody = 0;
+    self::$firstBar = self::$firstRow = 0;
+    self::clearSelection();
+    self::syncNoteLength();
+    self::closeComposer();
+    self::screen('editor')->activateLeaf(self::$sheets['editor']);
+    self::refreshEditorFields();
+    self::focusCursor();
+    self::$window->refreshLayout();
+    self::status('Score built from motifs. Ctrl+Z restores the previous score.');
+  }
+
+  private static function switchComposerItem(bool $main): void {
     if (!self::$composerOpen || !self::commitEditorFields()) {
       return;
     }
     self::$project->setScore(self::$activeItemId, self::$score);
-    $id = $type === 'main' ? 'main' : (self::$recentItems[$type] ?? self::$project->first($type));
+    $id = $main ? 'main' : (self::$recentMotifId ?? self::$project->first());
     if ($id === null) {
-      $id = self::$project->create($type);
+      $id = self::$project->create();
     }
     self::switchProjectItem($id);
   }
 
   private static function switchProjectItem(string $id): void {
     self::$project->setScore(self::$activeItemId, self::$score);
-    $item = self::$project->item($id);
-    if ($item['type'] !== 'main') {
-      self::$recentItems[$item['type']] = $id;
+    if ($id !== 'main') {
+      self::$recentMotifId = $id;
     }
     self::closeComposer();
     self::loadProject(self::$project, $id);
   }
 
+  /** Keep score Composer edits with the project, including unbuilt drafts. */
+  private static function saveScorePattern(): void {
+    if (!self::$composerOpen || self::$activeItemId !== 'main') {
+      return;
+    }
+    $pattern = self::screen('editor')->widget('scorePattern')->getValue();
+    if ($pattern !== self::SCORE_PATTERN_HELP || self::$project->pattern() !== null) {
+      self::$project->setPattern($pattern);
+    }
+  }
+
   private static function refreshComposerItemField(): void {
     $item = self::$project->item(self::$activeItemId);
     $label = $item['id'] . ' · ' . ($item['name'] ?? $item['id']);
-    if ($item['type'] === 'motif') {
-      self::screen('editor')->widget('composerItem')->setLabel($label);
-    } else if ($item['type'] === 'phrase') {
-      self::screen('editor')->widget('composerPhraseItem')->setLabel($label);
-    }
+    self::screen('editor')->widget('composerItem')->setValue($label);
   }
 
   public static function showComposerItems(EventContext $event): void {
     if (!self::composerFocused()) {
       return;
     }
-    $type = self::$project->item(self::$activeItemId)['type'];
-    if ($type === 'main') {
+    if (self::$activeItemId === 'main') {
       return;
     }
     $items = [];
     foreach (self::$project->items() as $item) {
-      if ($item['type'] === $type) {
+      if ($item['id'] !== 'main') {
         $items[] = ['value' => $item['id'], 'label' => $item['id'] . ' · ' . ($item['name'] ?? $item['id'])];
       }
     }
@@ -1185,8 +1701,7 @@ final class Controller {
     }
     if ($id === '__create__') {
       try {
-        $type = self::$project->item(self::$activeItemId)['type'];
-        $id = self::$project->create($type);
+        $id = self::$project->create();
       } catch (\DomainException $error) {
         self::status($error->getMessage());
         return;
@@ -1198,7 +1713,7 @@ final class Controller {
 
   public static function showMotifVersionPicker(EventContext $event): void {
     if (!self::composerFocused()
-      || self::$project->item(self::$activeItemId)['type'] !== 'motif') {
+      || self::$activeItemId === 'main') {
       return;
     }
     if (!isset(self::$score->melodies[self::$melody]['motif'])) {
@@ -1206,6 +1721,11 @@ final class Controller {
       return;
     }
     $screen = self::screen('editor');
+    self::$motifVersionSource = self::$score->sectionNumber(self::$bar) - 1;
+    $target = self::$score->sectionNumber(count(self::$score->bars) - 1);
+    $screen->widget('motifVersionSourceTarget')->setText('Source: '
+      . self::motifSectionLabel(self::$motifVersionSource)
+      . ' → Target: ' . self::motifSectionLabel($target));
     $screen->restore('composerPanel');
     self::$motifVersionPickerOpen = true;
     $screen->show('motifVersionPicker');
@@ -1217,13 +1737,12 @@ final class Controller {
       return;
     }
     $screen = self::screen('editor');
-    $algorithm = $screen->widget('motifVersionPicker')->activeValue();
+    $algorithm = $screen->widget('motifVersionList')->activeValue();
     if (!isset(MotifVersions::ALGORITHMS[$algorithm])) {
       return;
     }
     self::$motifVersionPickerOpen = false;
     self::$motifVersionAlgorithm = $algorithm;
-    self::$motifVersionSource = self::$score->sectionNumber(self::$bar) - 1;
     $screen->restore('motifVersionPicker');
     if (in_array($algorithm, ['invert', 'reverse'], true)) {
       self::appendMotifVersion([]);
@@ -1236,6 +1755,10 @@ final class Controller {
       'transpose' => ['Scale steps (−3 to 3, except 0)', '1'],
       'rhythm' => ['Beats to shift splits', '1'],
     };
+    $target = self::$score->sectionNumber(count(self::$score->bars) - 1);
+    $screen->widget('motifVersionParamsSourceTarget')->setText('Source: '
+      . self::motifSectionLabel(self::$motifVersionSource)
+      . ' → Target: ' . self::motifSectionLabel($target));
     $screen->widget('motifVersionTitle')->setText(MotifVersions::ALGORITHMS[$algorithm]);
     $screen->widget('motifVersionValue')->setLabel($parameter[0]);
     $screen->widget('motifVersionValue')->setValue($parameter[1]);
@@ -1299,8 +1822,9 @@ final class Controller {
       }
     }
     self::$slot = 0;
-    self::$firstBar = self::$bar;
     self::$columns = self::fitColumns();
+    self::$firstBar = self::firstBarForNewSection(self::$firstBar, self::$bar,
+      count(self::$score->bars) - 1, self::$columns);
     self::clearSelection();
     self::$history?->observe(self::$score);
     self::refreshSelectedBarFields();
@@ -1312,6 +1836,19 @@ final class Controller {
     self::$window->refreshLayout();
     self::status('Created ' . self::$activeItemId . $result['version'] . ' with '
       . MotifVersions::ALGORITHMS[$algorithm] . '.');
+  }
+
+  /** Keep the new section where it is if visible; otherwise place its end at the right edge. */
+  private static function firstBarForNewSection(int $firstBar, int $sectionStart,
+    int $lastBar, int $columns): int {
+    if ($sectionStart >= $firstBar && $lastBar < $firstBar + $columns) {
+      return $firstBar;
+    }
+    return max(0, $lastBar - $columns + 1);
+  }
+
+  private static function motifSectionLabel(int $index): string {
+    return self::$activeItemId . ($index === 0 ? '' : $index);
   }
 
   public static function contextNameAccepted(EventContext $event): void {
@@ -1334,14 +1871,8 @@ final class Controller {
       return;
     }
     $item = self::$project->item(self::$activeItemId);
-    $music = $item['music'] ?? [];
-    if ($item['type'] === 'motif') {
-      $motif = self::$score->melodies[self::$melody]['motif'] ?? null;
-      if ($motif !== null) {
-        $music = ['scale' => $motif['scale'], 'homeNote' => $motif['homeNote']];
-      }
-    }
-    $screen->widget('contextId')->setText(ucfirst($item['type']) . ' ' . $item['id']);
+    $music = self::currentMusic() ?? [];
+    $screen->widget('contextId')->setText('Motif ' . $item['id']);
     $screen->widget('contextName')->setValue($item['name'] ?? $item['id']);
     $screen->widget('contextInfo')->setText(
       (isset($music['scale']) ? $music['scale'] : '')
@@ -1350,18 +1881,54 @@ final class Controller {
   }
 
   public static function regenerateComposerFromSheet(): void {
-    if (!self::isDesign() || self::$project->item(self::$activeItemId)['type'] !== 'motif') {
+    if (!self::isDesign() || self::$activeItemId === 'main') {
       return;
     }
-    $motif = self::$score->melodies[self::$melody]['motif'] ?? null;
-    if ($motif === null) {
+    if (!isset(self::$score->melodies[self::$melody]['motif'])) {
       self::status('No generated motif in this melody. Use Composer to generate one.');
       return;
     }
-    self::applyMotif($motif['beats'], $motif['pitchCount'],
-      self::$melody,
-      ($motif['randomScale'] ?? false) ? null : $motif['scale'],
-      ($motif['randomHomeNote'] ?? false) ? null : $motif['homeNote']);
+    $section = self::$score->sectionNumber(self::$bar) - 1;
+    $barOffset = self::$bar - self::$score->sectionStart(self::$bar);
+    $slot = self::$slot;
+    try {
+      $rebuilt = MotifVersions::regenerateSection(self::$score, self::$melody, $section);
+    } catch (\DomainException $error) {
+      self::status($error->getMessage());
+      return;
+    }
+    self::$score = $rebuilt;
+    $number = 0;
+    $sectionStart = 0;
+    $sectionEnd = count($rebuilt->bars);
+    foreach ($rebuilt->bars as $bar => $settings) {
+      if ($settings['sectionLeader']) {
+        if ($number === $section) {
+          $sectionStart = $bar;
+        } else if ($number === $section + 1) {
+          $sectionEnd = $bar;
+          break;
+        }
+        $number++;
+      }
+    }
+    self::$bar = min($sectionStart + $barOffset, $sectionEnd - 1);
+    self::$slot = min($slot, 2 * self::$score->beats(self::$bar));
+    self::$lastCursorEndBar = self::$bar;
+    self::$columns = self::fitColumns();
+    self::clearSelection();
+    self::syncNoteLength();
+    $pitch = MelodyRange::cursorPitch(self::$score, self::$melody, self::$bar, self::$slot);
+    if ($pitch !== null) {
+      [self::$octave, self::$pitchPosition] = $pitch;
+    }
+    self::$history?->observe(self::$score);
+    self::refreshContextHeader();
+    self::refreshMelodyFields();
+    self::focusCursor(false);
+    self::$window->refreshLayout();
+    self::status('Regenerated ' . self::$activeItemId
+      . ($section === 0 ? '' : $section) . ' and its derivations.');
   }
 
   public static function regenerateComposerShortcut(EventContext $event): bool {
@@ -1400,24 +1967,29 @@ final class Controller {
     }
     self::applyMotif((int)$raw, (int)$rawNotes, $replace,
       self::$composerScaleSelection === 'random' ? null : self::$composerScaleSelection,
-      self::$composerHomeNoteSelection === 'random' ? null : self::$composerHomeNoteSelection);
+      self::$composerHomeNoteSelection === 'random' ? null : self::$composerHomeNoteSelection,
+      self::$composerTypeSelection, self::$composerGenerateTarget);
   }
 
   private static function applyMotif(int $beats, int $pitchCount, ?int $melody = null,
-    ?string $scale = null, ?string $homeNote = null): void {
+    ?string $scale = null, ?string $homeNote = null,
+    string $type = 'random-step', int $target = 0): void {
     try {
-      $result = self::$project->item(self::$activeItemId)['type'] === 'motif'
-        ? MotifVersions::regenerate(self::$score, $melody, $beats, $pitchCount,
-          $scale, $homeNote)
-        : MotifScoreGenerator::place(self::$score, $beats, $pitchCount,
-          $melody, scale: $scale, homeNote: $homeNote);
+      $result = $target > 0
+        ? MotifVersions::generateAt(self::$score, $melody ?? self::$melody,
+          $target, $beats, $pitchCount, $scale, $homeNote, $type)
+        : MotifVersions::regenerate(self::$score, $melody, $beats, $pitchCount,
+          $scale, $homeNote, type: $type);
     } catch (\DomainException $error) {
       self::status($error->getMessage());
       return;
     }
-    if (self::$project->item(self::$activeItemId)['type'] === 'motif') {
+    if ($target === 0) {
       $result['score']->melodies[$result['melody']]['motif']['label'] = self::$activeItemId;
       $result['label'] = self::$activeItemId;
+      $motif = $result['score']->melodies[$result['melody']]['motif'];
+      $result['score']->setSectionMusic(0, ['scale' => $motif['scale'],
+        'homeNote' => $motif['homeNote']]);
     }
     if (self::$playbackMode !== null) {
       App::audio()->stopMusic();
@@ -1425,16 +1997,33 @@ final class Controller {
     }
     self::$score = $result['score'];
     self::$melody = $result['melody'];
-    self::refreshContextHeader();
     self::$bar = 0;
+    if ($target > 0) {
+      $section = 0;
+      foreach (self::$score->bars as $bar => $settings) {
+        if ($settings['sectionLeader'] && $section++ === $target) {
+          self::$bar = $bar;
+          break;
+        }
+      }
+    }
+    self::refreshContextHeader();
     self::$slot = 0;
     self::$octave = Pitch::MIDDLE_C_BAND;
     self::$pitchPosition = 4;
-    self::$firstBar = 0;
     self::$columns = self::fitColumns();
+    $lastTargetBar = count(self::$score->bars) - 1;
+    for ($bar = self::$bar + 1; $bar < count(self::$score->bars); $bar++) {
+      if (self::$score->bars[$bar]['sectionLeader']) {
+        $lastTargetBar = $bar - 1;
+        break;
+      }
+    }
+    self::$firstBar = $target === 0 ? 0 : self::firstBarForNewSection(
+      self::$firstBar, self::$bar, $lastTargetBar, self::$columns);
     self::$cursorLength = 2;
     self::$cursorLengthExplicit = false;
-    self::$lastCursorEndBar = 0;
+    self::$lastCursorEndBar = self::$bar;
     self::clearSelection();
     self::$history?->observe(self::$score);
     self::refreshSelectedBarFields();
@@ -1446,11 +2035,8 @@ final class Controller {
     self::screen('editor')->activateLeaf(self::$sheets['editor']);
     self::invalidateSheet();
     self::$window->refreshLayout();
-    self::status('Motif ' . $result['label'] . ': ' . $beats . ' beats, '
-      . $result['motif']['barBeats'] . ' per bar, '
-      . $result['motif']['homeNote'] . ' ' . $result['motif']['scale'] . ', '
-      . $pitchCount . ' distinct pitches, ' . $result['motif']['eventCount']
-      . ' notes, ' . count($result['motif']['splits']) . ' splits. Press M to play.');
+    self::status('Generated ' . self::motifSectionLabel($target) . ' with '
+      . MotifScoreGenerator::TYPES[$type] . '. Press M to play.');
   }
 
   /** Return the visible screen identifier for file actions. */
@@ -2452,7 +3038,9 @@ final class Controller {
   /** Show the settings of the bar under the score cursor. */
   private static function refreshSelectedBarFields(): void {
     $screen = self::screen('editor');
-    $screen->widget('barSettingsTitle')->setText('[R] Bar ' . (self::$bar + 1));
+    $music = self::currentMusic();
+    $screen->widget('barSettingsTitle')->setText('[R] Bar ' . (self::$bar + 1)
+      . ($music === null ? '' : ' (' . $music['scale'] . ' ' . $music['homeNote'] . ')'));
     $screen->widget('tempo')->setValue(self::$score->bars[self::$bar]['tempo']);
     $screen->widget('beats')->setValue((string)self::$score->beats(self::$bar));
     $screen->widget('barNote')->setValue(self::$score->bars[self::$bar]['note']);

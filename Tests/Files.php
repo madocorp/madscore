@@ -42,7 +42,7 @@ try {
   $saved = json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
   $loaded = MADSCORE\Score\Project::fromData($saved);
   expectFiles($saved === MADSCORE\Score\Project::fromScore($score)->data()
-    && $saved['items'][0]['id'] === 'main' && $saved['items'][0]['type'] === 'main'
+    && $saved['items'][0]['id'] === 'main' && !isset($saved['items'][0]['type'])
     && !isset($saved['items'][0]['score']['title']) && $loaded->score('main')->data() === $score->data(),
     'Saved project has one main item and loads without changing the score.');
   try {
@@ -52,8 +52,8 @@ try {
     expectFiles(true, 'The old bare score format is rejected.');
   }
   $extra = $saved;
-  $extra['items'][] = ['id' => 'A', 'type' => 'motif', 'name' => 'Motif A',
-    'music' => ['scale' => 'C major', 'homeNote' => 'C'], 'score' => $saved['items'][0]['score']];
+  $extra['items'][] = ['id' => 'A', 'name' => 'Motif A',
+    'music' => ['scale' => 'Major', 'homeNote' => 'C'], 'score' => $saved['items'][0]['score']];
   expectFiles(MADSCORE\Score\Project::fromData($extra)->data() === $extra,
     'Project items survive a saved-file round trip.');
   expectFiles(glob($path . '.tmp-*') === [], 'Successful save leaves no temporary file.');

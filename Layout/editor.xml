@@ -1,12 +1,15 @@
 <Screen>
   <Event type="keyDown" key="f1" action="MADSCORE\App\Controller::openSettings" />
   <Event type="keyDown" key="escape" action="MADSCORE\App\Controller::closeComposerShortcut" />
+  <Event type="keyDown" key="escape" action="MADSCORE\App\Controller::closeChordShortcut" />
   <Event type="keyDown" key="escape" action="MADSCORE\App\Files::cancelShortcut" />
   <Event type="keyDown" key="escape" action="MADSCORE\App\Controller::activateSheetEditor" />
   <Event type="keyDown" key="ctrl+z" action="MADSCORE\App\Controller::undoMelodyShortcut" />
   <Event type="keyDown" key="ctrl+y" action="MADSCORE\App\Controller::redoMelodyShortcut" />
   <Event type="keyDown" key="c" action="MADSCORE\App\Controller::openComposerShortcut" />
   <Event type="keyDown" key="shift+c" action="MADSCORE\App\Controller::regenerateComposerShortcut" />
+  <Event type="keyDown" key="o" action="MADSCORE\App\Controller::openChordShortcut" />
+  <Event type="keyDown" key="shift+o" action="MADSCORE\App\Controller::rerollChordShortcut" />
   <Event type="keyDown" key="v" action="MADSCORE\App\Controller::composerViewShortcut" />
   <Event type="keyDown" key="ctrl+*" action="MADSCORE\App\Controller::melodyWedgeShortcut" />
   <Event type="keyDown" key="ctrl+shift+*" action="MADSCORE\App\Controller::melodyWedgeShortcut" />
@@ -115,56 +118,105 @@ CTRL+* Melody wedge</Text>
       </Layout>
       <Layout id="composerPanel" overwrite="#noteBox" direction="vertical" width="2*">
         <Title navigate="false">Motif composer</Title>
-        <Button id="composerItem" label="Motif" action="MADSCORE\App\Controller::showComposerItems" />
+        <Input id="composerItem" height="2" label="Current motif">
+          <Event type="activate" action="MADSCORE\App\Controller::showComposerItems" />
+        </Input>
+        <Button id="composerToScore" hotkey="s" label="Score mode" action="MADSCORE\App\Controller::composerSwitchScore" />
+        <Button id="composerOpenGenerate" hotkey="g" label="Generate new" action="MADSCORE\App\Controller::showGenerateComposer" />
+        <Button id="composerAddVersion" hotkey="v" label="Derive version" action="MADSCORE\App\Controller::showMotifVersionPicker" />
+        <Empty height="0*" navigate="false" />
+      </Layout>
+      <Layout id="composerGeneratePanel" overwrite="#noteBox" direction="vertical" width="2*">
+        <Title id="composerGenerateTitle" navigate="false">Source: none → Target: A</Title>
         <Input id="composerBeats" height="2" label="Length (3–32 beats)" value="4" />
         <Input id="composerNotes" height="2" label="Pitches to use (1–7)" value="4" />
+        <Button id="composerType" label="Type: Random step" action="MADSCORE\App\Controller::showComposerTypePicker" />
         <Button id="composerScale" label="Scale: Random" action="MADSCORE\App\Controller::showComposerScalePicker" />
         <Button id="composerHomeNote" label="Home note: Random" action="MADSCORE\App\Controller::showComposerHomeNotePicker" />
         <Button id="composerGenerate" label="Generate" action="MADSCORE\App\Controller::generateComposer" />
-        <Button id="composerAddVersion" label="Add version" action="MADSCORE\App\Controller::showMotifVersionPicker" />
         <Empty height="0*" navigate="false" />
-        <Layout direction="horizontal" height="1">
-          <Button id="composerToScore" width="1*" hotkey="s" label="Score" action="MADSCORE\App\Controller::composerSwitchScore" />
-          <Button id="composerToPhrase" width="1*" hotkey="p" label="Phrase" action="MADSCORE\App\Controller::composerSwitchPhrase" />
-        </Layout>
       </Layout>
       <Layout id="composerScorePanel" overwrite="#noteBox" direction="vertical" width="2*">
         <Title navigate="false">Score composer</Title>
-        <Empty height="0*" navigate="false" />
+        <TextEditor id="scorePattern" height="1*" textWrap="true" label="Motif pattern">Create motifs first. Then replace this text with the list of motifs. Use this format: 'A B A1 | A B1 A2'. Then press the build button.</TextEditor>
         <Layout direction="horizontal" height="1">
-          <Button id="scoreToPhrase" width="1*" hotkey="p" label="Phrase" action="MADSCORE\App\Controller::composerSwitchPhrase" />
-          <Button id="scoreToMotif" width="1*" hotkey="m" label="Motif" action="MADSCORE\App\Controller::composerSwitchMotif" />
+          <Button id="scoreToMotif" width="1*" hotkey="m" label="Motif editor" action="MADSCORE\App\Controller::composerSwitchMotif" />
+          <Button id="scoreBuild" width="1*" hotkey="b" label="Build score" action="MADSCORE\App\Controller::requestBuildScore" />
         </Layout>
       </Layout>
-      <Layout id="composerPhrasePanel" overwrite="#noteBox" direction="vertical" width="2*">
-        <Title navigate="false">Phrase composer</Title>
-        <Button id="composerPhraseItem" label="Phrase" action="MADSCORE\App\Controller::showComposerItems" />
-        <Empty height="0*" navigate="false" />
-        <Layout direction="horizontal" height="1">
-          <Button id="phraseToScore" width="1*" hotkey="s" label="Score" action="MADSCORE\App\Controller::composerSwitchScore" />
-          <Button id="phraseToMotif" width="1*" hotkey="m" label="Motif" action="MADSCORE\App\Controller::composerSwitchMotif" />
+      <Layout id="chordPanel" overwrite="#noteBox" direction="vertical" width="2*">
+        <Title id="chordTitle" navigate="false">Chord generator</Title>
+        <Layout direction="horizontal" height="2">
+          <Input id="chordNotes" width="1*" label="Notes (2–7)" value="3" />
+          <Input id="chordSeries" width="1*" label="Number (1–16)" value="1" />
         </Layout>
+        <Layout direction="horizontal" height="2">
+          <Input id="chordDegree" width="1*" label="Degree (1–7/random)" value="random" />
+          <Input id="chordInversion" width="1*" label="Inversion (0–6/random)" value="random" />
+        </Layout>
+        <Layout direction="horizontal" height="2">
+          <Button id="chordScale" width="1*" label="Scale: Choose" action="MADSCORE\App\Controller::showChordScalePicker" />
+          <Button id="chordHomeNote" width="1*" label="Home note: Choose" action="MADSCORE\App\Controller::showChordHomeNotePicker" />
+        </Layout>
+        <Button id="chordGenerate" label="Place chord(s)" action="MADSCORE\App\Controller::generateChords" />
+        <Empty height="0*" navigate="false" />
       </Layout>
+      <List id="chordScalePicker" overwrite="#noteBox" title="Scale" filterable="false" searchable="false" width="2*">
+        <Item value="Major" selected="true">Major</Item>
+        <Item value="Dorian">Dorian</Item>
+        <Item value="Phrygian">Phrygian</Item>
+        <Item value="Lydian">Lydian</Item>
+        <Item value="Mixolydian">Mixolydian</Item>
+        <Item value="Minor">Minor</Item>
+        <Item value="Locrian">Locrian</Item>
+        <Event type="accept" action="MADSCORE\App\Controller::acceptChordScale" />
+      </List>
+      <List id="chordHomeNotePicker" overwrite="#noteBox" title="Home note" filterable="false" searchable="false" width="2*">
+        <Item value="C" selected="true">C</Item>
+        <Item value="C#">C#</Item>
+        <Item value="D">D</Item>
+        <Item value="D#">D#</Item>
+        <Item value="E">E</Item>
+        <Item value="F">F</Item>
+        <Item value="F#">F#</Item>
+        <Item value="G">G</Item>
+        <Item value="G#">G#</Item>
+        <Item value="A">A</Item>
+        <Item value="A#">A#</Item>
+        <Item value="B">B</Item>
+        <Event type="accept" action="MADSCORE\App\Controller::acceptChordHomeNote" />
+      </List>
       <List id="composerItems" overwrite="#noteBox" title="Items" filterable="false" searchable="false" width="2*">
         <Item value="main">Main</Item>
         <Event type="accept" action="MADSCORE\App\Controller::acceptComposerItem" />
       </List>
-      <List id="motifVersionPicker" overwrite="#noteBox" title="Version algorithm" filterable="false" searchable="false" width="2*">
-        <Item value="keep-opening">Keep opening, new ending</Item>
-        <Item value="new-ending">Change last notes</Item>
-        <Item value="transpose">Transpose in scale</Item>
-        <Item value="invert">Invert pitch contour</Item>
-        <Item value="reverse">Reverse pitches</Item>
-        <Item value="rhythm">Move half-beat splits</Item>
-        <Event type="accept" action="MADSCORE\App\Controller::acceptMotifVersionAlgorithm" />
-      </List>
+      <Layout id="motifVersionPicker" overwrite="#noteBox" direction="vertical" width="2*">
+        <Title id="motifVersionSourceTarget" navigate="false">Source: A → Target: A1</Title>
+        <List id="motifVersionList" height="1*" title="Version algorithm" filterable="false" searchable="false">
+          <Item value="keep-opening">Keep opening, new ending</Item>
+          <Item value="new-ending">Change last notes</Item>
+          <Item value="transpose">Transpose in scale</Item>
+          <Item value="invert">Invert pitch contour</Item>
+          <Item value="reverse">Reverse pitches</Item>
+          <Item value="rhythm">Move half-beat splits</Item>
+          <Event type="accept" action="MADSCORE\App\Controller::acceptMotifVersionAlgorithm" />
+        </List>
+      </Layout>
       <Layout id="motifVersionParams" overwrite="#noteBox" direction="vertical" width="2*">
+        <Title id="motifVersionParamsSourceTarget" navigate="false">Source: A → Target: A1</Title>
         <Title id="motifVersionTitle" navigate="false">Version parameters</Title>
         <Input id="motifVersionValue" height="2" label="Value" value="1" />
         <Button id="motifVersionCreate" label="Create version" action="MADSCORE\App\Controller::createMotifVersion" />
-        <Button id="motifVersionCancel" label="Cancel" action="MADSCORE\App\Controller::cancelMotifVersion" />
         <Empty height="0*" navigate="false" />
       </Layout>
+      <List id="composerTypePicker" overwrite="#noteBox" title="Generator type" filterable="false" searchable="false" width="2*">
+        <Item value="random-step" selected="true">Random step</Item>
+        <Item value="up-wave">Up wave</Item>
+        <Item value="down-wave">Down wave</Item>
+        <Item value="alternating">Alternating low and high</Item>
+        <Item value="skipping">Skipping notes</Item>
+        <Event type="accept" action="MADSCORE\App\Controller::acceptComposerType" />
+      </List>
       <List id="composerScalePicker" overwrite="#noteBox" title="Scale" filterable="false" searchable="false" width="2*">
         <Item value="random" selected="true">Random</Item>
         <Item value="Major">Major</Item>
@@ -237,6 +289,8 @@ CTRL+A Select all
         <Title navigate="false">Actions</Title>
         <Text id="actionsHelp" height="5" navigate="false" highlighter="MADSCORE\App\HelpHighlighter">P/M Play all/one
 V Preview
+C Composer
+O Chords
 CTRL+C/V Copy/Paste</Text>
         <Button id="saveButton" hotkey="ctrl+s" label="Save as" action="MADSCORE\App\Controller::saveDialog" />
         <Button id="writeButton" hotkey="ctrl+w" label="Write" action="MADSCORE\App\Controller::write" />

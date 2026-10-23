@@ -224,39 +224,54 @@ expectComposer($editor->widget('composerBeats') !== null
   && $editor->widget('composerScalePicker') !== null
   && $editor->widget('composerHomeNotePicker') !== null
   && $editor->widget('composerGenerate') !== null
+  && $editor->widget('composerOpenGenerate') !== null
+  && $editor->widget('composerType') !== null
+  && $editor->widget('composerTypePicker') !== null
+  && $editor->widget('composerGenerateTitle') !== null
+  && $editor->widget('composerCancelGenerate') === null
   && $editor->widget('composerAddVersion') !== null
-  && $editor->widget('motifVersionPicker') !== null
+  && $editor->widget('motifVersionCancel') === null
+  && $editor->widget('motifVersionList') !== null
+  && $editor->widget('motifVersionSourceTarget') !== null
+  && $editor->widget('motifVersionParamsSourceTarget') !== null
   && $editor->widget('motifVersionValue') !== null
   && $editor->widget('scoreToMotif') !== null
-  && $editor->widget('scoreToPhrase') !== null
-  && $editor->widget('phraseToScore') !== null
-  && $editor->widget('phraseToMotif') !== null
+  && $editor->widget('scoreBuild') !== null
+  && $editor->widget('scorePattern') instanceof SPTK\Widgets\TextEditor\TextEditor
   && $editor->widget('composerToScore') !== null
-  && $editor->widget('composerToPhrase') !== null
   && $editor->widget('composerClose') === null
-  && $editor->widget('scoreToPhrase')->hotkey() === 'p'
   && $editor->widget('scoreToMotif')->hotkey() === 'm'
-  && $editor->widget('phraseToScore')->hotkey() === 's'
-  && $editor->widget('phraseToMotif')->hotkey() === 'm'
+  && $editor->widget('scoreBuild')->hotkey() === 'b'
   && $editor->widget('composerToScore')->hotkey() === 's'
-  && $editor->widget('composerToPhrase')->hotkey() === 'p'
-  && $editor->widget('composerItem') !== null
-  && $editor->widget('composerPhraseItem') !== null
+  && $editor->widget('composerOpenGenerate')->hotkey() === 'g'
+  && $editor->widget('composerAddVersion')->hotkey() === 'v'
+  && $editor->widget('composerItem') instanceof SPTK\Widgets\Input\Input
   && $editor->widget('composerItems') !== null
   && $editor->widget('contextId') !== null
   && $editor->widget('contextName') !== null
   && $editor->widget('contextInfo') !== null,
-  'The editor exposes score, motif, phrase, and item-selection composer controls.');
+  'The editor exposes score building and motif editing controls.');
 expectComposer(count($editor->widget('composerScalePicker')->items()) === 8
   && count($editor->widget('composerHomeNotePicker')->items()) === 13,
   'The motif selectors offer Random, seven scales, and twelve home notes.');
-expectComposer($editor->widget('motifVersionPicker')->values()
+expectComposer($editor->widget('motifVersionList')->values()
   === array_keys(MADSCORE\Score\MotifVersions::ALGORITHMS),
   'The version picker offers every supported transformation.');
+expectComposer($editor->widget('composerTypePicker')->values()
+  === array_keys(MADSCORE\Score\MotifScoreGenerator::TYPES),
+  'The generator selector offers random steps, waves, alternating, and skipping.');
 $controller = new ReflectionClass(MADSCORE\App\Controller::class);
+$versionViewport = $controller->getMethod('firstBarForNewSection');
+expectComposer($versionViewport->invoke(null, 0, 2, 3, 4) === 0
+  && $versionViewport->invoke(null, 2, 3, 5, 4) === 2,
+  'A new version already fully visible does not scroll the sheet.');
+expectComposer($versionViewport->invoke(null, 0, 3, 5, 4) === 2
+  && $versionViewport->invoke(null, 2, 5, 7, 4) === 4
+  && $versionViewport->invoke(null, 0, 1, 8, 4) === 5,
+  'An appended version beyond the viewport ends at the right edge.');
 $controller->getProperty('window')->setValue(null, $window);
 $headerProject = new MADSCORE\Score\Project();
-$headerId = $headerProject->create('motif');
+$headerId = $headerProject->create();
 $controller->getProperty('project')->setValue(null, $headerProject);
 $controller->getProperty('activeItemId')->setValue(null, $headerId);
 $controller->getProperty('score')->setValue(null, $headerProject->score($headerId));
@@ -268,9 +283,15 @@ $editor->widget('contextName')->setValue('First idea');
 MADSCORE\App\Controller::contextNameAccepted(new SPTK\Events\EventContext(
   'accept', $editor->widget('contextName')));
 expectComposer($headerProject->item('A')['name'] === 'First idea'
-  && (new ReflectionProperty(SPTK\Widgets\Button\Button::class, 'label'))
-    ->getValue($editor->widget('composerItem')) === 'A · First idea',
-  'Editing the header name updates the project and item picker label.');
+  && $editor->widget('composerItem')->getValue() === 'A · First idea'
+  && (new ReflectionProperty(SPTK\Widgets\Input\Input::class, 'label'))
+    ->getValue($editor->widget('composerItem')) === 'Current motif',
+  'Editing the header name updates the labeled current motif field.');
+$motifFieldEvents = (new ReflectionProperty(SPTK\Layout\LayoutLeaf::class, 'events'))
+  ->getValue($editor->layout->findTile('composerItem'));
+expectComposer($motifFieldEvents[0]->type === 'activate'
+  && $motifFieldEvents[0]->action === 'MADSCORE\App\Controller::showComposerItems',
+  'Return activation on Current motif opens the motif list.');
 $controller->getProperty('composerOpen')->setValue(null, true);
 $hotkeys = static function() use ($editor): array {
   $input = (new ReflectionProperty(SPTK\Core\Screen::class, 'screenInput'))->getValue($editor);
@@ -279,19 +300,59 @@ $hotkeys = static function() use ($editor): array {
 $editor->show('composerScorePanel');
 expectComposer($controller->getMethod('composerFocused')->invoke(null),
   'A selected Composer button is recognized by its widget ID.');
+$controller->getProperty('activeItemId')->setValue(null, 'main');
+$controller->getProperty('score')->setValue(null, $headerProject->score('main'));
+$editor->widget('scorePattern')->setValue("A B |\nA1");
+$savedPattern = MADSCORE\App\Controller::projectData();
+expectComposer(MADSCORE\Score\Project::fromData($savedPattern)->pattern() === "A B |\nA1",
+  'An unbuilt score pattern is saved with the project.');
+$controller->getProperty('activeItemId')->setValue(null, $headerId);
+$controller->getProperty('score')->setValue(null, $headerProject->score($headerId));
 expectComposer($hotkeys()['m']->id() === 'scoreToMotif'
-  && $hotkeys()['p']->id() === 'scoreToPhrase',
-  'The score tile binds only its visible mode buttons.');
+  && $hotkeys()['b']->id() === 'scoreBuild',
+  'The score tile binds its Motif and Build buttons.');
 $editor->restore('composerScorePanel');
-$editor->show('composerPhrasePanel');
-expectComposer($hotkeys()['s']->id() === 'phraseToScore'
-  && $hotkeys()['m']->id() === 'phraseToMotif',
-  'The phrase tile binds its visible Score and Motif buttons.');
-$editor->restore('composerPhrasePanel');
 $editor->show('composerPanel');
-expectComposer($hotkeys()['s']->id() === 'composerToScore'
-  && $hotkeys()['p']->id() === 'composerToPhrase',
-  'The motif tile binds its visible Score and Phrase buttons.');
+expectComposer(array_map(static fn ($leaf): ?string => $leaf->instance()->id(),
+    $editor->layout->findTile('composerPanel')->movementLeaves())
+    === ['composerItem', 'composerToScore', 'composerOpenGenerate', 'composerAddVersion']
+  && $hotkeys()['s']->id() === 'composerToScore'
+  && $hotkeys()['g']->id() === 'composerOpenGenerate'
+  && $hotkeys()['v']->id() === 'composerAddVersion',
+  'The motif tile shows the current motif and its three mode buttons.');
+$editor->statusBar->setScheduler(static function (int $durationMs, callable $dismiss): void {});
+expectComposer($controller->getMethod('composerFocused')->invoke(null),
+  'The motif composer is focused before its V shortcut.');
+expectComposer($editor->handleEvent((object)['type' => SPTK\SDLWrapper\SDL::SDL_EVENT_KEY_DOWN,
+    'key' => (object)['key' => ord('v'), 'mod' => 0, 'repeat' => false]]),
+  'V is captured for the Derive version button.');
+$vText = FFI::new('char[64]');
+FFI::memcpy($vText, 'v', 1);
+expectComposer($editor->handleEvent((object)['type' => SPTK\SDLWrapper\SDL::SDL_EVENT_TEXT_INPUT,
+    'text' => (object)['text' => $vText]])
+  && str_contains($editor->statusBar->text(), 'Generate the original motif'),
+  'V reaches Derive version instead of the PDF preview shortcut: '
+    . $editor->statusBar->text());
+$editor->statusBar->clear();
+$editor->restore('composerPanel');
+$editor->show('composerGeneratePanel');
+expectComposer($editor->layout->findTile('composerGeneratePanel')->overwriting() !== null
+  && !isset($hotkeys()['g']),
+  'The generation parameter panel has separate controls.');
+$editor->restore('composerGeneratePanel');
+$editor->show('composerTypePicker');
+expectComposer($editor->layout->findTile('composerTypePicker')->overwriting() !== null,
+  'The generator type choices can replace the parameter panel.');
+$editor->restore('composerTypePicker');
+$editor->show('motifVersionPicker');
+expectComposer($editor->layout->findTile('motifVersionPicker')->overwriting() !== null
+  && $editor->selectedLeaf()?->instance()->id() === 'motifVersionList',
+  'The version picker shows its source and target above the algorithm list.');
+$editor->restore('motifVersionPicker');
+$editor->restore('composerGeneratePanel');
+$editor->show('composerPanel');
+expectComposer($editor->layout->findTile('composerPanel')->overwriting() !== null,
+  'The three-button motif tile can be restored after generation settings.');
 $editor->restore('composerPanel');
 expectComposer($hotkeys()['s']->id() === 'staccato',
   'Restoring the Note tile restores its S hotkey.');

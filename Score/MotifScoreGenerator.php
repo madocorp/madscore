@@ -2,8 +2,29 @@
 
 namespace MADSCORE\Score;
 
-/** Place a weighted-step motif in its own editable melody. */
+/** Place a generated motif in its own editable melody. */
 final class MotifScoreGenerator {
+
+  public const TYPES = [
+    'random-step' => 'Random step',
+    'up-wave' => 'Up wave',
+    'down-wave' => 'Down wave',
+    'alternating' => 'Alternating low and high',
+    'skipping' => 'Skipping notes',
+  ];
+
+  /** Read wave names saved before the pitch-count choice controlled both waves. */
+  public static function canonicalType(string $type): string {
+    $type = match ($type) {
+      'base-up-wave', 'scale-up-wave' => 'up-wave',
+      'base-down-wave', 'scale-down-wave' => 'down-wave',
+      default => $type,
+    };
+    if (!isset(self::TYPES[$type])) {
+      throw new \DomainException('Unknown motif generator type.');
+    }
+    return $type;
+  }
 
   public const SCALES = [
     'Major' => [0, 2, 4, 5, 7, 9, 11],
@@ -60,6 +81,9 @@ final class MotifScoreGenerator {
   }
 
   public static function validateMetadata(mixed $value): array {
+    if (is_array($value) && is_string($value['type'] ?? null)) {
+      $value['type'] = self::canonicalType($value['type']);
+    }
     if (!is_array($value) || ($value['version'] ?? null) !== 3
       || !is_string($value['label'] ?? null)
       || preg_match('/^[A-Z]+$/D', $value['label']) !== 1
@@ -67,6 +91,8 @@ final class MotifScoreGenerator {
       || !isset(self::HOME_NOTES[$value['homeNote'] ?? ''])
       || (isset($value['randomScale']) && !is_bool($value['randomScale']))
       || (isset($value['randomHomeNote']) && !is_bool($value['randomHomeNote']))
+      || !is_string($value['type'] ?? 'random-step')
+      || !isset(self::TYPES[$value['type'] ?? 'random-step'])
       || !is_int($value['beats'] ?? null) || $value['beats'] < 3 || $value['beats'] > 32
       || !is_int($value['pitchCount'] ?? null) || $value['pitchCount'] < 1
       || $value['pitchCount'] > 7 || $value['pitchCount'] > $value['beats']) {
@@ -74,7 +100,7 @@ final class MotifScoreGenerator {
     }
     return array_intersect_key($value,
       array_flip(['version', 'label', 'scale', 'homeNote', 'randomScale',
-        'randomHomeNote', 'beats', 'pitchCount']));
+        'randomHomeNote', 'beats', 'pitchCount', 'type']));
   }
 
   private static function nextLabel(Score $score): string {
@@ -177,10 +203,43 @@ final class MotifScoreGenerator {
     return ['splits' => $splits];
   }
 
+  /** Visit every selected degree in a repeating, ordered cycle. */
+  private static function orderedPattern(int $count, int $events, string $type): array {
+    if ($count === 1) {
+      return array_fill(0, $events, 0);
+    }
+    if ($type === 'alternating') {
+      $cycle = [];
+      for ($low = 0, $high = $count - 1; $low <= $high; $low++, $high--) {
+        $cycle[] = $low;
+        if ($low !== $high) {
+          $cycle[] = $high;
+        }
+      }
+    } else if ($type === 'skipping') {
+      $cycle = [];
+      foreach ([0, 1] as $start) {
+        for ($degree = $start; $degree < $count; $degree += 2) {
+          $cycle[] = $degree;
+        }
+      }
+    } else {
+      $cycle = $count === 2 ? [0, 1]
+        : array_merge(range(0, $count - 1), range($count - 2, 1));
+    }
+    if ($type === 'down-wave') {
+      $cycle = array_map(static fn (int $index): int => $count - 1 - $index, $cycle);
+    }
+    return array_map(static fn (int $index): int => $cycle[$index % count($cycle)],
+      range(0, $events - 1));
+  }
+
   /** Assign pitches after timing so every audible leap can affect the next move. */
   public static function generate(int $beats, int $pitchCount, ?callable $random = null,
     ?string $scale = null, ?string $homeNote = null,
-    ?string $previousScale = null, ?string $previousHomeNote = null): array {
+    ?string $previousScale = null, ?string $previousHomeNote = null,
+    string $type = 'random-step'): array {
+    $type = self::canonicalType($type);
     if ($beats < 3 || $beats > 32 || $pitchCount < 1 || $pitchCount > 7) {
       throw new \DomainException('Use 3–32 beats and 1–7 distinct pitches.');
     }
@@ -192,7 +251,8 @@ final class MotifScoreGenerator {
       throw new \DomainException('Unknown motif scale or home note.');
     }
     $random ??= random_int(...);
-    $palette = self::palette($pitchCount, $random);
+    $palette = $type === 'random-step'
+      ? self::palette($pitchCount, $random) : range(0, $pitchCount - 1);
     $rhythm = self::rhythm($beats, $random);
     $split = array_fill_keys($rhythm['splits'], true);
     $notes = [];
@@ -203,25 +263,33 @@ final class MotifScoreGenerator {
         $notes[] = ['start' => 2 * $beat + 1, 'length' => 1];
       }
     }
-    $eventDegrees = [0];
-    $seen = 1 << (0 - $palette[0]);
-    $all = (1 << $pitchCount) - 1;
-    $memo = [];
-    $steps = [];
-    for ($index = 1; $index < count($notes); $index++) {
-      $previous = $eventDegrees[$index - 1];
-      $lastMove = $index > 1 ? $previous - $eventDegrees[$index - 2] : 0;
-      $requested = self::step($random);
-      $recoverFrom = abs($lastMove) >= 3 ? $lastMove : 0;
-      if ($recoverFrom !== 0) {
-        $requested = ($lastMove > 0 ? -1 : 1) * min(2, max(1, abs($requested)));
+    if ($type === 'random-step') {
+      $eventDegrees = [0];
+      $seen = 1 << (0 - $palette[0]);
+      $all = (1 << $pitchCount) - 1;
+      $memo = [];
+      for ($index = 1; $index < count($notes); $index++) {
+        $previous = $eventDegrees[$index - 1];
+        $lastMove = $index > 1 ? $previous - $eventDegrees[$index - 2] : 0;
+        $requested = self::step($random);
+        $recoverFrom = abs($lastMove) >= 3 ? $lastMove : 0;
+        if ($recoverFrom !== 0) {
+          $requested = ($lastMove > 0 ? -1 : 1) * min(2, max(1, abs($requested)));
+        }
+        $next = self::closestAllowed($previous + $requested, $previous,
+          $requested, $palette, $recoverFrom, $seen,
+          count($notes) - $index - 1, $all, $memo);
+        $seen |= 1 << ($next - $palette[0]);
+        $eventDegrees[] = $next;
       }
-      $next = self::closestAllowed($previous + $requested, $previous,
-        $requested, $palette, $recoverFrom, $seen,
-        count($notes) - $index - 1, $all, $memo);
-      $seen |= 1 << ($next - $palette[0]);
-      $eventDegrees[] = $next;
-      $steps[] = $next - $previous;
+    } else {
+      $positions = self::orderedPattern($pitchCount, count($notes), $type);
+      $eventDegrees = array_map(static fn (int $position): int => $palette[$position],
+        $positions);
+    }
+    $steps = [];
+    for ($index = 1; $index < count($eventDegrees); $index++) {
+      $steps[] = $eventDegrees[$index] - $eventDegrees[$index - 1];
     }
     $randomScale = $scale === null;
     $randomHomeNote = $homeNote === null;
@@ -241,6 +309,7 @@ final class MotifScoreGenerator {
       'randomScale' => $randomScale, 'randomHomeNote' => $randomHomeNote,
       'beats' => $beats, 'barBeats' => self::meter($beats),
       'pitchCount' => $pitchCount,
+      'type' => $type,
       'palette' => $palette, 'eventCount' => count($notes),
       'rhythm' => 'beat-split',
       'splits' => $rhythm['splits'], 'steps' => $steps, 'notes' => $notes];
@@ -249,10 +318,12 @@ final class MotifScoreGenerator {
   /** Add a new motif, or explicitly regenerate one existing motif by index. */
   public static function place(Score $score, int $beats, int $pitchCount,
     ?int $melody = null, ?callable $random = null,
-    ?string $scale = null, ?string $homeNote = null): array {
+    ?string $scale = null, ?string $homeNote = null,
+    string $type = 'random-step'): array {
+    $type = self::canonicalType($type);
     $previous = $melody === null ? null : ($score->melodies[$melody]['motif'] ?? null);
     $motif = self::generate($beats, $pitchCount, $random, $scale, $homeNote,
-      $previous['scale'] ?? null, $previous['homeNote'] ?? null);
+      $previous['scale'] ?? null, $previous['homeNote'] ?? null, $type);
     $next = clone $score;
     if ($melody === null) {
       $label = self::nextLabel($next);
@@ -287,7 +358,8 @@ final class MotifScoreGenerator {
       'version' => 3, 'label' => $label, 'scale' => $motif['scale'],
       'homeNote' => $motif['homeNote'], 'randomScale' => $motif['randomScale'],
       'randomHomeNote' => $motif['randomHomeNote'],
-      'beats' => $beats, 'pitchCount' => $pitchCount,
+      'beats' => $beats, 'pitchCount' => $motif['pitchCount'],
+      'type' => $type,
     ]);
     return ['score' => $next, 'melody' => $melody, 'motif' => $motif, 'label' => $label];
   }

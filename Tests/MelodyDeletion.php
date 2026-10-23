@@ -41,6 +41,7 @@ $screen = $window->screen('editor');
 $screen->statusBar->setScheduler(ignoreMelodyDeletionTimer(...));
 $screen->widget('tempo')->setValue('120');
 $screen->widget('beats')->setValue('4');
+$screen->widget('repeats')->setValue('0');
 $screen->widget('volume')->setValue('100');
 $screen->widget('color')->setValue(MADSCORE\Score\Score::COLORS[0]);
 $score = new MADSCORE\Score\Score(2);

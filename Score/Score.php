@@ -164,6 +164,7 @@ final class Score {
       $next['repeats'] = 0;
       $next['note'] = '';
       unset($next['motifVersion']);
+      unset($next['music']);
       $this->bars[] = $next;
     }
   }
@@ -201,6 +202,7 @@ final class Score {
     if (!$leader) {
       $this->bars[$bar]['repeats'] = 0;
       unset($this->bars[$bar]['motifVersion']);
+      unset($this->bars[$bar]['music']);
     }
   }
 
@@ -246,6 +248,19 @@ final class Score {
       $number += (int)$this->bars[$index]['sectionLeader'];
     }
     return $number;
+  }
+
+  public function sectionMusic(int $bar): ?array {
+    return $this->bars[$this->sectionStart($bar)]['music'] ?? null;
+  }
+
+  public function setSectionMusic(int $bar, ?array $music): void {
+    $start = $this->sectionStart($bar);
+    if ($music === null) {
+      unset($this->bars[$start]['music']);
+    } else {
+      $this->bars[$start]['music'] = HarmonicContext::validate($music);
+    }
   }
 
   /** Find a melody note sounding at the given cursor slot. */
@@ -822,33 +837,30 @@ final class Score {
     return $this->copyAfter($index, $note['length']);
   }
 
-  /** Insert at the cursor's end, opposite to the beat already there. */
-  public function insertInverseBeat(int $melody, int $bar, int $slot, int $cursorLength, int $octave, int $pitchPosition): array {
+  /** Insert a note at the left edge unless it separates adjacent notes. */
+  public function insertInverseBeat(int $melody, int $bar, int $slot, int $octave, int $pitchPosition): array {
     $this->assertMelodyEditable($melody);
     if (!isset($this->melodies[$melody]) || !isset($this->bars[$bar]) || $slot < 0 || $slot > 2 * $this->beats($bar)
-      || $cursorLength < 1 || $cursorLength > 198) {
+      || $octave < 0 || $octave > 8 || $pitchPosition < 1 || $pitchPosition > 12) {
       throw new \DomainException('The insertion position is outside the score.');
     }
     $current = $this->noteAt($melody, $bar, $slot);
-    if ($current !== null) {
-      $note = $this->notes[$current];
-      $position = $this->start($note['bar']) + $note['slot'] + $note['length'];
-    } else {
-      $position = $this->start($bar) + $slot + $cursorLength;
-    }
+    $position = $current === null ? $this->start($bar) + $slot
+      : $this->start($this->notes[$current]['bar']) + $this->notes[$current]['slot'];
     $oldNotes = $this->notes;
     $oldBars = $this->bars;
     try {
       [$bar, $slot] = $this->cursorAt($position);
       $at = $this->noteAt($melody, $bar, $slot);
-      if ($at !== null && $this->start($this->notes[$at]['bar']) + $this->notes[$at]['slot'] < $position) {
-        throw new \DomainException('The cursor ends inside an existing note.');
-      }
+      $leftIsNote = false;
       foreach ($oldNotes as $otherIndex => $other) {
         if ($other['melody'] !== $melody) {
           continue;
         }
         $start = $this->start($other['bar']) + $other['slot'];
+        if ($start < $position && $start + $other['length'] >= $position) {
+          $leftIsNote = true;
+        }
         if ($start >= $position) {
           [$nextBar, $nextSlot] = $this->cursorAt($start + 2);
           $this->notes[$otherIndex]['bar'] = $nextBar;
@@ -856,7 +868,8 @@ final class Score {
         }
       }
       [$bar, $slot] = $this->cursorAt($position);
-      $inserted = $at === null ? $this->place($melody, $bar, $slot, $octave, $pitchPosition, 2) : null;
+      $inserted = $at === null || !$leftIsNote
+        ? $this->place($melody, $bar, $slot, $octave, $pitchPosition, 2) : null;
       foreach ($this->notes as $otherIndex => $other) {
         $this->assertFree($other, $otherIndex);
         $this->ensureDuration($other);
@@ -1143,6 +1156,7 @@ final class Score {
     $score = new self();
     $score->melodies = [];
     $motifLabels = [];
+    $chordVoices = [];
     foreach ($data['melodies'] as $index => $settings) {
       if (!is_array($settings) || !is_string($settings['pattern'] ?? null)
         || !is_int($settings['volume'] ?? null) || !is_string($settings['color'] ?? null)) {
@@ -1164,6 +1178,15 @@ final class Score {
         throw new \DomainException('Invalid melody mute setting.');
       }
       $score->setMelodyMuted($index, $settings['muted'] ?? false);
+      if (array_key_exists('chordVoice', $settings)) {
+        if (!is_int($settings['chordVoice']) || $settings['chordVoice'] < 0
+          || $settings['chordVoice'] > 6
+          || isset($chordVoices[$settings['chordVoice']])) {
+          throw new \DomainException('Invalid chord voice.');
+        }
+        $chordVoices[$settings['chordVoice']] = true;
+        $score->melodies[$index]['chordVoice'] = $settings['chordVoice'];
+      }
       if (array_key_exists('generation', $settings)) {
         $score->melodies[$index]['generation'] = PhraseGenerator::validateMetadata($settings['generation']);
       }
@@ -1210,6 +1233,12 @@ final class Score {
       }
       $savedBar = ['beats' => $bar['beats'], 'tempo' => $tempo,
         'sectionLeader' => $leader, 'repeats' => $repeats, 'note' => $note];
+      if (array_key_exists('music', $bar)) {
+        if (!$leader) {
+          throw new \DomainException('Harmonic context belongs on a section start.');
+        }
+        $savedBar['music'] = HarmonicContext::validate($bar['music']);
+      }
       if (array_key_exists('motifVersion', $bar)) {
         if (!$leader || $index === 0) {
           throw new \DomainException('A generated motif version needs its own section.');
@@ -1255,6 +1284,9 @@ final class Score {
       $note['finger'] = $finger;
       $note['dynamicToNext'] = $dynamic;
       $note['dynamicLevel'] = $dynamicLevel;
+      if (array_key_exists('chord', $inputNote)) {
+        $note['chord'] = ChordGenerator::validateMetadata($inputNote['chord']);
+      }
       $score->assertFree($note, null);
       $score->assertMelodyBand($note['melody'], $note['octave'], Pitch::position($note));
       $score->notes[] = $note;

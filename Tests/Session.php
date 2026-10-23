@@ -13,6 +13,7 @@ function expectSession(bool $condition, string $message): void {
 $score = new MADSCORE\Score\Score(12);
 $score->title = 'Work in progress';
 $score->ensureBar(3);
+$score->setSectionMusic(0, ['scale' => 'Major', 'homeNote' => 'C']);
 $score->place(1, 2, 3, 6, 5, 2);
 $selection = new MADSCORE\App\MelodySelection();
 $selection->extend(12, 19, 1);
@@ -20,7 +21,10 @@ MADSCORE\App\Files::restorePath(sys_get_temp_dir() . '/madscore-session-score.js
 foreach (['score' => $score, 'project' => MADSCORE\Score\Project::fromScore($score),
   'activeItemId' => 'main', 'bar' => 2, 'slot' => 3, 'octave' => 6, 'melody' => 1,
   'cursorLength' => 2, 'cursorLengthExplicit' => true, 'pitchPosition' => 5, 'firstBar' => 1,
-  'firstRow' => 2, 'view' => 'sheet', 'selection' => $selection] as $name => $value) {
+  'firstRow' => 2, 'view' => 'sheet', 'selection' => $selection,
+  'lastChordSettings' => ['main:0' => ['count' => 3, 'series' => 2,
+    'degree' => null, 'inversion' => 1,
+    'music' => ['scale' => 'Major', 'homeNote' => 'C']]]] as $name => $value) {
   (new \ReflectionProperty(MADSCORE\App\Controller::class, $name))->setValue(null, $value);
 }
 $capture = new \ReflectionMethod(MADSCORE\App\Controller::class, 'sessionState');
@@ -36,6 +40,9 @@ try {
   (new \ReflectionProperty(MADSCORE\App\Controller::class, 'score'))->setValue(null, new MADSCORE\Score\Score(12));
   $restore->invoke(null, MADSCORE\App\Session::load($path));
   expectSession($capture->invoke(null) === $state, 'Restoring the session returns the score, cursor, viewport, and selection.');
+  expectSession((new \ReflectionMethod(MADSCORE\App\Controller::class,
+    'previousChordSettings'))->invoke(null)['series'] === 2,
+    'The last chord settings remain available after session restore.');
   expectSession(MADSCORE\App\Files::currentPath() === $state['filePath'],
     'Restoring the session retains the named file for Write.');
   $whole = $state;
@@ -52,6 +59,15 @@ try {
   } catch (\DomainException $error) {
     expectSession($capture->invoke(null) === $state, 'A rejected session leaves the current editor state intact.');
   }
+  $invalidChord = $state;
+  $invalidChord['chordSettings']['main:0']['count'] = 8;
+  try {
+    $restore->invoke(null, $invalidChord);
+    throw new \RuntimeException('Invalid saved chord settings were accepted.');
+  } catch (\DomainException $error) {
+    expectSession($capture->invoke(null) === $state,
+      'Invalid saved chord settings leave the editor state intact.');
+  }
   $oldFormat = $state;
   $oldFormat['score'] = $score->data();
   unset($oldFormat['project']);
@@ -63,7 +79,7 @@ try {
       'An old session format leaves the current editor state intact.');
   }
   $motifProject = MADSCORE\Score\Project::fromScore($score);
-  $motifId = $motifProject->create('motif');
+  $motifId = $motifProject->create();
   $motifScore = $motifProject->score($motifId);
   $motifScore->place(0, 0, 0, 4, 4, 2);
   $motifProject->setScore($motifId, $motifScore);
