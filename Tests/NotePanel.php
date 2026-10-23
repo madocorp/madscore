@@ -19,8 +19,8 @@ foreach (['window' => $window, 'score' => $score, 'bar' => 0, 'slot' => 0, 'octa
   'pitchPosition' => 2, 'cursorLength' => 2, 'cursorLengthExplicit' => false, 'displayedReadout' => ''] as $name => $value) {
   (new ReflectionProperty(MADSCORE\App\Controller::class, $name))->setValue(null, $value);
 }
-$refresh = new ReflectionMethod(MADSCORE\App\Controller::class, 'refreshCursorReadout');
-$install = new ReflectionMethod(MADSCORE\App\Controller::class, 'installSheet');
+$refresh = new ReflectionMethod(MADSCORE\App\ControllerSheet::class, 'refreshCursorReadout');
+$install = new ReflectionMethod(MADSCORE\App\ControllerSheet::class, 'installSheet');
 $install->invoke(null, 'editor');
 $editor = $window->screen('editor');
 $editor->measureGrid(new SPTK\Layout\Tile(0, 0, 132, 38));
@@ -79,7 +79,7 @@ expectNotePanel($editor->widget('barSettingsTitle')->text() === '[R] Bar 1'
   && $editor->widget('selectedMelody')->text() === '[Y] Melody 1',
   'Bar and melody shortcuts appear in their tile titles.');
 $score->setSectionMusic(0, ['scale' => 'Major', 'homeNote' => 'G']);
-(new ReflectionMethod(MADSCORE\App\Controller::class, 'refreshSelectedBarFields'))->invoke(null);
+(new ReflectionMethod(MADSCORE\App\ControllerSheet::class, 'refreshSelectedBarFields'))->invoke(null);
 expectNotePanel($editor->widget('barSettingsTitle')->text() === '[R] Bar 1 (Major G)',
   'The Bar title shows the current section scale and home note.');
 expectNotePanel($editor->widget('section')->hotkey() === '|'

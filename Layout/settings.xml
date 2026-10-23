@@ -1,5 +1,5 @@
 <Screen>
-  <Event type="keyDown" key="escape" action="MADSCORE\App\Controller::closeSettings" />
+  <Event type="keyDown" key="escape" action="MADSCORE\App\ControllerNavigation::closeSettings" />
   <Event type="keyDown" key="f1" action="MADSCORE\App\Settings::openTutorial" />
   <Layout direction="vertical">
     <Title height="1">madscore — settings and about</Title>
@@ -9,11 +9,11 @@
         <Image src="../Assets/logo.png" fit="contain" interactive="false" />
         <Separator />
         <Input id="defaultDirectory" height="2" label="Default directory" tip="Used when a file selector first opens. Changes are saved as you type." />
-        <Button id="playbackSound" label="Playback: MIDI" action="MADSCORE\App\Controller::togglePlaybackSound" />
+        <Button id="playbackSound" label="Playback: MIDI" action="MADSCORE\App\ControllerPlayback::togglePlaybackSound" />
         <Button id="tristaffTutorial" label="Tristaff tutorial" hotkey="f1" action="MADSCORE\App\Settings::openTutorial" />
         <Empty height="1*" navigate="false" />
-        <Button id="settingsBack" label="Back to score" hotkey="escape" action="MADSCORE\App\Controller::closeSettings" />
-        <Button id="settingsExit" label="Exit" hotkey="q" action="MADSCORE\App\Controller::quit" />
+        <Button id="settingsBack" label="Back to score" hotkey="escape" action="MADSCORE\App\ControllerNavigation::closeSettings" />
+        <Button id="settingsExit" label="Exit" hotkey="q" action="MADSCORE\App\ControllerNavigation::quit" />
       </Layout>
       <Separator />
       <Layout width="1*">

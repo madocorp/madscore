@@ -1,13 +1,13 @@
 <Screen>
-  <Event type="keyDown" key="v" action="MADSCORE\App\Controller::toggleView" />
-  <Event type="keyDown" key="escape" action="MADSCORE\App\Controller::toggleView" />
-  <Event type="keyDown" key="enter" action="MADSCORE\App\Controller::toggleView" />
-  <Event type="keyDown" key="p" action="MADSCORE\App\Controller::toggleScorePlayback" />
-  <Event type="keyDown" key="m" action="MADSCORE\App\Controller::toggleMelodyPlayback" />
-  <Event type="keyDown" key="b" action="MADSCORE\App\Controller::previousPreviewPage" />
-  <Event type="keyDown" key="n" action="MADSCORE\App\Controller::nextPreviewPage" />
-  <Event type="keyDown" key="f" action="MADSCORE\App\Controller::firstPreviewPage" />
-  <Event type="keyDown" key="l" action="MADSCORE\App\Controller::lastPreviewPage" />
+  <Event type="keyDown" key="v" action="MADSCORE\App\ControllerNavigation::toggleView" />
+  <Event type="keyDown" key="escape" action="MADSCORE\App\ControllerNavigation::toggleView" />
+  <Event type="keyDown" key="enter" action="MADSCORE\App\ControllerNavigation::toggleView" />
+  <Event type="keyDown" key="p" action="MADSCORE\App\ControllerPlayback::toggleScorePlayback" />
+  <Event type="keyDown" key="m" action="MADSCORE\App\ControllerPlayback::toggleMelodyPlayback" />
+  <Event type="keyDown" key="b" action="MADSCORE\App\ControllerNavigation::previousPreviewPage" />
+  <Event type="keyDown" key="n" action="MADSCORE\App\ControllerNavigation::nextPreviewPage" />
+  <Event type="keyDown" key="f" action="MADSCORE\App\ControllerNavigation::firstPreviewPage" />
+  <Event type="keyDown" key="l" action="MADSCORE\App\ControllerNavigation::lastPreviewPage" />
   <Layout direction="vertical">
     <Layout id="board" direction="horizontal" height="1*"><Empty navigate="false" /></Layout>
     <StatusBar height="1" />

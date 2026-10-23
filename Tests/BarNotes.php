@@ -102,11 +102,11 @@ $window = (new ReflectionClass(SPTK\Core\Window::class))->newInstanceWithoutCons
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'window'))->setValue(null, $window);
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'score'))->setValue(null, $score);
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'bar'))->setValue(null, 1);
-(new ReflectionMethod(MADSCORE\App\Controller::class, 'refreshSelectedBarFields'))->invoke(null);
+(new ReflectionMethod(MADSCORE\App\ControllerSheet::class, 'refreshSelectedBarFields'))->invoke(null);
 $field = $window->screen('editor')->widget('barNote');
 expectBarNote($field->getValue() === '', 'The bar settings show the selected bar note.');
 $field->setValue('Con moto');
-(new ReflectionMethod(MADSCORE\App\Controller::class, 'applyEditorBarNote'))->invoke(null);
+(new ReflectionMethod(MADSCORE\App\ControllerSheet::class, 'applyEditorBarNote'))->invoke(null);
 expectBarNote($score->bars[1]['note'] === 'Con moto', 'The bar settings save edited text.');
 
 echo "Bar note checks passed\n";

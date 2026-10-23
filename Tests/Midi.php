@@ -140,6 +140,8 @@ expectMidi(array_column($cursorOns, 0) === [0, 720, 1680, 2640],
   'MIDI begins on a crossing note at the cursor and keeps subsequent section repeats.');
 
 $shared = new MADSCORE\Score\Score();
+$shared->setMelodyInstrument(0, 'gm:16');
+$shared->setMelodyVolume(0, 100);
 $shared->ensureBar(1);
 foreach ([0, 2, 4, 6] as $slot) {
   $shared->place(0, 0, $slot, 4, 1, 2);
@@ -164,6 +166,8 @@ expectMidi(MADSCORE\Score\Sound::dynamicControl('gm:16') === 'expression'
   && MADSCORE\Score\Sound::dynamicControl('drum:36') === 'velocity',
   'Organs, bowed strings, and winds use expression; plucked and struck sounds use velocity.');
 $openingDynamics = new MADSCORE\Score\Score();
+$openingDynamics->setMelodyInstrument(0, 'gm:16');
+$openingDynamics->setMelodyVolume(0, 100);
 $openingDynamics->place(0, 0, 0, 4, 1, 2);
 $markedNote = $openingDynamics->place(0, 0, 2, 4, 1, 2);
 $openingDynamics->place(0, 0, 4, 4, 1, 2);
@@ -174,16 +178,19 @@ $openingDynamics->setMelodyInstrument(0, 'gm:0');
 expectMidi(midiNoteVelocities($openingDynamics) === [55, 40, 40],
   'A piano starts between mp and mf, then holds its first written level.');
 $unmarkedWedge = new MADSCORE\Score\Score();
+$unmarkedWedge->setMelodyInstrument(0, 'gm:16');
 $unmarkedWedge->place(0, 0, 0, 4, 1, 2);
 $unmarkedWedge->place(0, 0, 4, 4, 1, 2);
 $unmarkedWedge->setScoreDynamicWedge(0, 4, 'crescendo');
 expectMidi(midiNoteExpressions($unmarkedWedge) === [70, 127],
   'An organ crescendo without an opening mark starts from the baseline.');
 $unmarkedWedge->setMelodyInstrument(0, 'gm:0');
+$unmarkedWedge->setMelodyVolume(0, 100);
 expectMidi(midiNoteVelocities($unmarkedWedge) === [55, 100],
   'A piano crescendo without an opening mark starts from the baseline.');
 
 $levelStep = new MADSCORE\Score\Score();
+$levelStep->setMelodyInstrument(0, 'gm:16');
 $levelStep->ensureBar(1);
 $levelStep->place(0, 0, 6, 4, 1, 2);
 $levelStep->place(0, 1, 0, 4, 3, 2);
@@ -198,6 +205,7 @@ expectMidi(array_map(static fn (array $event): int => $event[1] & 0xf0, $stepAtB
   'A score level changes at the bar boundary before its first note begins.');
 
 $local = new MADSCORE\Score\Score();
+$local->setMelodyInstrument(0, 'gm:16');
 $local->ensureBar(1);
 foreach ([0, 2, 4, 6] as $slot) {
   $local->place(0, 0, $slot, 4, 1, 2);
@@ -246,6 +254,7 @@ expectMidi(array_column($articulatedOff, 0) === [240, 965, 1426],
   'Staccato shortens its note and a slur overlaps the following onset.');
 
 $repeated = new MADSCORE\Score\Score();
+$repeated->setMelodyInstrument(0, 'gm:16');
 $repeatedNotes = [];
 foreach ([0, 2, 4, 6, 8, 10] as $slot) {
   if ($slot === 8) {

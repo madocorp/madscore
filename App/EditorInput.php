@@ -35,9 +35,9 @@ final class EditorInput {
       if (($modifiers & SDL::MOD_CTRL) !== 0
         && ($modifiers & (SDL::MOD_ALT | SDL::MOD_MODE)) === 0 && $value === '*') {
         try {
-          Controller::cycleDynamic();
+          ControllerNoteMarks::cycleDynamic();
         } catch (\DomainException $error) {
-          Controller::status($error->getMessage());
+          ControllerNavigation::status($error->getMessage());
         }
         return true;
       }
@@ -61,14 +61,14 @@ final class EditorInput {
     if (Controller::isDesign() && $shift && !$ctrl && !$alt && !$mode
       && KeyNormalizer::keyName($key, 0) === 'c') {
       if (!$event->key->repeat) {
-        Controller::regenerateComposerFromSheet();
+        ControllerMotifGeneration::regenerateComposerFromSheet();
       }
       return true;
     }
     if (Controller::isDesign() && !$shift && !$ctrl && !$alt && !$mode
       && KeyNormalizer::keyName($key, 0) === 'c') {
       if (!$event->key->repeat) {
-        Controller::openComposer();
+        ControllerComposer::openComposer();
       }
       return true;
     }
@@ -76,25 +76,25 @@ final class EditorInput {
       $name = KeyNormalizer::keyName($key, 0);
       if (Controller::isDesign() && $name >= '1' && $name <= '9') {
         try {
-          Controller::setDynamicLevel(self::digitLevel($name), false);
+          ControllerNoteMarks::setDynamicLevel(self::digitLevel($name), false);
         } catch (\DomainException $error) {
-          Controller::status($error->getMessage());
+          ControllerNavigation::status($error->getMessage());
         }
         return true;
       }
       if (Controller::isDesign() && $name === 'a') {
-        Controller::selectAll();
+        ControllerSelection::selectAll();
         return true;
       }
       if ($name === 'z' || $name === 'y') {
-        $name === 'z' ? Controller::undoMelody() : Controller::redoMelody();
+        $name === 'z' ? ControllerNoteEditing::undoMelody() : ControllerNoteEditing::redoMelody();
         return true;
       }
       if (Controller::isDesign() && ($name === 'c' || $name === 'v')) {
         try {
-          $name === 'c' ? Controller::copySelection() : Controller::pasteSelection();
+          $name === 'c' ? ControllerSelection::copySelection() : ControllerSelection::pasteSelection();
         } catch (\DomainException $error) {
-          Controller::status($error->getMessage());
+          ControllerNavigation::status($error->getMessage());
         }
         return true;
       }
@@ -102,16 +102,16 @@ final class EditorInput {
     if (!Controller::isDesign()) {
       $name = KeyNormalizer::keyName($key, (int)$event->key->mod);
       if (in_array($name, ['p', 'm'], true) && !$ctrl && !$alt && !$shift && !$event->key->repeat) {
-        Controller::togglePlayback($name === 'm');
+        ControllerPlayback::togglePlayback($name === 'm');
       } else if (($name === 'v' || $key === SDL::KEY_ESCAPE || $key === SDL::KEY_RETURN)
         && !$ctrl && !$alt && !$shift && !$event->key->repeat) {
-        Controller::toggleView($context);
+        ControllerNavigation::toggleView($context);
       } else if ($key === SDL::KEY_PAGEUP) {
-        Controller::scrollRows(-1);
+        ControllerNavigation::scrollRows(-1);
       } else if ($key === SDL::KEY_PAGEDOWN) {
-        Controller::scrollRows(1);
+        ControllerNavigation::scrollRows(1);
       } else if ($key === SDL::KEY_HOME || $key === SDL::KEY_END) {
-        Controller::previewEdge($key === SDL::KEY_END);
+        ControllerNavigation::previewEdge($key === SDL::KEY_END);
       }
       return true;
     }
@@ -119,23 +119,23 @@ final class EditorInput {
       $name = KeyNormalizer::keyName($key, 0);
       if ($name === 'n') {
         if (!$event->key->repeat) {
-          Controller::addMelody($context);
+          ControllerNavigation::addMelody($context);
         }
         return true;
       }
       if ($name === 'u') {
         if (!$event->key->repeat) {
           try {
-            Controller::duplicateNote();
+            ControllerNoteMarks::duplicateNote();
           } catch (\DomainException $error) {
-            Controller::status($error->getMessage());
+            ControllerNavigation::status($error->getMessage());
           }
         }
         return true;
       }
       if ($name === 'r' || $name === 'y' || $name === 't') {
         if (!$event->key->repeat) {
-          Controller::selectSettings(match ($name) {
+          ControllerNavigation::selectSettings(match ($name) {
             'r' => 'tempo',
             'y' => 'sound',
             't' => 'staccato',
@@ -145,50 +145,50 @@ final class EditorInput {
       }
       if ($name === 'c') {
         if (!$event->key->repeat) {
-          Controller::openComposer();
+          ControllerComposer::openComposer();
         }
         return true;
       }
       if ($name === 'v') {
         if (!$event->key->repeat) {
-          Controller::toggleView($context);
+          ControllerNavigation::toggleView($context);
         }
         return true;
       }
       if ($name === 'p' || $name === 'm') {
         if (!$event->key->repeat) {
-          Controller::togglePlayback($name === 'm');
+          ControllerPlayback::togglePlayback($name === 'm');
         }
         return true;
       }
     }
     if ($key === SDL::KEY_TAB && !$ctrl && !$alt) {
-      Controller::moveMelody($shift ? -1 : 1);
+      ControllerNavigation::moveMelody($shift ? -1 : 1);
       return true;
     }
     if ($ctrl && $shift && !$alt && !$mode) {
       if ($key === SDL::KEY_LEFT || $key === SDL::KEY_RIGHT) {
-        Controller::moveScoreSelection($key === SDL::KEY_LEFT ? -1 : 1);
+        ControllerSelection::moveScoreSelection($key === SDL::KEY_LEFT ? -1 : 1);
         return true;
       }
       if ($key === SDL::KEY_HOME || $key === SDL::KEY_END) {
-        Controller::moveToVisibleEdge($key === SDL::KEY_END, true, 'score');
+        ControllerNavigation::moveToVisibleEdge($key === SDL::KEY_END, true, 'score');
         return true;
       }
     }
     if ($ctrl && !$shift && !$alt && !$mode && ($key === SDL::KEY_HOME || $key === SDL::KEY_END)) {
-      Controller::moveToScoreEdge($key === SDL::KEY_END);
+      ControllerSelection::moveToScoreEdge($key === SDL::KEY_END);
       return true;
     }
     if ($ctrl || $alt || $mode) {
       return false;
     }
     if ($key === SDL::KEY_LEFT || $key === SDL::KEY_RIGHT) {
-      Controller::moveTime($key === SDL::KEY_LEFT ? -1 : 1, $shift);
+      ControllerNavigation::moveTime($key === SDL::KEY_LEFT ? -1 : 1, $shift);
       return true;
     }
     if ($key === SDL::KEY_HOME || $key === SDL::KEY_END) {
-      Controller::moveToVisibleEdge($key === SDL::KEY_END, $shift);
+      ControllerNavigation::moveToVisibleEdge($key === SDL::KEY_END, $shift);
       return true;
     }
     if ($shift) {
@@ -196,57 +196,57 @@ final class EditorInput {
     }
     if ($key === SDL::KEY_UP || $key === SDL::KEY_DOWN) {
       try {
-        if (Controller::selectionStateForSheet() !== null) {
-          Controller::transposeSelection($key === SDL::KEY_UP ? 1 : -1);
+        if (ControllerSelection::selectionStateForSheet() !== null) {
+          ControllerSelection::transposeSelection($key === SDL::KEY_UP ? 1 : -1);
         } else {
-          Controller::stepPitch($key === SDL::KEY_UP ? 1 : -1);
+          ControllerNoteEditing::stepPitch($key === SDL::KEY_UP ? 1 : -1);
         }
       } catch (\DomainException $error) {
-        Controller::status($error->getMessage());
+        ControllerNavigation::status($error->getMessage());
       }
       return true;
     }
     if ($key === SDL::KEY_PAGEUP || $key === SDL::KEY_PAGEDOWN) {
       try {
-        if (Controller::selectionStateForSheet() !== null) {
-          Controller::transposeSelection($key === SDL::KEY_PAGEUP ? 12 : -12);
+        if (ControllerSelection::selectionStateForSheet() !== null) {
+          ControllerSelection::transposeSelection($key === SDL::KEY_PAGEUP ? 12 : -12);
         } else {
-          Controller::moveOctave($key === SDL::KEY_PAGEUP ? -1 : 1);
+          ControllerNavigation::moveOctave($key === SDL::KEY_PAGEUP ? -1 : 1);
         }
       } catch (\DomainException $error) {
-        Controller::status($error->getMessage());
+        ControllerNavigation::status($error->getMessage());
       }
       return true;
     }
     if ($key === SDL::KEY_SPACE || $key === SDL::KEY_RETURN) {
       try {
         if ($key === SDL::KEY_RETURN) {
-          Controller::dropNote(true);
+          ControllerNoteEditing::dropNote(true);
         } else {
-          Controller::followNotePitch();
+          ControllerNoteEditing::followNotePitch();
         }
       } catch (\DomainException $error) {
-        Controller::status($error->getMessage());
+        ControllerNavigation::status($error->getMessage());
       }
       return true;
     }
     if ($key === SDL::KEY_INSERT) {
       try {
-        Controller::insertInverseBeat();
+        ControllerNoteMarks::insertInverseBeat();
       } catch (\DomainException $error) {
-        Controller::status($error->getMessage());
+        ControllerNavigation::status($error->getMessage());
       }
       return true;
     }
     if ($key === SDL::KEY_BACKSPACE || $key === SDL::KEY_DELETE) {
       try {
         if ($key === SDL::KEY_BACKSPACE) {
-          Controller::deleteBeforeCursor();
+          ControllerNoteMarks::deleteBeforeCursor();
         } else {
-          Controller::deleteAtCursor();
+          ControllerNoteMarks::deleteAtCursor();
         }
       } catch (\DomainException $error) {
-        Controller::status($error->getMessage());
+        ControllerNavigation::status($error->getMessage());
       }
       return true;
     }
@@ -267,14 +267,14 @@ final class EditorInput {
     }
     try {
       if ($value === '+' || $value === '-') {
-        Controller::setCursorLength(Controller::cursorLength() + ($value === '+' ? 1 : -1));
+        ControllerNoteEditing::setCursorLength(ControllerNoteEditing::cursorLength() + ($value === '+' ? 1 : -1));
       } else if ($value >= '1' && $value <= '9') {
-        Controller::setDynamicLevel(self::digitLevel($value), true);
+        ControllerNoteMarks::setDynamicLevel(self::digitLevel($value), true);
       } else {
         return false;
       }
     } catch (\Throwable $error) {
-      Controller::status($error->getMessage());
+      ControllerNavigation::status($error->getMessage());
     }
     return true;
   }

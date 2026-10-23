@@ -40,12 +40,12 @@ final class Files {
     try {
       $screen->widget('saveDirectory')->setPath($directory);
     } catch (\Throwable $error) {
-      Controller::status($error->getMessage());
+      ControllerNavigation::status($error->getMessage());
       return;
     }
     self::$lastDirectory = $directory;
     $screen->widget('saveFilename')->setValue(self::$path === null ? 'score.json' : basename(self::$path));
-    Controller::showFilePanel('savePanel');
+    ControllerEditorActions::showFilePanel('savePanel');
   }
 
   /** Reopen the last directory and let Return on a file load it. */
@@ -55,11 +55,11 @@ final class Files {
     try {
       $screen->widget('loadSelector')->setPath($directory);
     } catch (\Throwable $error) {
-      Controller::status($error->getMessage());
+      ControllerNavigation::status($error->getMessage());
       return;
     }
     self::$lastDirectory = $directory;
-    Controller::showFilePanel('loadPanel');
+    ControllerEditorActions::showFilePanel('loadPanel');
   }
 
   /** Remember directory navigation across both file selectors. */
@@ -79,7 +79,7 @@ final class Files {
   /** Write changes only to the file already associated with the score. */
   public static function write(EventContext $event): void {
     if (self::$path === null) {
-      Controller::status('No current file. Use Ctrl+S to save first.');
+      ControllerNavigation::status('No current file. Use Ctrl+S to save first.');
       return;
     }
     self::writeScore(self::$path);
@@ -106,19 +106,19 @@ final class Files {
       if (is_file($path) && $path !== self::$path) {
         $screen->statusBar?->confirm('Overwrite ' . $name . '?',
           static function() use ($path): void { self::finishSave($path); },
-          static function(): void { Controller::status('Save cancelled.'); });
+          static function(): void { ControllerNavigation::status('Save cancelled.'); });
         return;
       }
       self::finishSave($path);
     } catch (\Throwable $error) {
-      Controller::status($error->getMessage());
+      ControllerNavigation::status($error->getMessage());
     }
   }
 
   private static function finishSave(string $path): void {
     if (self::writeScore($path)) {
       self::$path = $path;
-      Controller::hideFilePanel('savePanel');
+      ControllerEditorActions::hideFilePanel('savePanel');
     }
   }
 
@@ -126,7 +126,7 @@ final class Files {
   public static function open(EventContext $event): bool {
     $path = Controller::screen('editor')->widget('loadSelector')->activeValue();
     if ($path === null || !is_file($path)) {
-      Controller::status('Select a score file to load.');
+      ControllerNavigation::status('Select a score file to load.');
       return true;
     }
     try {
@@ -136,7 +136,7 @@ final class Files {
           Controller::screen('editor')->statusBar?->confirm(
             'Import and omit: ' . implode(', ', $warnings) . '?',
             static function() use ($score): void { self::finishOpen($score, null, 'Imported core notes. Save as JSON to keep editing.'); },
-            static function(): void { Controller::status('Import cancelled.'); });
+            static function(): void { ControllerNavigation::status('Import cancelled.'); });
           return true;
         }
         self::finishOpen($score, null, 'Imported core notes. Save as JSON to keep editing.');
@@ -149,23 +149,23 @@ final class Files {
       $project = Project::fromData(json_decode($source, true, 512, JSON_THROW_ON_ERROR));
       self::finishOpenProject($project, $path, 'Opened ' . basename($path));
     } catch (\Throwable $error) {
-      Controller::status($error->getMessage());
+      ControllerNavigation::status($error->getMessage());
     }
     return true;
   }
 
   private static function finishOpen(Score $score, ?string $path, string $message): void {
-    Controller::hideFilePanel('loadPanel');
+    ControllerEditorActions::hideFilePanel('loadPanel');
     self::$path = $path;
-    Controller::loadScore($score);
-    Controller::status($message);
+    ControllerNoteEditing::loadScore($score);
+    ControllerNavigation::status($message);
   }
 
   private static function finishOpenProject(Project $project, ?string $path, string $message): void {
-    Controller::hideFilePanel('loadPanel');
+    ControllerEditorActions::hideFilePanel('loadPanel');
     self::$path = $path;
-    Controller::loadProject($project);
-    Controller::status($message);
+    ControllerNoteEditing::loadProject($project);
+    ControllerNavigation::status($message);
   }
 
   /** Start an unnamed, empty document from the Load panel. */
@@ -174,8 +174,8 @@ final class Files {
   }
 
   public static function cancel(EventContext $event): bool {
-    Controller::hideFilePanel('savePanel');
-    Controller::hideFilePanel('loadPanel');
+    ControllerEditorActions::hideFilePanel('savePanel');
+    ControllerEditorActions::hideFilePanel('loadPanel');
     return true;
   }
 
@@ -192,30 +192,30 @@ final class Files {
   /** Preserve PDF export without a separate Files screen. */
   public static function exportPdf(EventContext $event): void {
     if (self::$path === null) {
-      Controller::status('Save the score before exporting PDF.');
+      ControllerNavigation::status('Save the score before exporting PDF.');
       return;
     }
     $path = self::exportPath('pdf');
     try {
       PdfWriter::write($path, Controller::score());
-      Controller::status('Exported ' . basename($path));
+      ControllerNavigation::status('Exported ' . basename($path));
     } catch (\Throwable $error) {
-      Controller::status($error->getMessage());
+      ControllerNavigation::status($error->getMessage());
     }
   }
 
   /** Export beside the named JSON score. */
   public static function exportMidi(EventContext $event): void {
     if (self::$path === null) {
-      Controller::status('Save the score before exporting MIDI.');
+      ControllerNavigation::status('Save the score before exporting MIDI.');
       return;
     }
     $path = self::exportPath('mid');
     try {
       MidiWriter::write($path, Controller::score());
-      Controller::status('Exported ' . basename($path));
+      ControllerNavigation::status('Exported ' . basename($path));
     } catch (\Throwable $error) {
-      Controller::status($error->getMessage());
+      ControllerNavigation::status($error->getMessage());
     }
   }
 
@@ -229,15 +229,15 @@ final class Files {
   private static function writeScore(string $path): bool {
     $temp = null;
     try {
-      $encoded = json_encode(Controller::projectData(), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . "\n";
+      $encoded = json_encode(ControllerNoteEditing::projectData(), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . "\n";
       $temp = $path . '.tmp-' . bin2hex(random_bytes(6));
       if (file_put_contents($temp, $encoded) !== strlen($encoded) || !rename($temp, $path)) {
         throw new \RuntimeException('Could not save score: ' . $path);
       }
-      Controller::status('Saved ' . basename($path));
+      ControllerNavigation::status('Saved ' . basename($path));
       return true;
     } catch (\Throwable $error) {
-      Controller::status($error->getMessage());
+      ControllerNavigation::status($error->getMessage());
       return false;
     } finally {
       if ($temp !== null && is_file($temp)) {

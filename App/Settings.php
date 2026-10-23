@@ -32,7 +32,7 @@ final class Settings {
   public static function directoryChanged(EventContext $event): void {
     self::$directory = Controller::screen('settings')->widget('defaultDirectory')->getValue();
     if (!AppData::saveJson('settings.json', ['defaultDir' => self::$directory])) {
-      Controller::status('Could not save settings.', 'settings');
+      ControllerNavigation::status('Could not save settings.', 'settings');
     }
   }
 
@@ -49,7 +49,7 @@ final class Settings {
         throw new \RuntimeException('Could not open the Tristaff tutorial in a browser.');
       }
     } catch (\Throwable $error) {
-      Controller::status($error->getMessage(), 'settings');
+      ControllerNavigation::status($error->getMessage(), 'settings');
     }
     return true;
   }

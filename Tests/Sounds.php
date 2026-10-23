@@ -58,7 +58,7 @@ $window = (new ReflectionClass(SPTK\Core\Window::class))->newInstanceWithoutCons
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'window'))->setValue(null, $window);
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'score'))->setValue(null, $score);
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'melody'))->setValue(null, 0);
-(new ReflectionMethod(MADSCORE\App\Controller::class, 'refreshMelodyFields'))->invoke(null);
+(new ReflectionMethod(MADSCORE\App\ControllerSheet::class, 'refreshMelodyFields'))->invoke(null);
 $picker = $window->screen('editor')->widget('soundPicker');
 expectSound(count($picker->items()) === 175 && $picker->getValue() === 'gm:40',
   'The editor shows the full catalog and selects the saved instrument.');
