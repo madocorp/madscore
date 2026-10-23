@@ -78,6 +78,10 @@ expectNotePanel($refresh->invoke(null), 'The initial gap updates the note panel.
 expectNotePanel($editor->widget('barSettingsTitle')->text() === '[R] Bar 1'
   && $editor->widget('selectedMelody')->text() === '[Y] Melody 1',
   'Bar and melody shortcuts appear in their tile titles.');
+$score->setSectionMusic(0, ['scale' => 'Major', 'homeNote' => 'G']);
+(new ReflectionMethod(MADSCORE\App\Controller::class, 'refreshSelectedBarFields'))->invoke(null);
+expectNotePanel($editor->widget('barSettingsTitle')->text() === '[R] Bar 1 (Major G)',
+  'The Bar title shows the current section scale and home note.');
 expectNotePanel($editor->widget('section')->hotkey() === '|'
   && (new ReflectionProperty(SPTK\Widgets\Button\Button::class, 'label'))->getValue($editor->widget('section')) === 'Section start: Yes',
   'The Bar tile shows the highlighted section shortcut like other toggle buttons.');
@@ -145,6 +149,8 @@ expectNotePanel(str_contains($editor->widget('cursorHelp')->text(), 'Left/Right 
   'The Cursor box holds movement and entry help.');
 expectNotePanel(str_contains($editor->widget('melodyHelp')->text(), 'Shift+Tab Prev')
   && str_contains($editor->widget('actionsHelp')->text(), 'P/M Play all/one')
-  && str_contains($editor->widget('actionsHelp')->text(), 'V Preview'),
+  && str_contains($editor->widget('actionsHelp')->text(), 'V Preview')
+  && str_contains($editor->widget('actionsHelp')->text(), 'C Composer')
+  && str_contains($editor->widget('actionsHelp')->text(), 'O Chords'),
   'Melody and Actions show their own shortcuts.');
 echo "Note panel checks passed\n";

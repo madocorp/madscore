@@ -57,7 +57,7 @@ $editor->activateLeaf($sheet);
 expectEditorFocus(!$editor->handleEvent(editorText('_')) && $editor->activeLeaf() === $sheet,
   'Underscore leaves the active score canvas alone.');
 $project = MADSCORE\Score\Project::fromScore(new MADSCORE\Score\Score());
-$motifId = $project->create('motif');
+$motifId = $project->create();
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'project'))->setValue(null, $project);
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'activeItemId'))->setValue(null, $motifId);
 $editor->statusBar->setScheduler(static function (int $durationMs, callable $dismiss): void {});

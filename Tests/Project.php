@@ -14,24 +14,34 @@ $main = new MADSCORE\Score\Score();
 $main->title = 'Project study';
 $main->place(0, 0, 0, 4, 4, 2);
 $project = MADSCORE\Score\Project::fromScore($main);
-$motifId = $project->create('motif');
-$phraseId = $project->create('phrase');
-expectProject($motifId === 'A' && $phraseId === 'phrase-1'
-  && $project->first('motif') === $motifId && $project->first('phrase') === $phraseId,
-  'First visits create named motif and phrase items.');
+$motifId = $project->create();
+expectProject($motifId === 'A' && $project->first() === $motifId,
+  'First visit creates a named motif.');
 $motif = $project->score($motifId);
 expectProject($motif->notes === [] && $motif->title === 'Project study',
   'New motif starts empty and shares project metadata.');
 $motif->place(0, 0, 0, 4, 7, 2);
 $project->setScore($motifId, $motif);
 $project->setName($motifId, 'Opening idea');
+$project->setPattern("A B |\nA1");
 $loaded = MADSCORE\Score\Project::fromData($project->data());
 expectProject($loaded->data() === $project->data()
+  && $loaded->pattern() === "A B |\nA1"
   && $loaded->item($motifId)['name'] === 'Opening idea'
   && count($loaded->score('main')->notes) === 1
-  && count($loaded->score($motifId)->notes) === 1
-  && $loaded->score($phraseId)->notes === [],
+  && count($loaded->score($motifId)->notes) === 1,
   'All project items round trip independently.');
+$legacyPattern = $project->data();
+unset($legacyPattern['items'][0]['pattern']);
+expectProject(MADSCORE\Score\Project::fromData($legacyPattern)->pattern() === null,
+  'Projects saved before patterns were remembered still load.');
+$invalidPattern = $project->data();
+$invalidPattern['items'][1]['pattern'] = 'A';
+try {
+  MADSCORE\Score\Project::fromData($invalidPattern);
+  throw new \RuntimeException('A motif accepted a score pattern.');
+} catch (\DomainException) {
+}
 $active = $loaded->score($motifId);
 $active->place(0, 0, 2, 4, 6, 2);
 (new \ReflectionProperty(MADSCORE\App\Controller::class, 'project'))->setValue(null, $loaded);
@@ -40,12 +50,13 @@ $active->place(0, 0, 2, 4, 6, 2);
 $saved = MADSCORE\App\Controller::projectData();
 expectProject(count($saved['items'][0]['score']['notes']) === 1
   && count($saved['items'][1]['score']['notes']) === 2
-  && $saved['items'][2]['score']['notes'] === [],
+  && count($saved['items']) === 2,
   'Saving the active motif retains every other project item.');
-$secondMotif = $loaded->create('motif');
+$secondMotif = $loaded->create();
 expectProject($secondMotif === 'B', 'Later motif IDs use consecutive letters.');
 $chosen = MADSCORE\Score\MotifScoreGenerator::place($loaded->score($secondMotif),
   8, 4, scale: 'Dorian', homeNote: 'F#')['score'];
+$chosen->setSectionMusic(0, ['scale' => 'Dorian', 'homeNote' => 'F#']);
 $loaded->setScore($secondMotif, $chosen);
 expectProject($loaded->item($secondMotif)['music']
   === ['scale' => 'Dorian', 'homeNote' => 'F#']
@@ -72,8 +83,8 @@ try {
 
 $full = new MADSCORE\Score\Project();
 foreach (range('A', 'Z') as $letter) {
-  expectProject($full->create('motif') === $letter, 'Motif IDs follow the alphabet.');
+  expectProject($full->create() === $letter, 'Motif IDs follow the alphabet.');
 }
-expectProject($full->create('motif') === 'AA', 'Motif IDs continue after Z.');
+expectProject($full->create() === 'AA', 'Motif IDs continue after Z.');
 
 echo "Project checks passed\n";

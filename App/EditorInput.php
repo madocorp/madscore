@@ -221,7 +221,7 @@ final class EditorInput {
     if ($key === SDL::KEY_SPACE || $key === SDL::KEY_RETURN) {
       try {
         if ($key === SDL::KEY_RETURN) {
-          Controller::dropNote();
+          Controller::dropNote(true);
         } else {
           Controller::followNotePitch();
         }

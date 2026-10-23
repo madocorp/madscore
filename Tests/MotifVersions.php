@@ -17,6 +17,46 @@ function expectVersions(bool $condition, string $message): void {
 $draw = static fn (int $low, int $high): int => min($high, max($low, 2));
 $base = MotifScoreGenerator::place(new Score(), 8, 4, random: $draw,
   scale: 'Major', homeNote: 'C')['score'];
+$up = MotifScoreGenerator::generate(8, 3, $draw, 'Major', 'C',
+  type: 'up-wave');
+$down = MotifScoreGenerator::generate(8, 3, $draw, 'Major', 'C',
+  type: 'down-wave');
+$wideUp = MotifScoreGenerator::generate(8, 5, $draw, 'Major', 'C',
+  type: 'up-wave');
+$wideDown = MotifScoreGenerator::generate(8, 5, $draw, 'Major', 'C',
+  type: 'down-wave');
+expectVersions(array_slice($up['steps'], 0, 4) === [1, 1, -1, -1]
+  && array_slice($down['steps'], 0, 4) === [-1, -1, 1, 1]
+  && array_slice($wideUp['steps'], 0, 4) === [1, 1, 1, 1]
+  && array_slice($wideDown['steps'], 0, 4) === [-1, -1, -1, -1]
+  && $wideUp['pitchCount'] === 5 && $wideUp['palette'] === range(0, 4),
+  'The note count controls the range of both up and down waves.');
+$alternate = MotifScoreGenerator::generate(8, 5, $draw, 'Major', 'C',
+  type: 'alternating');
+$skipping = MotifScoreGenerator::generate(8, 5, $draw, 'Major', 'C',
+  type: 'skipping');
+expectVersions(array_slice(array_column($alternate['notes'], 'pitch'), 0, 5)
+    === [60, 67, 62, 65, 64]
+  && array_slice(array_column($skipping['notes'], 'pitch'), 0, 5)
+    === [60, 64, 67, 62, 65]
+  && $alternate['type'] === 'alternating' && $skipping['type'] === 'skipping',
+  'Alternating and skipping visit each of five selected scale notes in order.');
+foreach (['alternating', 'skipping'] as $type) {
+  foreach (range(1, 7) as $count) {
+    $pattern = MotifScoreGenerator::generate(max(3, $count), $count,
+      $draw, 'Major', 'C', type: $type);
+    expectVersions(count(array_unique(array_slice(array_column($pattern['notes'],
+      'pitch'), 0, $count))) === $count,
+      'Each ordered formula visits all selected notes, including even counts.');
+  }
+}
+$skippingScore = MotifScoreGenerator::place(new Score(), 8, 5, random: $draw,
+  scale: 'Major', homeNote: 'C', type: 'skipping')['score'];
+expectVersions(Score::fromData($skippingScore->data())->melodies[0]['motif']['type']
+    === 'skipping'
+  && MotifVersions::regenerateSection($skippingScore, 0, 0, $draw)
+    ->melodies[0]['motif']['type'] === 'skipping',
+  'The selected skipping generator survives save and regeneration.');
 $beforeFirst = new Score();
 $beforeFirst->ensureBar(1);
 $beforeFirst->setSectionLeader(1, true);
@@ -61,6 +101,46 @@ try {
 }
 
 $generated = MotifVersions::append($base, 0, $specs[2], $draw)['score'];
+$newSection = MotifVersions::generateAt($generated, 0, 1, 6, 3,
+  'Major', 'C', 'up-wave', $draw)['score'];
+$originalNotes = array_values(array_filter($newSection->notes,
+  static fn (array $note): bool => $note['bar'] < count($base->bars)));
+expectVersions($originalNotes === $base->notes
+    && $newSection->bars[count($base->bars)]['motifVersion']['algorithm'] === 'generate'
+    && $newSection->bars[count($base->bars)]['motifVersion']['source'] === null
+    && Score::fromData($newSection->data())->data() === $newSection->data(),
+  'Generate new can replace the selected version section and save its settings.');
+$alternatingSection = MotifVersions::generateAt($generated, 0, 1, 6, 3,
+  'Major', 'C', 'alternating', $draw)['score'];
+expectVersions(Score::fromData($alternatingSection->data())
+    ->bars[count($base->bars)]['motifVersion']['parameters']['type'] === 'alternating',
+  'An independently generated section remembers the alternating formula.');
+$oldWaveData = $newSection->data();
+$oldWaveData['bars'][count($base->bars)]['motifVersion']['parameters']['type']
+  = 'base-up-wave';
+expectVersions(Score::fromData($oldWaveData)
+    ->bars[count($base->bars)]['motifVersion']['parameters']['type'] === 'up-wave',
+  'Previously saved wave names load as the combined wave type.');
+$derivedFromNew = MotifVersions::append($newSection, 0,
+  ['algorithm' => 'reverse', 'source' => 1, 'parameters' => []], $draw)['score'];
+$changedTarget = MotifVersions::generateAt($derivedFromNew, 0, 1, 6, 3,
+  'Major', 'C', 'down-wave', $draw)['score'];
+$notesInSection = static fn (Score $score, int $section): array => array_values(array_filter(
+  $score->notes, static fn (array $note): bool =>
+    $score->sectionNumber($note['bar']) - 1 === $section));
+expectVersions($notesInSection($changedTarget, 0) === $notesInSection($derivedFromNew, 0)
+  && $notesInSection($changedTarget, 1) !== $notesInSection($derivedFromNew, 1)
+  && $notesInSection($changedTarget, 2) !== $notesInSection($derivedFromNew, 2)
+  && $changedTarget->bars[count($base->bars)]['motifVersion']['parameters']['type']
+    === 'down-wave',
+  'Replacing a generated target rebuilds versions derived from that section.');
+$baseRedrawn = MotifVersions::regenerate($newSection, 0, 9, 4,
+  'Major', 'C', $draw, 'random-step')['score'];
+expectVersions(array_column($notesInSection($baseRedrawn, 1), 'pitch')
+    === array_column($notesInSection($newSection, 1), 'pitch')
+  && $baseRedrawn->bars[$baseRedrawn->sectionStart(count($baseRedrawn->bars) - 1)]
+    ['motifVersion']['algorithm'] === 'generate',
+  'Redrawing the original preserves an independently generated later section.');
 $chained = MotifVersions::append($generated, 0,
   ['algorithm' => 'reverse', 'source' => 1, 'parameters' => []], $draw)['score'];
 $chainedAgain = MotifVersions::regenerate($chained, 0, 8, 4,
@@ -107,5 +187,108 @@ expectVersions(end($newScale->notes) === $manualNote
   && $newScale->melodies[0]['motif']['scale'] === 'Dorian'
   && $newScale->melodies[0]['motif']['homeNote'] === 'F#',
   'Changing scale and home note rebuilds generated sections without changing manual notes.');
+
+$branch = MotifVersions::append($base, 0, $specs[2], $draw)['score'];
+$branch = MotifVersions::append($branch, 0,
+  ['algorithm' => 'reverse', 'source' => 1, 'parameters' => []], $draw)['score'];
+$branch = MotifVersions::append($branch, 0,
+  ['algorithm' => 'invert', 'source' => 0, 'parameters' => []], $draw)['score'];
+$branch = MotifVersions::append($branch, 0,
+  ['algorithm' => 'reverse', 'source' => 3, 'parameters' => []], $draw)['score'];
+$sectionNotes = static fn (Score $score, int $section): array => array_values(array_filter(
+  $score->notes, static fn (array $note): bool =>
+    $score->sectionNumber($note['bar']) - 1 === $section));
+$modified = clone $branch;
+foreach ([1, 2, 3, 4] as $section) {
+  $noteIndex = array_key_first(array_filter($modified->notes,
+    static fn (array $note): bool =>
+      $modified->sectionNumber($note['bar']) - 1 === $section));
+  $modified->stepPitch($noteIndex, 1);
+}
+$partial = MotifVersions::regenerateSection($modified, 0, 1, $draw);
+expectVersions($sectionNotes($partial, 0) === $sectionNotes($modified, 0)
+  && $sectionNotes($partial, 1) === $sectionNotes($branch, 1)
+  && $sectionNotes($partial, 2) === $sectionNotes($branch, 2)
+  && $sectionNotes($partial, 3) === $sectionNotes($modified, 3)
+  && $sectionNotes($partial, 4) === $sectionNotes($modified, 4),
+  'Regenerating A1 rebuilds A1 and A2 while preserving the other branch.');
+
+$manualBranch = clone $branch;
+$manualStart = count($manualBranch->bars);
+$manualBranch->ensureBar($manualStart);
+$manualBranch->setSectionLeader($manualStart, true);
+$manualBranch->place(0, $manualStart, 0, 4, 4, 2);
+$manualBranch->place(0, $manualStart, 2, 4, 6, 2);
+$manualBranch = MotifVersions::append($manualBranch, 0,
+  ['algorithm' => 'reverse', 'source' => 5, 'parameters' => []], $draw)['score'];
+$firstOnly = MotifVersions::regenerateSection($manualBranch, 0, 0,
+  static fn (int $low, int $high): int => $high);
+expectVersions($sectionNotes($firstOnly, 0) !== $sectionNotes($manualBranch, 0)
+  && $sectionNotes($firstOnly, 5) === $sectionNotes($manualBranch, 5)
+  && $sectionNotes($firstOnly, 6) === $sectionNotes($manualBranch, 6),
+  'Regenerating A changes its descendants but leaves a manual branch intact.');
+try {
+  MotifVersions::regenerateSection($manualBranch, 0, 5, $draw);
+  throw new RuntimeException('A handmade section was regenerated.');
+} catch (DomainException $error) {
+  expectVersions(str_contains($error->getMessage(), 'added by hand'),
+    'Shift+C cannot regenerate a handmade section.');
+}
+
+$baseDraws = 0;
+$countedLow = static function (int $low, int $high) use (&$baseDraws): int {
+  $baseDraws++;
+  return $low;
+};
+$sameBase = MotifScoreGenerator::place(new Score(), 8, 4, random: $countedLow,
+  scale: 'Major', homeNote: 'C')['score'];
+$tries = 0;
+$lowThenHigh = static function (int $low, int $high) use (&$tries, $baseDraws): int {
+  return ++$tries <= $baseDraws ? $low : $high;
+};
+$differentBase = MotifVersions::regenerateSection($sameBase, 0, 0, $lowThenHigh);
+expectVersions($tries > $baseDraws && $differentBase->notes !== $sameBase->notes,
+  'The original motif retries a repeated random draw.');
+$tries = 0;
+$differentFromGenerate = MotifVersions::regenerate($sameBase, 0, 8, 4,
+  'Major', 'C', $lowThenHigh)['score'];
+expectVersions($tries > $baseDraws && $differentFromGenerate->notes !== $sameBase->notes,
+  'Generate new also retries a repeated original motif.');
+$singleDraws = 0;
+$singleLow = static function (int $low, int $high) use (&$singleDraws): int {
+  $singleDraws++;
+  return $low;
+};
+$single = MotifScoreGenerator::place(new Score(), 3, 1, random: $singleLow,
+  scale: 'Major', homeNote: 'C')['score'];
+$tries = 0;
+$alwaysLow = static function (int $low, int $high) use (&$tries): int {
+  $tries++;
+  return $low;
+};
+$sameAgain = MotifVersions::regenerateSection($single, 0, 0, $alwaysLow);
+expectVersions($sameAgain->notes === $single->notes && $tries === 12 * $singleDraws,
+  'A motif with one possible result stops after twelve draws.');
+
+$endingDraws = 0;
+$endingLow = static function (int $low, int $high) use (&$endingDraws): int {
+  $endingDraws++;
+  return $low;
+};
+$ending = MotifVersions::append($base, 0, $specs[0], $endingLow)['score'];
+$tries = 0;
+$endingLowThenHigh = static function (int $low, int $high) use (&$tries, $endingDraws): int {
+  return ++$tries <= $endingDraws ? $low : $high;
+};
+$differentEnding = MotifVersions::regenerateSection($ending, 0, 1, $endingLowThenHigh);
+expectVersions($tries > $endingDraws
+  && $sectionNotes($differentEnding, 1) !== $sectionNotes($ending, 1),
+  'A random ending retries when its first result matches the old version.');
+$fixedEnding = MotifVersions::append($base, 0, $specs[1], $endingLow)['score'];
+$tries = 0;
+$sameEnding = MotifVersions::regenerateSection($fixedEnding, 0, 1, $alwaysLow);
+expectVersions($sectionNotes($sameEnding, 1) === $sectionNotes($fixedEnding, 1)
+  && $tries === 12 * $specs[1]['parameters']['replaceNotes'],
+  'A constrained random ending stops after twelve attempts.');
 
 echo "Motif version checks passed\n";

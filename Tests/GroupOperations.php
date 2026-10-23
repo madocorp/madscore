@@ -54,6 +54,16 @@ $inserted = RangeEdit::paste($score, $clip, null, 0, 6);
 expectGroup($inserted->noteAt(0, 0, 6) !== null && $inserted->noteAt(1, 0, 6) !== null
   && $inserted->noteAt(0, 1, 3) !== null && $inserted->scoreDynamics[1]['time'] === 6,
   'Whole-score insertion places copied fragments in both melodies and shifts later notes.');
+$pasteBefore = new Score();
+$pasteBefore->place(0, 0, 0, 4, 4, 2);
+$pasteBefore->place(0, 0, 2, 4, 8, 2);
+$noteClip = RangeEdit::copy($pasteBefore,
+  ['scope' => 'melody', 'melody' => 0, 'start' => 2, 'end' => 4]);
+$pastedBefore = RangeEdit::paste($pasteBefore, $noteClip, null, 0, 0);
+expectGroup($pastedBefore->notes[$pastedBefore->noteAt(0, 0, 0)]['pitch'] === 'E'
+  && $pastedBefore->notes[$pastedBefore->noteAt(0, 0, 2)]['pitch'] === 'C'
+  && $pastedBefore->notes[$pastedBefore->noteAt(0, 0, 4)]['pitch'] === 'E',
+  'Pasting at a note onset inserts before that note and shifts it right.');
 try {
   RangeEdit::paste($score, $clip, ['scope' => 'melody', 'melody' => 0, 'start' => 0, 'end' => 2], 0, 0);
   throw new RuntimeException('A mismatched paste scope was accepted.');
