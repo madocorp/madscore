@@ -22,7 +22,7 @@ final class PagePainter {
 
   /** Draw every score page into a Cairo PDF context. */
   public static function drawPages(Score $score, \FFI $cairo, \FFI\CData $context): void {
-    $score = $score->visibleCopy();
+    $score = $score->visibleCopy()->renderCopy();
     $states = Prescription::states($score);
     $pages = self::pages($score, $states);
     foreach ($pages as $index => $page) {
@@ -33,7 +33,7 @@ final class PagePainter {
 
   /** Draw a single PDF page into a context scaled to the page bounds. */
   public static function drawPage(Score $score, \FFI $cairo, \FFI\CData $context, array $page, ?array $states = null, int $pageNumber = 1, int $pageCount = 1): void {
-    $score = $score->visibleCopy();
+    $score = $score->visibleCopy()->renderCopy();
     $states ??= Prescription::states($score);
     $cairo->cairo_save($context);
     try {
@@ -177,7 +177,7 @@ final class PagePainter {
 
   /** Return the exact line groups used by PDF pagination. */
   public static function pages(Score $score, ?array $states = null): array {
-    $score = $score->visibleCopy();
+    $score = $score->visibleCopy()->renderCopy();
     $states ??= Prescription::states($score);
     $pages = [];
     $page = [];
