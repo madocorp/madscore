@@ -9,9 +9,10 @@ use MADSCORE\Score\Project;
 use MADSCORE\Score\Score;
 use SPTK\Events\EventContext;
 
-  /** Named project files and the editor's temporary file panels. */
+/** Named project files and the editor's temporary file panels. */
 final class Files {
 
+  private const PROJECT_EXTENSION = '.json.gz';
   private static ?string $path = null;
   private static ?string $lastDirectory = null;
 
@@ -30,7 +31,7 @@ final class Files {
     $directory = Settings::defaultDirectory();
     $screen->widget('saveDirectory')->setPath($directory);
     $screen->widget('loadSelector')->setPath($directory);
-    $screen->widget('saveFilename')->setValue(self::$path === null ? 'score.json' : basename(self::$path));
+    $screen->widget('saveFilename')->setValue(self::suggestedName());
   }
 
   /** Select a directory and file name for a new named save. */
@@ -44,7 +45,7 @@ final class Files {
       return;
     }
     self::$lastDirectory = $directory;
-    $screen->widget('saveFilename')->setValue(self::$path === null ? 'score.json' : basename(self::$path));
+    $screen->widget('saveFilename')->setValue(self::suggestedName());
     ControllerEditorActions::showFilePanel('savePanel');
   }
 
@@ -62,6 +63,11 @@ final class Files {
     ControllerEditorActions::showFilePanel('loadPanel');
   }
 
+  /** Open the format list over the note tile. */
+  public static function showExport(): void {
+    ControllerEditorActions::showFilePanel('exportPanel');
+  }
+
   /** Remember directory navigation across both file selectors. */
   public static function directoryChanged(EventContext $event): void {
     $widget = $event->widget;
@@ -74,6 +80,15 @@ final class Files {
   private static function browserDirectory(): string {
     return self::$lastDirectory !== null && is_dir(self::$lastDirectory)
       ? self::$lastDirectory : Settings::defaultDirectory();
+  }
+
+  /** Offer a compressed name when saving an older plain JSON project as a new file. */
+  private static function suggestedName(): string {
+    if (self::$path === null) {
+      return 'score' . self::PROJECT_EXTENSION;
+    }
+    $name = basename(self::$path);
+    return preg_match('/\.json$/i', $name) === 1 ? $name . '.gz' : $name;
   }
 
   /** Write changes only to the file already associated with the score. */
@@ -94,11 +109,7 @@ final class Files {
         || preg_match('/[\x00-\x1f\x7f]/', $name)) {
         throw new \DomainException('Enter a file name without path separators or control characters.');
       }
-      if (pathinfo($name, PATHINFO_EXTENSION) === '') {
-        $name .= '.json';
-      } else if (strtolower(pathinfo($name, PATHINFO_EXTENSION)) !== 'json') {
-        throw new \DomainException('Use a .json score file name.');
-      }
+      $name = self::projectName($name);
       $path = $screen->widget('saveDirectory')->path() . '/' . $name;
       if (is_dir($path)) {
         throw new \DomainException('The file name belongs to a directory.');
@@ -113,6 +124,20 @@ final class Files {
     } catch (\Throwable $error) {
       ControllerNavigation::status($error->getMessage());
     }
+  }
+
+  /** Give new projects a gzip suffix while accepting older .json names as input. */
+  private static function projectName(string $name): string {
+    if (preg_match('/\.json\.gz$/i', $name) === 1) {
+      return $name;
+    }
+    if (preg_match('/\.json$/i', $name) === 1) {
+      return $name . '.gz';
+    }
+    if (pathinfo($name, PATHINFO_EXTENSION) === '') {
+      return $name . self::PROJECT_EXTENSION;
+    }
+    throw new \DomainException('Use a .json.gz project file name.');
   }
 
   private static function finishSave(string $path): void {
@@ -135,23 +160,34 @@ final class Files {
         if ($warnings !== []) {
           Controller::screen('editor')->statusBar?->confirm(
             'Import and omit: ' . implode(', ', $warnings) . '?',
-            static function() use ($score): void { self::finishOpen($score, null, 'Imported core notes. Save as JSON to keep editing.'); },
+            static function() use ($score): void { self::finishOpen($score, null, 'Imported core notes. Save as a project to keep editing.'); },
             static function(): void { ControllerNavigation::status('Import cancelled.'); });
           return true;
         }
-        self::finishOpen($score, null, 'Imported core notes. Save as JSON to keep editing.');
+        self::finishOpen($score, null, 'Imported core notes. Save as a project to keep editing.');
         return true;
       }
-      $source = file_get_contents($path);
-      if ($source === false) {
-        throw new \RuntimeException('Could not read score: ' . $path);
-      }
-      $project = Project::fromData(json_decode($source, true, 512, JSON_THROW_ON_ERROR));
+      $project = self::readProject($path);
       self::finishOpenProject($project, $path, 'Opened ' . basename($path));
     } catch (\Throwable $error) {
       ControllerNavigation::status($error->getMessage());
     }
     return true;
+  }
+
+  /** Decode compressed projects and older plain JSON projects. */
+  private static function readProject(string $path): Project {
+    $source = file_get_contents($path);
+    if ($source === false) {
+      throw new \RuntimeException('Could not read score: ' . $path);
+    }
+    if (preg_match('/\.json\.gz$/i', $path) === 1) {
+      $source = @gzdecode($source);
+      if ($source === false) {
+        throw new \DomainException('The compressed project file is invalid.');
+      }
+    }
+    return Project::fromData(json_decode($source, true, 512, JSON_THROW_ON_ERROR));
   }
 
   private static function finishOpen(Score $score, ?string $path, string $message): void {
@@ -176,6 +212,7 @@ final class Files {
   public static function cancel(EventContext $event): bool {
     ControllerEditorActions::hideFilePanel('savePanel');
     ControllerEditorActions::hideFilePanel('loadPanel');
+    ControllerEditorActions::hideFilePanel('exportPanel');
     return true;
   }
 
@@ -183,53 +220,62 @@ final class Files {
   public static function cancelShortcut(EventContext $event): bool {
     $screen = Controller::screen('editor');
     if ($screen->layout->findTile('savePanel')->overwriting() === null
-      && $screen->layout->findTile('loadPanel')->overwriting() === null) {
+      && $screen->layout->findTile('loadPanel')->overwriting() === null
+      && $screen->layout->findTile('exportPanel')->overwriting() === null) {
       return false;
     }
     return self::cancel($event);
   }
 
-  /** Preserve PDF export without a separate Files screen. */
-  public static function exportPdf(EventContext $event): void {
+  /** Export each checked format beside the named project. */
+  public static function exportSelected(EventContext $event): void {
     if (self::$path === null) {
-      ControllerNavigation::status('Save the score before exporting PDF.');
+      ControllerNavigation::status('Save the score before exporting.');
       return;
     }
-    $path = self::exportPath('pdf');
-    try {
-      PdfWriter::write($path, Controller::score());
-      ControllerNavigation::status('Exported ' . basename($path));
-    } catch (\Throwable $error) {
-      ControllerNavigation::status($error->getMessage());
-    }
-  }
-
-  /** Export beside the named JSON score. */
-  public static function exportMidi(EventContext $event): void {
-    if (self::$path === null) {
-      ControllerNavigation::status('Save the score before exporting MIDI.');
+    $formats = Controller::screen('editor')->widget('exportFormats')->getValue();
+    if ($formats === []) {
+      ControllerNavigation::status('Select at least one export format.');
       return;
     }
-    $path = self::exportPath('mid');
-    try {
-      MidiWriter::write($path, Controller::score());
-      ControllerNavigation::status('Exported ' . basename($path));
-    } catch (\Throwable $error) {
-      ControllerNavigation::status($error->getMessage());
+    $exported = [];
+    $failed = [];
+    foreach ($formats as $format) {
+      $path = self::exportPath($format === 'midi' ? 'mid' : $format);
+      try {
+        match ($format) {
+          'midi' => MidiWriter::write($path, Controller::score()),
+          'pdf' => PdfWriter::write($path, Controller::score()),
+          default => throw new \DomainException('Unknown export format: ' . $format),
+        };
+        $exported[] = basename($path);
+      } catch (\Throwable $error) {
+        $failed[] = $format . ': ' . $error->getMessage();
+      }
     }
+    if ($failed === []) {
+      ControllerEditorActions::hideFilePanel('exportPanel');
+    }
+    ControllerNavigation::status(($exported === [] ? '' : 'Exported ' . implode(', ', $exported) . '.')
+      . ($failed === [] ? '' : ($exported === [] ? '' : ' ') . 'Failed ' . implode('; ', $failed)));
   }
 
   private static function exportPath(string $extension): string {
-    return preg_match('/\.json$/i', self::$path) === 1
-      ? substr(self::$path, 0, -5) . '.' . $extension
-      : self::$path . '.' . $extension;
+    $path = preg_replace('/\.json(?:\.gz)?$/i', '.' . $extension, self::$path, 1, $count);
+    return $count === 1 ? $path : self::$path . '.' . $extension;
   }
 
-  /** Atomically store the current JSON score. */
+  /** Atomically store gzip JSON, retaining plain JSON for an existing old path. */
   private static function writeScore(string $path): bool {
     $temp = null;
     try {
-      $encoded = json_encode(ControllerNoteEditing::projectData(), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . "\n";
+      $compressed = preg_match('/\.json\.gz$/i', $path) === 1;
+      $json = json_encode(ControllerNoteEditing::projectData(),
+        ($compressed ? 0 : JSON_PRETTY_PRINT) | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+      $encoded = $compressed ? gzencode($json, 6) : $json . "\n";
+      if ($encoded === false) {
+        throw new \RuntimeException('Could not compress project: ' . $path);
+      }
       $temp = $path . '.tmp-' . bin2hex(random_bytes(6));
       if (file_put_contents($temp, $encoded) !== strlen($encoded) || !rename($temp, $path)) {
         throw new \RuntimeException('Could not save score: ' . $path);

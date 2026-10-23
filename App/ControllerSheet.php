@@ -43,10 +43,11 @@ final class ControllerSheet extends ControllerState {
   }
 
   /** Keep the cursor visible and the sheet active. */
-  public static function focusCursor(bool $record = true): void {
+  public static function focusCursor(bool $record = true, bool $cursorOnly = false): void {
     if ($record) {
       self::$history?->observe(self::$score, self::$melody);
     }
+    $barCount = count(self::$score->bars);
     self::syncTimelineBars();
     self::$firstRow = 0;
     $barChanged = self::$displayedBar !== self::$bar;
@@ -57,15 +58,18 @@ final class ControllerSheet extends ControllerState {
     $previousFirstBar = self::$firstBar;
     self::alignTimeline();
     Controller::screen(self::$view)->activateLeaf(self::$sheet);
-    self::invalidateSheet();
+    self::invalidateSheet(!$cursorOnly || count(self::$score->bars) !== $barCount);
     if (self::$firstBar !== $previousFirstBar || $barChanged || $readoutChanged) {
       self::$window->refreshLayout();
     }
   }
 
   public static function focusWithoutHistory(): void {
-    self::focusCursor(false);
-    self::$history?->rebase(self::$score);
+    $barCount = count(self::$score->bars);
+    self::focusCursor(false, true);
+    if (count(self::$score->bars) !== $barCount) {
+      self::$history?->rebase(self::$score);
+    }
   }
 
   /** Grow or trim trailing bars according to the cursor's final occupied position. */
@@ -83,13 +87,12 @@ final class ControllerSheet extends ControllerState {
     self::$lastCursorEndBar = $endBar;
   }
 
-  /** Shift the visible bars when the cursor's end leaves the sheet. */
+  /** Move by half a viewport when the cursor leaves it, avoiding a redraw per bar. */
   public static function alignTimeline(): void {
     $endBar = ControllerSelection::selectionStateForSheet() === null ? self::cursorEndBar() : self::$bar;
-    if ($endBar < self::$firstBar) {
-      self::$firstBar = $endBar;
-    } else if ($endBar >= self::$firstBar + self::$columns) {
-      self::$firstBar = $endBar - self::$columns + 1;
+    $columns = max(1, self::$columns);
+    if ($endBar < self::$firstBar || $endBar >= self::$firstBar + $columns) {
+      self::$firstBar = max(0, $endBar - intdiv($columns, 2));
     }
   }
 
@@ -146,9 +149,14 @@ final class ControllerSheet extends ControllerState {
   }
 
   /** Mark the retained sheet surface for repainting on the next frame. */
-  public static function invalidateSheet(): void {
+  public static function invalidateSheet(bool $content = true): void {
     if (Controller::isDesign()) {
-      self::$sheet->instance()->invalidate();
+      $canvas = self::$sheet->instance();
+      if ($content && $canvas instanceof SheetCanvas) {
+        $canvas->invalidateContent();
+      } else {
+        $canvas->invalidate();
+      }
     } else {
       self::refreshPreviewImage();
     }

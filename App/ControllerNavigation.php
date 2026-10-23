@@ -310,20 +310,24 @@ final class ControllerNavigation extends ControllerState {
     }
   }
 
-  public static function previousPreviewPage(EventContext $event): void {
+  public static function previousPreviewPage(EventContext $event): bool {
     self::scrollRows(-1);
+    return true;
   }
 
-  public static function nextPreviewPage(EventContext $event): void {
+  public static function nextPreviewPage(EventContext $event): bool {
     self::scrollRows(1);
+    return true;
   }
 
-  public static function firstPreviewPage(EventContext $event): void {
+  public static function firstPreviewPage(EventContext $event): bool {
     self::previewEdge(false);
+    return true;
   }
 
-  public static function lastPreviewPage(EventContext $event): void {
+  public static function lastPreviewPage(EventContext $event): bool {
     self::previewEdge(true);
+    return true;
   }
 
   /** Jump to the first or last PDF preview page. */

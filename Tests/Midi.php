@@ -68,7 +68,7 @@ function midiNoteVelocities(MADSCORE\Score\Score $score): array {
 }
 
 $screen = (new SPTK\XmlParser\XmlParser())->windows[0]['screens'][0];
-expectMidi($screen->widget('exportMidiButton')->hotkey() === 'ctrl+m', 'Ctrl+M activates MIDI export.');
+expectMidi($screen->widget('exportButton')->hotkey() === 'ctrl+e', 'Ctrl+E opens export formats.');
 $score = new MADSCORE\Score\Score(2);
 $score->setBeats(0, 2);
 $score->ensureBar(1);

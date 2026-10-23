@@ -35,7 +35,8 @@ Marks inside long notes identify further beats. A note may cross a bar line.
   if more room is needed. Notes in one melody cannot overlap.
 - **Home/End** goes to the first or last position in the visible bars. Pressing
   again at an edge pages through the score. **Ctrl+Home/End** goes to the ends
-  of the entire score.
+  of the entire score. Moving past a visible edge scrolls by half a page so
+  several more bars are ready without another redraw.
 - **U** duplicates a note at its end. **Insert** inserts a note or gap at the
   cursor's left edge and moves later notes in that melody. It inserts a gap
   only between adjacent notes; otherwise the new note uses the cursor pitch.
@@ -226,12 +227,13 @@ the A3–G♯4 band containing middle C, and triangles mark higher or lower band
 
 ## Files and settings
 
-**Ctrl+S** opens Save, **Ctrl+W** overwrites the current JSON file, and
+**Ctrl+S** opens Save, **Ctrl+W** overwrites the current project file, and
 **Ctrl+O** opens Load. Load can also import `.txt` files from the web editor;
 it warns about unsupported features before importing. **New** in the Load panel
 starts an empty, unnamed score. Use **Ctrl+S** to name it before **Ctrl+W** can
-overwrite a file. After saving, **Ctrl+E**
-exports a PDF and **Ctrl+M** exports a MIDI file beside the JSON file.
+overwrite a file. After saving, **Ctrl+E** opens the export list in the Note
+tile. Use **Space** to toggle MIDI and PDF, then choose **Export selected** to
+write every selected format beside the project file.
 
 The current score, cursor, selection, and visible bar position are restored
 from `~/.madscore/session.json` when the app starts again. Settings stores its
