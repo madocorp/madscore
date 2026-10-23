@@ -36,7 +36,9 @@ final class PagePreview {
   private static function surface(Score $score, int $page, int $width, int $height): \FFI\CData {
     $width = max(1, $width);
     $height = max(1, $height);
-    $pages = PagePainter::pages($score);
+    $score = $score->visibleCopy()->renderCopy();
+    $states = Prescription::states($score);
+    $pages = PagePainter::pages($score, $states);
     $page = max(0, min(count($pages) - 1, $page));
     $cairo = Cairo::library();
     $surface = $cairo->cairo_image_surface_create(0, $width, $height);
@@ -54,7 +56,8 @@ final class PagePreview {
       $cairo->cairo_scale($context, $pageWidth / PagePainter::WIDTH, $pageHeight / PagePainter::HEIGHT);
       $cairo->cairo_rectangle($context, 0, 0, PagePainter::WIDTH, PagePainter::HEIGHT);
       $cairo->cairo_clip($context);
-      PagePainter::drawPage($score, $cairo, $context, $pages[$page], pageNumber: $page + 1, pageCount: count($pages));
+      PagePainter::drawPage($score, $cairo, $context, $pages[$page], $states,
+        pageNumber: $page + 1, pageCount: count($pages));
       $cairo->cairo_restore($context);
       if ($cairo->cairo_status($context) !== 0) {
         throw new \RuntimeException('Cairo could not draw the PDF preview.');
