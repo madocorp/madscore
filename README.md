@@ -72,10 +72,11 @@ sheet and the controls.
   cursor, or plays the selected span. It hides the edit cursor and follows each
   beat across the score. Press **Esc** or the same play
   key to stop; **P** and **M** also switch between score and melody playback.
-- **Ctrl+S** saves a JSON score, **Ctrl+O** loads one, and **Ctrl+W** overwrites
-  the current file. The Load panel also has **New** for an empty score; save it
-  with **Ctrl+S** before using **Ctrl+W**. After saving, **Ctrl+E** exports PDF
-  and **Ctrl+M** exports MIDI beside it.
+- **Ctrl+S** saves a compressed `.json.gz` project, **Ctrl+O** loads one, and
+  **Ctrl+W** overwrites the current file. The Load panel also has **New** for an
+  empty score; save it with **Ctrl+S** before using **Ctrl+W**. After saving,
+  **Ctrl+E** opens the export list. Use **Space** to select MIDI and PDF, then
+  choose **Export selected** to write those files beside the saved project.
 - **V** opens the PDF preview. Use **+/-** to zoom, arrows to scroll, and **B/N**
   to turn pages. **F1** opens Settings, where you can choose the playback sound
   and the default file directory.
@@ -94,12 +95,15 @@ The app restores your working score and position when it starts again. Load
 notation marks. For more detail, see the [editor reference](Docs/editor.md).
 For the notation itself, read the offline [Tristaff tutorial](Tristaff/index.html).
 
-Saved JSON uses a project wrapper: `title`, `author`, `catalog`, and `items`.
+The JSON inside a saved project uses a wrapper: `title`, `author`, `catalog`, and `items`.
 The item with ID `main` is the finished score; uppercase IDs identify motifs.
 Each item's `score` holds `bars`, `melodies`, `notes`, and
 `scoreDynamics`. The session stores the project and active item alongside the
 cursor and other editor state. Earlier bare-score JSON files and sessions are
 not loaded.
+Existing plain `.json` projects still open and keep their format with **Ctrl+W**;
+use **Ctrl+S** to save a compressed copy. The included example remains plain
+JSON.
 
 ## Tests
 

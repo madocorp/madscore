@@ -185,6 +185,31 @@ expectNavigation($firstBar->getValue() === 1, 'A selected note wider than the sh
 $alignTimeline->invoke(null);
 expectNavigation($firstBar->getValue() === 1, 'An oversized cursor keeps the timeline aligned with its end.');
 
+$pagingScore = new MADSCORE\Score\Score();
+$pagingScore->ensureBar(19);
+(new \ReflectionProperty(MADSCORE\App\Controller::class, 'score'))->setValue(null, $pagingScore);
+(new \ReflectionProperty(MADSCORE\App\Controller::class, 'columns'))->setValue(null, 6);
+$firstBar->setValue(null, 0);
+$bar->setValue(null, 5);
+(new \ReflectionProperty(MADSCORE\App\Controller::class, 'slot'))->setValue(null, 7);
+$length->setValue(null, 2);
+$alignTimeline->invoke(null);
+expectNavigation($firstBar->getValue() === 3, 'Crossing the right edge reveals half a page of later bars.');
+$bar->setValue(null, 8);
+(new \ReflectionProperty(MADSCORE\App\Controller::class, 'slot'))->setValue(null, 0);
+$alignTimeline->invoke(null);
+expectNavigation($firstBar->getValue() === 3, 'Moving through the revealed bars does not page again.');
+(new \ReflectionProperty(MADSCORE\App\Controller::class, 'slot'))->setValue(null, 7);
+$alignTimeline->invoke(null);
+expectNavigation($firstBar->getValue() === 6, 'The next right edge reveals another half page.');
+$bar->setValue(null, 5);
+(new \ReflectionProperty(MADSCORE\App\Controller::class, 'slot'))->setValue(null, 0);
+$alignTimeline->invoke(null);
+expectNavigation($firstBar->getValue() === 2, 'Crossing the left edge reveals earlier bars.');
+$bar->setValue(null, 0);
+$alignTimeline->invoke(null);
+expectNavigation($firstBar->getValue() === 0, 'Paging left stops at the first bar.');
+
 $trailingPreview = new MADSCORE\Score\Score(12);
 (new \ReflectionProperty(MADSCORE\App\Controller::class, 'score'))->setValue(null, $trailingPreview);
 (new \ReflectionProperty(MADSCORE\App\Controller::class, 'lastCursorEndBar'))->setValue(null, 0);
@@ -242,5 +267,17 @@ expectNavigation(count($pages->bars) === 8, 'Score edge shortcuts do not add a b
 $canvas = new MADSCORE\App\SheetCanvas();
 expectNavigation($canvas->releaseNotification(SPTK\SDLWrapper\SDL::KEY_RETURN, 0) === null, 'Return stays in the editor for note placement.');
 expectNavigation($canvas->releaseNotification(SPTK\SDLWrapper\SDL::KEY_ESCAPE, 0) === 'cancel', 'Esc leaves the editor.');
+
+$previewEvent = new SPTK\Events\EventDispatcher();
+foreach (['b' => 'previousPreviewPage', 'n' => 'nextPreviewPage',
+  'f' => 'firstPreviewPage', 'l' => 'lastPreviewPage'] as $key => $action) {
+  $definition = new SPTK\Events\EventDefinition('keyDown', $key,
+    'MADSCORE\\App\\ControllerNavigation::' . $action);
+  $input = (object)['type' => SPTK\SDLWrapper\SDL::SDL_EVENT_KEY_DOWN,
+    'key' => (object)['key' => ord($key), 'mod' => 0]];
+  expectNavigation($previewEvent->dispatch([$definition],
+    new SPTK\Events\EventContext('keyDown', null, $input), true),
+    "The {$key} PDF page shortcut requests a view repaint.");
+}
 
 echo "Navigation checks passed\n";

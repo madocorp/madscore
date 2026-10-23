@@ -116,6 +116,14 @@ CTRL+* Melody wedge</Text>
           </Layout>
         </Layout>
       </Layout>
+      <Layout id="exportPanel" overwrite="#noteBox" direction="vertical" width="2*">
+        <Title navigate="false">Export formats</Title>
+        <List id="exportFormats" multiple="true" filterable="false" searchable="false" height="1*">
+          <Item value="midi" selected="true">MIDI (.mid)</Item>
+          <Item value="pdf" selected="true">PDF (.pdf)</Item>
+        </List>
+        <Button id="exportSelected" label="Export selected" action="MADSCORE\App\ControllerEditorActions::exportSelected" />
+      </Layout>
       <Layout id="composerPanel" overwrite="#noteBox" direction="vertical" width="2*">
         <Title navigate="false">Motif composer</Title>
         <Input id="composerItem" height="2" label="Current motif">
@@ -249,7 +257,7 @@ CTRL+* Melody wedge</Text>
         <FileSelector id="saveDirectory" height="1*" filterable="false" searchable="false">
           <Event type="change" action="MADSCORE\App\Files::directoryChanged" />
         </FileSelector>
-        <Input id="saveFilename" height="2" label="File name (.json)" value="score.json" />
+        <Input id="saveFilename" height="2" label="File name (.json.gz)" value="score.json.gz" />
         <Layout direction="horizontal" height="1">
           <Button id="confirmSave" label="Save" action="MADSCORE\App\Files::saveAs" />
           <Button id="cancelSave" label="Cancel" action="MADSCORE\App\Files::cancel" />
@@ -295,8 +303,7 @@ CTRL+C/V Copy/Paste</Text>
         <Button id="saveButton" hotkey="ctrl+s" label="Save as" action="MADSCORE\App\ControllerEditorActions::saveDialog" />
         <Button id="writeButton" hotkey="ctrl+w" label="Write" action="MADSCORE\App\ControllerEditorActions::write" />
         <Button id="loadButton" hotkey="ctrl+o" label="Load" action="MADSCORE\App\ControllerEditorActions::loadDialog" />
-        <Button id="exportPdfButton" hotkey="ctrl+e" label="Export PDF" action="MADSCORE\App\ControllerEditorActions::exportPdf" />
-        <Button id="exportMidiButton" hotkey="ctrl+m" label="Export MIDI" action="MADSCORE\App\ControllerEditorActions::exportMidi" />
+        <Button id="exportButton" hotkey="ctrl+e" label="Export" action="MADSCORE\App\ControllerEditorActions::exportDialog" />
         <Button id="settingsButton" hotkey="f1" label="Settings" action="MADSCORE\App\ControllerNavigation::openSettings" />
         <Empty height="0*" navigate="false" />
       </Layout>

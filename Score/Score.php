@@ -20,6 +20,8 @@ final class Score {
   /** Shared level and wedge marks keyed by score time in half-beats. */
   public array $scoreDynamics = [];
   public array $melodies;
+  /** Prefix times on read-only rendering copies; mutable editor scores leave this unset. */
+  private ?array $renderStarts = null;
 
   /** Start every melody with acoustic grand piano at half volume. */
   public function __construct(int $melodyCount = 1) {
@@ -144,11 +146,26 @@ final class Score {
 
   /** Return the half-beat position where a bar begins. */
   public function start(int $bar): int {
+    if ($this->renderStarts !== null) {
+      $last = count($this->renderStarts) - 1;
+      return $bar <= 0 ? 0 : ($this->renderStarts[$bar] ??
+        $this->renderStarts[$last] + ($bar - $last) * 2 * $this->beats($last));
+    }
     $position = 0;
     for ($index = 0; $index < $bar; $index++) {
       $position += 2 * $this->beats($index);
     }
     return $position;
+  }
+
+  /** Freeze bar start times on a copy used only for drawing. */
+  public function renderCopy(): self {
+    $copy = clone $this;
+    $copy->renderStarts = [0];
+    foreach ($copy->bars as $bar) {
+      $copy->renderStarts[] = end($copy->renderStarts) + 2 * $bar['beats'];
+    }
+    return $copy;
   }
 
   /** Return a bar's beat count, inheriting the last count for an empty preview tile. */

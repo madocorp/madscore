@@ -50,6 +50,7 @@ final class ControllerEditorActions extends ControllerState {
       return;
     }
     $screen = Controller::screen('editor');
+    $screen->restore('exportPanel');
     ControllerSheet::prepareSoundPicker();
     $screen->widget('soundPicker')->setValue(self::$score->melodies[self::$melody]['instrument']);
     if ($screen->show('soundPicker')) {
@@ -68,6 +69,7 @@ final class ControllerEditorActions extends ControllerState {
         ControllerNavigation::status($error->getMessage());
       }
       ControllerSheet::refreshMelodyFields();
+      ControllerSheet::invalidateSheet();
     }
   }
 
@@ -76,10 +78,19 @@ final class ControllerEditorActions extends ControllerState {
     if (self::$composerOpen) {
       ControllerComposer::closeComposer();
     }
+    if (self::$chordOpen) {
+      ControllerChords::closeChord();
+    }
     $screen = Controller::screen('editor');
-    $other = $id === 'savePanel' ? 'loadPanel' : 'savePanel';
-    $screen->restore($other);
+    foreach (['savePanel', 'loadPanel', 'exportPanel', 'soundPicker'] as $other) {
+      if ($other !== $id) {
+        $screen->restore($other);
+      }
+    }
     if ($screen->show($id)) {
+      if ($id === 'exportPanel') {
+        $screen->activateLeaf($screen->layout->findTile('exportFormats'));
+      }
       self::$window->refreshLayout();
     }
   }
@@ -128,17 +139,17 @@ final class ControllerEditorActions extends ControllerState {
     }
   }
 
-  /** Export the score as a paginated PDF. */
-  public static function exportPdf(EventContext $event): void {
+  /** Open the list of available export formats. */
+  public static function exportDialog(EventContext $event): void {
     if (!Controller::isDesign() || ControllerSheet::commitEditorFields()) {
-      Files::exportPdf($event);
+      Files::showExport();
     }
   }
 
-  /** Export the score as standard MIDI. */
-  public static function exportMidi(EventContext $event): void {
+  /** Write every selected export beside the current project. */
+  public static function exportSelected(EventContext $event): void {
     if (!Controller::isDesign() || ControllerSheet::commitEditorFields()) {
-      Files::exportMidi($event);
+      Files::exportSelected($event);
     }
   }
 }

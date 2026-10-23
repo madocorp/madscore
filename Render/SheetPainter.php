@@ -54,7 +54,7 @@ final class SheetPainter {
 
   public static function render(Score $score, int $firstBar, int $columns, int $width, int $height, ?array $cursor = null,
     ?int $melody = null, ?array $selection = null, bool $design = false, int $firstRow = 0,
-    bool $showCursor = true, ?array $composer = null): RasterImage {
+    bool $showCursor = true, ?array $composer = null, ?array $fixedBands = null): RasterImage {
     $score = $score->visibleCopy();
     $width = max(1, $width);
     $height = max(1, $height);
@@ -67,17 +67,18 @@ final class SheetPainter {
     $tileHeight = max(1, intdiv($sheetHeight - $topSpace, 4));
     $states = $design ? [] : Prescription::states($score, $cursor['start'] ?? null, $cursor['end'] ?? null, $cursor['octave'] ?? null);
     if ($design) {
-      $bands = MelodyRange::bands($score, $melody ?? 0, $cursor['octave'] ?? null, $cursor['pitch'] ?? 1);
-      for ($bar = 0; $bar < max(count($score->bars), $firstBar + $columns); $bar++) {
+      $bands = $fixedBands ?? MelodyRange::bands($score, $melody ?? 0, $cursor['octave'] ?? null, $cursor['pitch'] ?? 1);
+      for ($bar = $firstBar; $bar < $firstBar + $columns; $bar++) {
         $states[$bar] = ['bands' => $bands, 'primary' => $bands[1], 'change' => $bar === 0];
       }
+    } else {
+      for ($bar = count($states); $bar < $firstBar + $columns; $bar++) {
+        $state = $states[$bar - 1] ?? ['bands' => [4, 3, 2, 1], 'primary' => Prescription::REFERENCE_BAND];
+        $state['change'] = false;
+        $states[$bar] = $state;
+      }
     }
-    for ($bar = count($states); $bar < $firstBar + $columns; $bar++) {
-      $state = $states[$bar - 1] ?? ['bands' => [4, 3, 2, 1], 'primary' => Prescription::REFERENCE_BAND];
-      $state['change'] = false;
-      $states[$bar] = $state;
-    }
-    for ($bar = count($score->bars); $bar < $firstBar + $columns; $bar++) {
+    for ($bar = max(count($score->bars), $firstBar); $bar < $firstBar + $columns; $bar++) {
       $states[$bar]['change'] = false;
     }
     $bars = range($firstBar, $firstBar + $columns - 1);
@@ -176,6 +177,44 @@ final class SheetPainter {
       if ($cairo->cairo_status($context) !== 0) {
         throw new \RuntimeException('Cairo could not draw the score sheet.');
       }
+      return Cairo::raster($surface, $width, $height);
+    } finally {
+      $cairo->cairo_destroy($context);
+      $cairo->cairo_surface_destroy($surface);
+    }
+  }
+
+  /** Rasterize only the editor cursor over a transparent sheet sized surface. */
+  public static function cursorOverlay(Score $score, int $firstBar, int $columns, int $width, int $height,
+    array $cursor, int $melody, array $bands): RasterImage {
+    $width = max(1, $width);
+    $height = max(1, $height);
+    $columns = max(1, $columns);
+    $insetX = min(self::INSET, intdiv($width - 1, 2));
+    $insetY = min(self::INSET, intdiv($height - 1, 2));
+    $sheetWidth = $width - 2 * $insetX;
+    $sheetHeight = $height - 2 * $insetY;
+    $topSpace = max(48, intdiv($sheetHeight, 10));
+    $tileHeight = max(1, intdiv($sheetHeight - $topSpace, 4));
+    $markerWidth = min(48, max(20, (int)ceil($tileHeight / 12 * 1.9 + 6)));
+    $usable = max($columns, $sheetWidth - $markerWidth);
+    $widths = [];
+    $bars = range($firstBar, $firstBar + $columns - 1);
+    $states = [];
+    for ($column = 0; $column < $columns; $column++) {
+      $widths[] = intdiv($usable * ($column + 1), $columns) - intdiv($usable * $column, $columns);
+      $states[$bars[$column]] = ['bands' => $bands, 'primary' => $bands[1], 'change' => false];
+    }
+    $positions = Prescription::positions($bars, $widths, $states, $markerWidth);
+    $cairo = Cairo::library();
+    $surface = $cairo->cairo_image_surface_create(0, $width, $height);
+    Cairo::check($surface);
+    $context = $cairo->cairo_create($surface);
+    try {
+      $cairo->cairo_translate($context, $insetX, $insetY);
+      $cairo->cairo_rectangle($context, -$insetX, 0, $width, $sheetHeight);
+      $cairo->cairo_clip($context);
+      self::drawCursor($cairo, $context, $score, $positions, $states, $tileHeight, $topSpace, $cursor, $melody, true);
       return Cairo::raster($surface, $width, $height);
     } finally {
       $cairo->cairo_destroy($context);

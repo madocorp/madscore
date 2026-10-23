@@ -29,6 +29,7 @@ final class ControllerComposer extends ControllerState {
     $screen = Controller::screen('editor');
     $screen->restore('savePanel');
     $screen->restore('loadPanel');
+    $screen->restore('exportPanel');
     $screen->restore('soundPicker');
     $motif = self::$score->melodies[self::$melody]['motif'] ?? null;
     if (self::$activeItemId !== 'main') {

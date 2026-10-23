@@ -65,6 +65,7 @@ final class ControllerChords extends ControllerState {
     $screen = Controller::screen('editor');
     $screen->restore('savePanel');
     $screen->restore('loadPanel');
+    $screen->restore('exportPanel');
     $screen->restore('soundPicker');
     $music = self::currentMusic();
     $previous = self::previousChordSettings();

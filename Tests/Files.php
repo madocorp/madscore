@@ -31,20 +31,34 @@ $score->title = 'File round trip';
 MADSCORE\App\Files::restorePath(null);
 MADSCORE\App\Files::initialize();
 expectFiles($screens[0]->widget('saveDirectory')->path() === MADSCORE\App\Settings::defaultDirectory()
-  && $screens[0]->widget('saveFilename')->getValue() === 'score.json',
-  'Save starts in the configured directory with a JSON file name.');
+  && $screens[0]->widget('saveFilename')->getValue() === 'score.json.gz',
+  'Save starts in the configured directory with a compressed project name.');
 
-$path = tempnam(sys_get_temp_dir(), 'madscore-file-');
-$badPath = $path . '.bad.json';
+$path = sys_get_temp_dir() . '/madscore-file-' . bin2hex(random_bytes(6)) . '.json.gz';
+$legacyPath = substr($path, 0, -3);
+$badPath = $path . '.bad.json.gz';
+$midiPath = substr($path, 0, -8) . '.mid';
+$pdfPath = substr($path, 0, -8) . '.pdf';
+expectFiles($screens[0]->widget('exportFormats')->getValue() === ['midi', 'pdf'],
+  'Export starts with MIDI and PDF selected.');
 try {
+  $projectName = new ReflectionMethod(MADSCORE\App\Files::class, 'projectName');
+  expectFiles($projectName->invoke(null, 'new score') === 'new score.json.gz'
+    && $projectName->invoke(null, 'score.json') === 'score.json.gz'
+    && $projectName->invoke(null, 'score.json.gz') === 'score.json.gz',
+    'New project names use the gzip JSON suffix.');
   $write = new ReflectionMethod(MADSCORE\App\Files::class, 'writeScore');
-  expectFiles($write->invoke(null, $path), 'Atomic JSON save succeeds.');
-  $saved = json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
+  expectFiles($write->invoke(null, $path), 'Atomic compressed project save succeeds.');
+  $compressed = file_get_contents($path);
+  expectFiles(str_starts_with($compressed, "\x1f\x8b"), 'The saved project has a gzip header.');
+  $saved = json_decode(gzdecode($compressed), true, 512, JSON_THROW_ON_ERROR);
+  $read = new ReflectionMethod(MADSCORE\App\Files::class, 'readProject');
   $loaded = MADSCORE\Score\Project::fromData($saved);
   expectFiles($saved === MADSCORE\Score\Project::fromScore($score)->data()
     && $saved['items'][0]['id'] === 'main' && !isset($saved['items'][0]['type'])
-    && !isset($saved['items'][0]['score']['title']) && $loaded->score('main')->data() === $score->data(),
-    'Saved project has one main item and loads without changing the score.');
+    && !isset($saved['items'][0]['score']['title']) && $loaded->score('main')->data() === $score->data()
+    && $read->invoke(null, $path)->data() === $saved,
+    'Saved compressed project has one main item and loads without changing the score.');
   try {
     MADSCORE\Score\Project::fromData($score->data());
     throw new RuntimeException('The old bare score format was accepted.');
@@ -57,27 +71,50 @@ try {
   expectFiles(MADSCORE\Score\Project::fromData($extra)->data() === $extra,
     'Project items survive a saved-file round trip.');
   expectFiles(glob($path . '.tmp-*') === [], 'Successful save leaves no temporary file.');
+  file_put_contents($legacyPath, json_encode($saved, JSON_THROW_ON_ERROR));
+  expectFiles($read->invoke(null, $legacyPath)->data() === $saved,
+    'An older plain JSON project still opens.');
   MADSCORE\App\Files::restorePath($path);
   expectFiles(MADSCORE\App\Files::currentPath() === $path, 'Named path can be restored for Ctrl+W.');
   $score->title = 'Written again';
   MADSCORE\App\Files::write(new SPTK\Events\EventContext('activate'));
-  expectFiles(json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR)['title'] === 'Written again'
+  expectFiles(json_decode(gzdecode(file_get_contents($path)), true, 512, JSON_THROW_ON_ERROR)['title'] === 'Written again'
     && !$screens[0]->statusBar->confirming(), 'Write overwrites the current file without a prompt.');
-  MADSCORE\App\Files::exportMidi(new SPTK\Events\EventContext('activate'));
-  expectFiles(str_starts_with(file_get_contents($path . '.mid'), 'MThd')
-    && json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR)['title'] === 'Written again',
-    'MIDI export writes beside the score without changing it.');
+  MADSCORE\App\Files::exportSelected(new SPTK\Events\EventContext('activate'));
+  expectFiles(str_starts_with(file_get_contents($midiPath), 'MThd')
+    && str_starts_with(file_get_contents($pdfPath), '%PDF-')
+    && json_decode(gzdecode(file_get_contents($path)), true, 512, JSON_THROW_ON_ERROR)['title'] === 'Written again',
+    'Selected MIDI and PDF exports write beside the score without changing it.');
+  unlink($pdfPath);
+  $screens[0]->widget('exportFormats')->setValue(['midi']);
+  MADSCORE\App\Files::exportSelected(new SPTK\Events\EventContext('activate'));
+  expectFiles(!is_file($pdfPath), 'Unselected formats are not exported.');
+  $screens[0]->widget('exportFormats')->setValue([]);
+  MADSCORE\App\Files::exportSelected(new SPTK\Events\EventContext('activate'));
+  expectFiles(!is_file($pdfPath), 'An empty selection leaves files unchanged.');
+  MADSCORE\App\Files::restorePath($legacyPath);
+  $score->title = 'Updated old file';
+  MADSCORE\App\Files::write(new SPTK\Events\EventContext('activate'));
+  expectFiles(json_decode(file_get_contents($legacyPath), true, 512, JSON_THROW_ON_ERROR)['title'] === 'Updated old file',
+    'Write keeps an older plain JSON project in its original format.');
   MADSCORE\App\Files::restorePath(null);
   $score->title = 'New unsaved score';
   MADSCORE\App\Files::write(new SPTK\Events\EventContext('activate'));
-  expectFiles(json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR)['title'] === 'Written again',
+  expectFiles(json_decode(gzdecode(file_get_contents($path)), true, 512, JSON_THROW_ON_ERROR)['title'] === 'Written again',
     'Write cannot overwrite the previous file after its path is cleared.');
   MADSCORE\App\Files::restorePath('relative.json');
   expectFiles(MADSCORE\App\Files::currentPath() === null, 'Invalid session paths do not become write targets.');
   MADSCORE\App\Files::write(new SPTK\Events\EventContext('activate'));
   expectFiles($screens[0]->layout->findTile('savePanel')->overwriting() === null,
     'Write without a current file does not open Save as.');
-  file_put_contents($badPath, '{broken');
+  file_put_contents($badPath, 'not gzip');
+  try {
+    $read->invoke(null, $badPath);
+    throw new RuntimeException('A damaged gzip project was accepted.');
+  } catch (DomainException $error) {
+    expectFiles(str_contains($error->getMessage(), 'compressed project'),
+      'A damaged gzip project reports a clear error.');
+  }
   $selector = $screens[0]->widget('loadSelector');
   $selector->setPath(dirname($badPath));
   $selector->setValue($badPath);
@@ -86,12 +123,10 @@ try {
     && MADSCORE\App\Files::currentPath() === null,
     'An invalid selected file leaves the score and current path intact.');
 } finally {
-  unlink($path);
-  if (is_file($path . '.mid')) {
-    unlink($path . '.mid');
-  }
-  if (is_file($badPath)) {
-    unlink($badPath);
+  foreach ([$path, $legacyPath, $badPath, $midiPath, $pdfPath] as $file) {
+    if (is_file($file)) {
+      unlink($file);
+    }
   }
 }
 
