@@ -10,22 +10,14 @@ function expectNavigation(bool $condition, string $message): void {
   }
 }
 
-$singleMelody = new MADSCORE\Score\Score();
-$controllerScore = new \ReflectionProperty(MADSCORE\App\Controller::class, 'score');
-$controllerMelody = new \ReflectionProperty(MADSCORE\App\Controller::class, 'melody');
-$controllerScore->setValue(null, $singleMelody);
-$controllerMelody->setValue(null, 0);
-MADSCORE\App\Controller::moveMelody(1);
-MADSCORE\App\Controller::moveMelody(-1);
-expectNavigation($controllerMelody->getValue() === 0 && count($singleMelody->melodies) === 1,
-  'Tab and Shift+Tab stay on the only melody without creating one.');
-$singleMelody->addMelody();
-$controllerMelody->setValue(null, 1);
-MADSCORE\App\Controller::moveMelody(1);
-expectNavigation($controllerMelody->getValue() === 1, 'Tab stops at the last existing melody.');
-$controllerMelody->setValue(null, 0);
-MADSCORE\App\Controller::moveMelody(-1);
-expectNavigation($controllerMelody->getValue() === 0, 'Shift+Tab stops at the first melody.');
+$wrappedMelodyIndex = new \ReflectionMethod(MADSCORE\App\ControllerNavigation::class, 'wrappedMelodyIndex');
+expectNavigation($wrappedMelodyIndex->invoke(null, 0, 1, 1) === 0
+  && $wrappedMelodyIndex->invoke(null, 0, 1, -1) === 0,
+  'Either direction stays on the only melody.');
+expectNavigation($wrappedMelodyIndex->invoke(null, 1, 2, 1) === 0,
+  'Tab wraps from the last melody to the first.');
+expectNavigation($wrappedMelodyIndex->invoke(null, 0, 2, -1) === 1,
+  'Shift+Tab wraps from the first melody to the last.');
 
 $score = new MADSCORE\Score\Score(12);
 $score->put(0, 0, 0, 1, 'C', 2);
@@ -126,9 +118,9 @@ expectNavigation($splitGap->notes[$following]['bar'] === 1 && $splitGap->notes[$
 foreach (['score' => $splitGap, 'bar' => 0, 'slot' => 4, 'melody' => 0, 'cursorLength' => 6, 'cursorLengthExplicit' => true] as $name => $value) {
   (new \ReflectionProperty(MADSCORE\App\Controller::class, $name))->setValue(null, $value);
 }
-expectNavigation(MADSCORE\App\Controller::cursorLength() === 6, 'An explicit cursor width can extend beyond its bar’s automatic gap width.');
+expectNavigation(MADSCORE\App\ControllerNoteEditing::cursorLength() === 6, 'An explicit cursor width can extend beyond its bar’s automatic gap width.');
 (new \ReflectionProperty(MADSCORE\App\Controller::class, 'cursorLengthExplicit'))->setValue(null, false);
-expectNavigation(MADSCORE\App\Controller::cursorLength() === 4, 'The automatic cursor width remains within its bar.');
+expectNavigation(MADSCORE\App\ControllerNoteEditing::cursorLength() === 4, 'The automatic cursor width remains within its bar.');
 
 $trailing = new MADSCORE\Score\Score(12);
 expectNavigation(!$trailing->removeEmptyLastBar(0), 'The first bar is never removed.');
@@ -154,15 +146,15 @@ expectNavigation($trailing->removeEmptyLastBar(1), 'Leaving an empty final bar d
 foreach (['score' => $score, 'bar' => 0, 'slot' => 2, 'melody' => 0, 'cursorLength' => 4, 'cursorLengthExplicit' => false] as $name => $value) {
   (new \ReflectionProperty(MADSCORE\App\Controller::class, $name))->setValue(null, $value);
 }
-expectNavigation(MADSCORE\App\Controller::cursorLength() === 1, 'The editor reports the shortened preview width.');
-expectNavigation(MADSCORE\App\Controller::cursorStateForSheet()['end'] === 3, 'The drawn cursor ends where the next note starts.');
+expectNavigation(MADSCORE\App\ControllerNoteEditing::cursorLength() === 1, 'The editor reports the shortened preview width.');
+expectNavigation(MADSCORE\App\ControllerSelection::cursorStateForSheet()['end'] === 3, 'The drawn cursor ends where the next note starts.');
 
 $viewportScore = new MADSCORE\Score\Score(12);
 $viewportScore->ensureBar(4);
 foreach (['score' => $viewportScore, 'firstBar' => 0, 'columns' => 2, 'bar' => 1, 'slot' => 6, 'cursorLength' => 2] as $name => $value) {
   (new \ReflectionProperty(MADSCORE\App\Controller::class, $name))->setValue(null, $value);
 }
-$alignTimeline = new \ReflectionMethod(MADSCORE\App\Controller::class, 'alignTimeline');
+$alignTimeline = new \ReflectionMethod(MADSCORE\App\ControllerSheet::class, 'alignTimeline');
 $firstBar = new \ReflectionProperty(MADSCORE\App\Controller::class, 'firstBar');
 $length = new \ReflectionProperty(MADSCORE\App\Controller::class, 'cursorLength');
 $bar = new \ReflectionProperty(MADSCORE\App\Controller::class, 'bar');
@@ -199,7 +191,7 @@ $trailingPreview = new MADSCORE\Score\Score(12);
 $bar->setValue(null, 0);
 (new \ReflectionProperty(MADSCORE\App\Controller::class, 'slot'))->setValue(null, 7);
 $length->setValue(null, 2);
-$syncTimelineBars = new \ReflectionMethod(MADSCORE\App\Controller::class, 'syncTimelineBars');
+$syncTimelineBars = new \ReflectionMethod(MADSCORE\App\ControllerSheet::class, 'syncTimelineBars');
 $syncTimelineBars->invoke(null);
 expectNavigation(count($trailingPreview->bars) === 2, 'A cursor extending past the final bar adds the bar it reaches.');
 $bar->setValue(null, 1);
@@ -230,7 +222,7 @@ $pages->put(0, 7, 5, 4, 'G', 2);
 foreach (['score' => $pages, 'firstBar' => 2, 'columns' => 3, 'bar' => 3, 'melody' => 0] as $name => $value) {
   (new \ReflectionProperty(MADSCORE\App\Controller::class, $name))->setValue(null, $value);
 }
-$visibleEdge = new \ReflectionMethod(MADSCORE\App\Controller::class, 'visibleEdgeDestination');
+$visibleEdge = new \ReflectionMethod(MADSCORE\App\ControllerNavigation::class, 'visibleEdgeDestination');
 expectNavigation($visibleEdge->invoke(null, false) === [2, 2, 0], 'Home reaches the leading gap in the first visible bar.');
 $bar->setValue(null, 2);
 expectNavigation($visibleEdge->invoke(null, false) === [0, 0, 0], 'Home pages backward when already in the first visible bar.');
@@ -242,7 +234,7 @@ $firstBar->setValue(null, 5);
 $bar->setValue(null, 7);
 expectNavigation($visibleEdge->invoke(null, true) === [5, 7, 7], 'End stops at the trailing gap in the score final bar without adding another page.');
 expectNavigation(count($pages->bars) === 8, 'Home and End destinations do not add score bars.');
-$scoreEdge = new \ReflectionMethod(MADSCORE\App\Controller::class, 'scoreEdgeDestination');
+$scoreEdge = new \ReflectionMethod(MADSCORE\App\ControllerSelection::class, 'scoreEdgeDestination');
 expectNavigation($scoreEdge->invoke(null, false) === [0, 0], 'Ctrl+Home reaches the first score bar from a later page.');
 expectNavigation($scoreEdge->invoke(null, true) === [7, 7], 'Ctrl+End reaches the last note or gap in the final score bar.');
 expectNavigation(count($pages->bars) === 8, 'Score edge shortcuts do not add a bar.');

@@ -261,7 +261,8 @@ expectComposer($editor->widget('composerTypePicker')->values()
   === array_keys(MADSCORE\Score\MotifScoreGenerator::TYPES),
   'The generator selector offers random steps, waves, alternating, and skipping.');
 $controller = new ReflectionClass(MADSCORE\App\Controller::class);
-$versionViewport = $controller->getMethod('firstBarForNewSection');
+$versionViewport = new ReflectionMethod(MADSCORE\App\ControllerMotifGeneration::class,
+  'firstBarForNewSection');
 expectComposer($versionViewport->invoke(null, 0, 2, 3, 4) === 0
   && $versionViewport->invoke(null, 2, 3, 5, 4) === 2,
   'A new version already fully visible does not scroll the sheet.');
@@ -275,12 +276,13 @@ $headerId = $headerProject->create();
 $controller->getProperty('project')->setValue(null, $headerProject);
 $controller->getProperty('activeItemId')->setValue(null, $headerId);
 $controller->getProperty('score')->setValue(null, $headerProject->score($headerId));
-$controller->getMethod('refreshContextHeader')->invoke(null);
+(new ReflectionMethod(MADSCORE\App\ControllerMotifGeneration::class,
+  'refreshContextHeader'))->invoke(null);
 expectComposer($editor->widget('contextId')->text() === 'Motif A'
   && $editor->widget('contextName')->getValue() === 'Motif A',
   'The item header shows its ID and editable name separately.');
 $editor->widget('contextName')->setValue('First idea');
-MADSCORE\App\Controller::contextNameAccepted(new SPTK\Events\EventContext(
+MADSCORE\App\ControllerMotifGeneration::contextNameAccepted(new SPTK\Events\EventContext(
   'accept', $editor->widget('contextName')));
 expectComposer($headerProject->item('A')['name'] === 'First idea'
   && $editor->widget('composerItem')->getValue() === 'A · First idea'
@@ -290,7 +292,7 @@ expectComposer($headerProject->item('A')['name'] === 'First idea'
 $motifFieldEvents = (new ReflectionProperty(SPTK\Layout\LayoutLeaf::class, 'events'))
   ->getValue($editor->layout->findTile('composerItem'));
 expectComposer($motifFieldEvents[0]->type === 'activate'
-  && $motifFieldEvents[0]->action === 'MADSCORE\App\Controller::showComposerItems',
+  && $motifFieldEvents[0]->action === 'MADSCORE\App\ControllerComposer::showComposerItems',
   'Return activation on Current motif opens the motif list.');
 $controller->getProperty('composerOpen')->setValue(null, true);
 $hotkeys = static function() use ($editor): array {
@@ -298,12 +300,13 @@ $hotkeys = static function() use ($editor): array {
   return (new ReflectionProperty(SPTK\Events\ScreenInput::class, 'hotkeys'))->getValue($input);
 };
 $editor->show('composerScorePanel');
-expectComposer($controller->getMethod('composerFocused')->invoke(null),
+expectComposer((new ReflectionMethod(MADSCORE\App\ControllerComposer::class,
+  'composerFocused'))->invoke(null),
   'A selected Composer button is recognized by its widget ID.');
 $controller->getProperty('activeItemId')->setValue(null, 'main');
 $controller->getProperty('score')->setValue(null, $headerProject->score('main'));
 $editor->widget('scorePattern')->setValue("A B |\nA1");
-$savedPattern = MADSCORE\App\Controller::projectData();
+$savedPattern = MADSCORE\App\ControllerNoteEditing::projectData();
 expectComposer(MADSCORE\Score\Project::fromData($savedPattern)->pattern() === "A B |\nA1",
   'An unbuilt score pattern is saved with the project.');
 $controller->getProperty('activeItemId')->setValue(null, $headerId);
@@ -321,7 +324,8 @@ expectComposer(array_map(static fn ($leaf): ?string => $leaf->instance()->id(),
   && $hotkeys()['v']->id() === 'composerAddVersion',
   'The motif tile shows the current motif and its three mode buttons.');
 $editor->statusBar->setScheduler(static function (int $durationMs, callable $dismiss): void {});
-expectComposer($controller->getMethod('composerFocused')->invoke(null),
+expectComposer((new ReflectionMethod(MADSCORE\App\ControllerComposer::class,
+  'composerFocused'))->invoke(null),
   'The motif composer is focused before its V shortcut.');
 expectComposer($editor->handleEvent((object)['type' => SPTK\SDLWrapper\SDL::SDL_EVENT_KEY_DOWN,
     'key' => (object)['key' => ord('v'), 'mod' => 0, 'repeat' => false]]),

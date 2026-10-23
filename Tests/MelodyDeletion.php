@@ -49,7 +49,7 @@ $score = new MADSCORE\Score\Score(2);
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'score'))->setValue(null, $score);
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'sheet'))->setValue(null,
   new SPTK\Layout\LayoutLeaf('Canvas', '1*', '1*', new MADSCORE\App\SheetCanvas()));
-MADSCORE\App\Controller::requestDeleteMelody(new SPTK\Events\EventContext('accept', $screen->widget('deleteMelody')));
+MADSCORE\App\ControllerNavigation::requestDeleteMelody(new SPTK\Events\EventContext('accept', $screen->widget('deleteMelody')));
 expectMelodyDeletion($screen->statusBar->confirming() && str_contains($screen->statusBar->text(), 'melody 1'), 'The button asks for status bar confirmation: ' . $screen->statusBar->text());
 $screen->statusBar->handleBlockingInput((object)[
   'type' => SPTK\SDLWrapper\SDL::SDL_EVENT_KEY_DOWN,
@@ -58,7 +58,7 @@ $screen->statusBar->handleBlockingInput((object)[
 expectMelodyDeletion(!$screen->statusBar->confirming() && count($score->melodies) === 2, 'Escape cancels deletion without changing the score.');
 $lastMelody = new MADSCORE\Score\Score();
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'score'))->setValue(null, $lastMelody);
-MADSCORE\App\Controller::requestDeleteMelody(new SPTK\Events\EventContext('accept', $screen->widget('deleteMelody')));
+MADSCORE\App\ControllerNavigation::requestDeleteMelody(new SPTK\Events\EventContext('accept', $screen->widget('deleteMelody')));
 expectMelodyDeletion(!$screen->statusBar->confirming() && count($lastMelody->melodies) === 1, 'The final melody cannot be offered for deletion.');
 
 echo "Melody deletion checks passed\n";

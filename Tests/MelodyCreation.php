@@ -30,7 +30,7 @@ $screen->widget('color')->setValue('#123abc');
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'score'))->setValue(null, $score);
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'sheet'))->setValue(null,
   new SPTK\Layout\LayoutLeaf('Canvas', '1*', '1*', new MADSCORE\App\SheetCanvas()));
-$commit = new ReflectionMethod(MADSCORE\App\Controller::class, 'commitEditorFields');
+$commit = new ReflectionMethod(MADSCORE\App\ControllerSheet::class, 'commitEditorFields');
 expectMelodyCreation($commit->invoke(null), 'Adding a melody can commit the current editor fields.');
 expectMelodyCreation($score->melodies[0]['color'] === '#123abc', 'The existing melody keeps its chosen color.');
 for ($number = 2; $number <= 14; $number++) {

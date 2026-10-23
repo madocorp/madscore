@@ -106,20 +106,20 @@ foreach (['bar' => 0, 'slot' => 0, 'octave' => 4, 'melody' => 0, 'pitchPosition'
   (new ReflectionProperty(MADSCORE\App\Controller::class, $name))->setValue(null, $value);
 }
 $field = $window->screen('editor')->widget('finger');
-(new ReflectionMethod(MADSCORE\App\Controller::class, 'refreshCursorReadout'))->invoke(null);
+(new ReflectionMethod(MADSCORE\App\ControllerSheet::class, 'refreshCursorReadout'))->invoke(null);
 expectFinger($field->getValue() === 'R5', 'The note tile shows the saved hand and finger.');
 $field->setValue('l2');
-(new ReflectionMethod(MADSCORE\App\Controller::class, 'applyFinger'))->invoke(null);
+(new ReflectionMethod(MADSCORE\App\ControllerSheet::class, 'applyFinger'))->invoke(null);
 expectFinger($score->notes[$note]['finger'] === 'L2', 'The note tile accepts a left-hand finger.');
 $field->setValue('6');
 try {
-  (new ReflectionMethod(MADSCORE\App\Controller::class, 'applyFinger'))->invoke(null);
+  (new ReflectionMethod(MADSCORE\App\ControllerSheet::class, 'applyFinger'))->invoke(null);
   throw new RuntimeException('The note tile accepted finger 6.');
 } catch (DomainException) {
   expectFinger($score->notes[$note]['finger'] === 'L2', 'An invalid note tile value leaves the note unchanged.');
 }
 $field->setValue('');
-(new ReflectionMethod(MADSCORE\App\Controller::class, 'applyFinger'))->invoke(null);
+(new ReflectionMethod(MADSCORE\App\ControllerSheet::class, 'applyFinger'))->invoke(null);
 expectFinger($score->notes[$note]['finger'] === '', 'Blank removes the finger label.');
 
 echo "Fingering checks passed.\n";

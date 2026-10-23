@@ -36,7 +36,7 @@ $window = (new ReflectionClass(SPTK\Core\Window::class))->newInstanceWithoutCons
 (new ReflectionProperty(SPTK\Core\Window::class, 'screens'))->setValue($window, $screens);
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'window'))->setValue(null, $window);
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'score'))->setValue(null, new MADSCORE\Score\Score());
-$install = new ReflectionMethod(MADSCORE\App\Controller::class, 'installSheet');
+$install = new ReflectionMethod(MADSCORE\App\ControllerSheet::class, 'installSheet');
 $install->invoke(null, 'editor');
 $sheet = (new ReflectionProperty(MADSCORE\App\Controller::class, 'sheets'))->getValue()['editor'];
 $editor = $window->screen('editor');

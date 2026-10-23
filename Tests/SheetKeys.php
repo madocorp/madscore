@@ -33,31 +33,31 @@ foreach (['window' => $window, 'score' => $score, 'bar' => 0, 'slot' => 0, 'octa
   'selection' => new MADSCORE\App\MelodySelection()] as $name => $value) {
   sheetState($name, $value);
 }
-(new ReflectionMethod(MADSCORE\App\Controller::class, 'installSheet'))->invoke(null, 'editor');
+(new ReflectionMethod(MADSCORE\App\ControllerSheet::class, 'installSheet'))->invoke(null, 'editor');
 $sheet = (new ReflectionProperty(MADSCORE\App\Controller::class, 'sheets'))->getValue()['editor'];
 sheetState('sheet', $sheet);
 $canvas = $sheet->instance();
-sheetState('displayedReadout', "[T] Note A#3\nCursor A#3\nLength 1 beat\n[\"ordinary\",false,false,0,\"\"]");
+sheetState('displayedReadout', "[T] Gap\nCursor A#3\nLength 1 beat\n\n\n");
 expectSheetKey($canvas->handleInput(sheetKey(SDL::KEY_RETURN)), 'Return handles an empty cursor.');
 expectSheetKey(count($score->notes) === 1 && MADSCORE\Score\Pitch::position($score->notes[0]) === 2,
   'Return places the cursor pitch in a gap.');
 sheetState('slot', 2);
 sheetState('pitchPosition', 4);
-sheetState('displayedReadout', "[T] Note C3\nCursor C3\nLength 1 beat\n[\"ordinary\",false,false,0,\"\"]");
+sheetState('displayedReadout', "[T] Gap\nCursor C3\nLength 1 beat\n\n\n");
 expectSheetKey($canvas->handleInput(sheetKey(SDL::KEY_SPACE)), 'Space handles an empty cursor.');
 expectSheetKey(count($score->notes) === 2 && MADSCORE\Score\Pitch::position($score->notes[1]) === 4,
   'Space places the cursor pitch in a gap.');
 sheetState('slot', 0);
 sheetState('pitchPosition', 5);
-sheetState('displayedReadout', "[T] Note C#3\nCursor C#3\nLength 1 beat\n[\"ordinary\",false,false,0,\"\"]");
+sheetState('displayedReadout', "[T] Note C#3\nCursor C#3\nLength 1 beat\n\n\n[\"ordinary\",false,false,false,0,\"\",\"\",\"\"]");
 expectSheetKey($canvas->handleInput(sheetKey(SDL::KEY_RETURN)), 'Return handles an existing note.');
 expectSheetKey(count($score->notes) === 2 && MADSCORE\Score\Pitch::position($score->notes[0]) === 5,
   'Return changes the note to the cursor pitch.');
 sheetState('pitchPosition', 2);
-sheetState('displayedReadout', "[T] Note C#3\nCursor C#3\nLength 1 beat\n[\"ordinary\",false,false,0,\"\"]");
+sheetState('displayedReadout', "[T] Note C#3\nCursor C#3\nLength 1 beat\n\n\n[\"ordinary\",false,false,false,0,\"\",\"\",\"\"]");
 $before = $score->notes;
 expectSheetKey($canvas->handleInput(sheetKey(SDL::KEY_SPACE)), 'Space handles an existing note.');
-expectSheetKey($score->notes === $before && MADSCORE\App\Controller::cursorStateForSheet()['pitch'] === 5,
+expectSheetKey($score->notes === $before && MADSCORE\App\ControllerSelection::cursorStateForSheet()['pitch'] === 5,
   'Space moves the pitch cursor to the note without changing the note.');
 expectSheetKey($canvas->handleInput(sheetKey(ord('t')))
   && $window->screen('editor')->selectedLeaf()?->instance()?->id() === 'staccato',

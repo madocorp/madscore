@@ -384,13 +384,13 @@ foreach ([['ctrl+*', '*', SPTK\SDLWrapper\SDL::MOD_CTRL],
 $ctrlShiftEight = (object)['type' => SPTK\SDLWrapper\SDL::SDL_EVENT_KEY_DOWN,
   'key' => (object)['key' => ord('8'),
     'mod' => SPTK\SDLWrapper\SDL::MOD_CTRL | SPTK\SDLWrapper\SDL::MOD_SHIFT, 'repeat' => true]];
-expectDynamic(MADSCORE\App\Controller::melodyWedgeShortcut(
+expectDynamic(MADSCORE\App\ControllerNoteEditing::melodyWedgeShortcut(
   new SPTK\Events\EventContext('keyDown', $editor->widget('dynamic'), $ctrlShiftEight)),
   'Ctrl+Shift+8 reaches the melody wedge command when SDL reports the 8 key.');
 $ctrlNumpadStar = (object)['type' => SPTK\SDLWrapper\SDL::SDL_EVENT_KEY_DOWN,
   'key' => (object)['key' => SPTK\SDLWrapper\SDL::KEY_KP_MULTIPLY,
     'mod' => SPTK\SDLWrapper\SDL::MOD_CTRL, 'repeat' => true]];
-expectDynamic(MADSCORE\App\Controller::keypadMelodyWedgeShortcut(
+expectDynamic(MADSCORE\App\ControllerNoteEditing::keypadMelodyWedgeShortcut(
   new SPTK\Events\EventContext('keyDown', $editor->widget('dynamic'), $ctrlNumpadStar)),
   'Ctrl+numpad star reaches the melody wedge command.');
 expectDynamic($editor->widget('dynamic')->hotkey() === '*',

@@ -40,7 +40,7 @@ try {
   (new \ReflectionProperty(MADSCORE\App\Controller::class, 'score'))->setValue(null, new MADSCORE\Score\Score(12));
   $restore->invoke(null, MADSCORE\App\Session::load($path));
   expectSession($capture->invoke(null) === $state, 'Restoring the session returns the score, cursor, viewport, and selection.');
-  expectSession((new \ReflectionMethod(MADSCORE\App\Controller::class,
+  expectSession((new \ReflectionMethod(MADSCORE\App\ControllerChords::class,
     'previousChordSettings'))->invoke(null)['series'] === 2,
     'The last chord settings remain available after session restore.');
   expectSession(MADSCORE\App\Files::currentPath() === $state['filePath'],

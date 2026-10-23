@@ -139,7 +139,7 @@ foreach (['score' => $repeated, 'melody' => 0,
   'bar' => 0, 'slot' => 0, 'octave' => 8, 'pitchPosition' => 12] as $field => $value) {
   (new ReflectionProperty(MADSCORE\App\Controller::class, $field))->setValue(null, $value);
 }
-(new ReflectionMethod(MADSCORE\App\Controller::class, 'followChordPitch'))->invoke(null);
+(new ReflectionMethod(MADSCORE\App\ControllerChords::class, 'followChordPitch'))->invoke(null);
 $cursorOctave = (new ReflectionProperty(MADSCORE\App\Controller::class, 'octave'))->getValue();
 $cursorPosition = (new ReflectionProperty(MADSCORE\App\Controller::class, 'pitchPosition'))->getValue();
 MADSCORE\Score\MelodyRange::bands($repeated, 0,

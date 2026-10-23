@@ -47,7 +47,7 @@ $active->place(0, 0, 2, 4, 6, 2);
 (new \ReflectionProperty(MADSCORE\App\Controller::class, 'project'))->setValue(null, $loaded);
 (new \ReflectionProperty(MADSCORE\App\Controller::class, 'activeItemId'))->setValue(null, $motifId);
 (new \ReflectionProperty(MADSCORE\App\Controller::class, 'score'))->setValue(null, $active);
-$saved = MADSCORE\App\Controller::projectData();
+$saved = MADSCORE\App\ControllerNoteEditing::projectData();
 expectProject(count($saved['items'][0]['score']['notes']) === 1
   && count($saved['items'][1]['score']['notes']) === 2
   && count($saved['items']) === 2,

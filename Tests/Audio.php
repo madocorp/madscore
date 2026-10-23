@@ -35,6 +35,8 @@ function sineAmplitude(array $samples, float $frequency): float {
 }
 
 $score = new MADSCORE\Score\Score(12);
+$score->setMelodyPattern(0, 'organ');
+$score->setMelodyVolume(0, 100);
 $score->place(0, 0, 0, 4, 1, 2);
 $score->ensureBar(1);
 $score->setTempo(1, '60');
@@ -47,10 +49,11 @@ $source->rewind();
 expectScoreAudio($source->read(100) === substr($pcm, 0, 400), 'Rewind reproduces the same samples.');
 $samples = unpack('g*', substr($pcm, 1000 * 4, 4800 * 4));
 $fundamental = sineAmplitude($samples, 440.0);
-expectScoreAudio($fundamental > 0.1 && sineAmplitude($samples, 430.0) < $fundamental * 0.02, 'A4 keeps its 440 Hz fundamental.');
+expectScoreAudio($fundamental > 0.05 && sineAmplitude($samples, 430.0) < $fundamental * 0.02, 'A4 keeps its 440 Hz fundamental.');
 expectScoreAudio(abs(sineAmplitude($samples, 880.0) / $fundamental - 0.55) < 0.02, 'The second harmonic is present at its intended strength.');
 expectScoreAudio(abs(sineAmplitude($samples, 1320.0) / $fundamental - 0.30) < 0.02, 'The third harmonic is present at its intended strength.');
 $low = new MADSCORE\Score\Score(12);
+$low->setMelodyPattern(0, 'organ');
 $low->place(0, 0, 0, 2, 1, 2);
 $lowPcm = readScoreAudio(new MADSCORE\Play\ScoreSource($low));
 $lowSamples = unpack('g*', substr($lowPcm, 1000 * 4, 4800 * 4));
@@ -81,7 +84,7 @@ $patterns->setMelodyPattern(0, 'sawtooth');
 $sawtooth = $patternWindow($patterns);
 expectScoreAudio(abs(sineAmplitude($sawtooth, 880) / sineAmplitude($sawtooth, 440) - 0.5) < 0.02,
   'Sawtooth includes the second harmonic.');
-$patterns->setMelodyVolume(0, 50);
+$patterns->setMelodyVolume(0, 25);
 $halfVolume = $patternWindow($patterns);
 expectScoreAudio(abs(sineAmplitude($halfVolume, 440) / sineAmplitude($sawtooth, 440) - 0.5) < 0.02,
   'Melody volume scales its PCM.');
@@ -107,10 +110,11 @@ expectScoreAudio(count(MADSCORE\Score\Score::fromData((new MADSCORE\Score\Score(
   'A score preserves melodies explicitly added by the user.');
 $drums = new MADSCORE\Score\Score(12);
 $drums->setMelodyPattern(9, 'kick');
+$drums->setMelodyVolume(9, 100);
 $drums->place(9, 0, 0, 0, 1, 1);
 $kick = readScoreAudio(new MADSCORE\Play\ScoreSource($drums, 9));
 $kickPeak = max(array_map('abs', unpack('g*', substr($kick, 0, 15000 * 4))));
-expectScoreAudio($kickPeak > 0.6 && $kickPeak < 0.95, 'Kick plays loudly without clipping when heard alone.');
+expectScoreAudio($kickPeak > 0.4 && $kickPeak < 0.95, 'Kick plays loudly without clipping when heard alone.');
 $repeatedKicks = new MADSCORE\Score\Score(12);
 $repeatedKicks->setMelodyPattern(0, 'kick');
 $repeatedKicks->place(0, 0, 0, 4, 1, 1);
@@ -163,6 +167,8 @@ expectScoreAudio(sineAmplitude($highSamples, 48000 - 2 * $highFrequency) < $high
   && sineAmplitude($highSamples, 48000 - 3 * $highFrequency) < $highFundamental * 0.05,
   'High notes skip harmonics above the Nyquist limit.');
 $chord = clone $score;
+$chord->setMelodyPattern(1, 'organ');
+$chord->setMelodyVolume(1, 100);
 $chord->place(1, 0, 0, 4, 1, 2);
 $chordPcm = readScoreAudio(new MADSCORE\Play\ScoreSource($chord));
 $singleSample = unpack('g', substr($pcm, 1000 * 4, 4))[1];

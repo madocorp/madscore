@@ -34,7 +34,7 @@ $window = (new ReflectionClass(SPTK\Core\Window::class))->newInstanceWithoutCons
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'window'))->setValue(null, $window);
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'score'))->setValue(null, $score);
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'bar'))->setValue(null, 1);
-(new ReflectionMethod(MADSCORE\App\Controller::class, 'refreshSelectedBarFields'))->invoke(null);
+(new ReflectionMethod(MADSCORE\App\ControllerSheet::class, 'refreshSelectedBarFields'))->invoke(null);
 $field = $window->screen('editor')->widget('repeats');
 expectRepeat($field->getValue() === '2', 'The Bar panel shows the selected section repeat count.');
 

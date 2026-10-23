@@ -25,7 +25,7 @@ final class SheetCanvas extends Canvas {
   public function draw(Texture $surface, TextureContext $textures): void {
     $this->surfaceWidth = $surface->width();
     $this->surfaceHeight = $surface->height();
-    $frame = Controller::playbackFrame();
+    $frame = ControllerPlayback::playbackFrame();
     if ($frame !== null && $surface->width() === $frame['width'] && $surface->height() === $frame['height']) {
       $page = $frame['cache']->page($frame['page']);
       if ($page !== null) {
@@ -49,7 +49,7 @@ final class SheetCanvas extends Canvas {
       }
     }
     $this->resetPlayback();
-    $image = SheetPainter::render(Controller::score(), Controller::firstVisibleBar(), Controller::visibleColumns(), $surface->width(), $surface->height(), Controller::cursorStateForSheet(), Controller::melody(), Controller::selectionStateForSheet(), true,
+    $image = SheetPainter::render(Controller::score(), Controller::firstVisibleBar(), Controller::visibleColumns(), $surface->width(), $surface->height(), ControllerSelection::cursorStateForSheet(), ControllerNoteEditing::melody(), ControllerSelection::selectionStateForSheet(), true,
       composer: Controller::composerPreview());
     $texture = $textures->textureFromImage($image);
     $texture->copyTo($surface, 0, 0);
@@ -57,7 +57,7 @@ final class SheetCanvas extends Canvas {
   }
 
   public function preservePixels(): bool {
-    return Controller::playbackFrame() !== null;
+    return ControllerPlayback::playbackFrame() !== null;
   }
 
   /** Return the measured pixel size of this canvas's most recent draw. */
