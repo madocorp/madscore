@@ -14,6 +14,7 @@ $main = new MADSCORE\Score\Score();
 $main->title = 'Project study';
 $main->place(0, 0, 0, 4, 4, 2);
 $project = MADSCORE\Score\Project::fromScore($main);
+$project->setPdfLayout(70, 200);
 $motifId = $project->create();
 expectProject($motifId === 'A' && $project->first() === $motifId,
   'First visit creates a named motif.');
@@ -26,11 +27,44 @@ $project->setName($motifId, 'Opening idea');
 $project->setPattern("A B |\nA1");
 $loaded = MADSCORE\Score\Project::fromData($project->data());
 expectProject($loaded->data() === $project->data()
+  && $loaded->pdfLayout() === ['noteSize' => 70, 'beatSize' => 200]
   && $loaded->pattern() === "A B |\nA1"
   && $loaded->item($motifId)['name'] === 'Opening idea'
   && count($loaded->score('main')->notes) === 1
   && count($loaded->score($motifId)->notes) === 1,
   'All project items round trip independently.');
+MADSCORE\Render\PdfLayout::configure(100, 100);
+$defaultPreview = MADSCORE\Render\PagePreview::render($main, 0, 842, 595);
+$projectPreview = MADSCORE\Render\PagePreview::render($main, 0, 842, 595, $loaded);
+expectProject($projectPreview->pixels !== $defaultPreview->pixels
+  && MADSCORE\Render\PdfLayout::noteSize() === 100
+  && MADSCORE\Render\PdfLayout::beatSize() === 100,
+  'The PDF preview uses the project layout without changing another document.');
+$layoutScore = new MADSCORE\Score\Score();
+$layoutScore->ensureBar(14);
+$layoutProject = MADSCORE\Score\Project::fromScore($layoutScore);
+$layoutProject->setPdfLayout(70, 200);
+expectProject(count(MADSCORE\Render\PagePainter::pages($layoutScore,
+    project: $layoutProject)) > count(MADSCORE\Render\PagePainter::pages($layoutScore))
+  && MADSCORE\Render\PdfLayout::beatSize() === 100,
+  'Project PDF spacing controls pagination without changing global layout.');
+$legacyLayout = $project->data();
+unset($legacyLayout['pdfLayout']);
+$legacyProject = MADSCORE\Score\Project::fromData($legacyLayout);
+expectProject(!$legacyProject->hasPdfLayout()
+  && $legacyProject->pdfLayout() === ['noteSize' => 100, 'beatSize' => 100],
+  'Older projects without PDF sizes use the original defaults.');
+foreach ([['noteSize' => 49, 'beatSize' => 100],
+  ['noteSize' => 100, 'beatSize' => 99],
+  ['noteSize' => 100, 'beatSize' => 201]] as $invalidLayout) {
+  $invalidProject = $project->data();
+  $invalidProject['pdfLayout'] = $invalidLayout;
+  try {
+    MADSCORE\Score\Project::fromData($invalidProject);
+    throw new \RuntimeException('An invalid PDF layout was accepted.');
+  } catch (\DomainException) {
+  }
+}
 $legacyPattern = $project->data();
 unset($legacyPattern['items'][0]['pattern']);
 expectProject(MADSCORE\Score\Project::fromData($legacyPattern)->pattern() === null,

@@ -5,6 +5,8 @@ namespace MADSCORE\Play;
 use MADSCORE\Score\DynamicLevel;
 use MADSCORE\Score\Dynamics;
 use MADSCORE\Score\Pitch;
+use MADSCORE\Score\FigurePlayback;
+use MADSCORE\Score\Project;
 use MADSCORE\Score\Score;
 
 use SPTK\Audio\Source;
@@ -31,7 +33,8 @@ final class ScoreSource implements Source {
   private float $dynamicBaseline;
 
   /** Freeze the requested half-beat span and optional melody from a score. */
-  public function __construct(Score $score, ?int $melody = null, ?int $start = null, ?int $end = null) {
+  public function __construct(Score $score, ?int $melody = null, ?int $start = null, ?int $end = null,
+    ?Project $project = null) {
     $wholeScore = $end === null;
     $scoreEnd = $score->start(count($score->bars));
     $start ??= 0;
@@ -103,6 +106,29 @@ final class ScoreSource implements Source {
         $this->addGlissandoEvents($note, $target, $noteStart, $noteEnd, $settings['pattern'],
           isset($dynamics[$index]) ? 1.0 : $levels[$index], $dynamics[$index] ?? null,
           $barStarts, $seconds, $rangeStart, $settings['volume'] / 100, $localTimes[$index], $shared);
+        continue;
+      }
+      if (($parts = FigurePlayback::segments($note, $project)) !== null) {
+        $basePitch = ($note['octave'] - 4) * 12 + Pitch::position($note) - 1;
+        foreach ($parts as $part) {
+          $partStart = $noteStart + $note['length'] * $part['start'];
+          $partEnd = $noteStart + $note['length'] * $part['end'];
+          $partOnset = (int)round((self::secondsAt($partStart, $barStarts, $seconds) - $rangeStart) * self::SAMPLE_RATE);
+          $partEnding = (int)round((self::secondsAt($partEnd, $barStarts, $seconds) - $rangeStart) * self::SAMPLE_RATE);
+          if ($partEnding <= max(0, $partOnset) || $partOnset >= $this->totalFrames) {
+            continue;
+          }
+          $frequency = 440.0 * 2 ** (($basePitch + $part['offset']) / 12);
+          $this->events[] = [
+            'start' => max(0, $partOnset), 'end' => min($this->totalFrames, $partEnding),
+            'onset' => $partOnset, 'ending' => $partEnding,
+            'frequency' => $frequency,
+            'partials' => Waveform::partials($settings['pattern'], $frequency, self::SAMPLE_RATE),
+            'volume' => isset($dynamics[$index]) ? 1.0 : $levels[$index],
+            'dynamic' => $dynamics[$index] ?? null, 'baseVolume' => $settings['volume'] / 100,
+            'localTime' => $localTimes[$index], 'shared' => $shared, 'shift' => 0,
+          ];
+        }
         continue;
       }
       $writtenEnd = self::secondsAt($noteEnd, $barStarts, $seconds);

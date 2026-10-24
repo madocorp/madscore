@@ -70,17 +70,18 @@ try {
   MADSCORE\App\Settings::directoryChanged(new SPTK\Events\EventContext('change', $directory));
   expectSettings(MADSCORE\App\Settings::defaultDirectory() === $home . '/Other',
     'A configured directory becomes the first browser location.');
-  MADSCORE\Render\PdfLayout::configure(70, 120);
-  MADSCORE\App\Settings::savePdfLayout();
   $savedLayout = SPTK\Core\AppData::loadJson('settings.json');
   expectSettings($savedLayout['defaultDir'] === $home . '/Other'
-    && $savedLayout['pdfNoteSize'] === 70 && $savedLayout['pdfBeatSize'] === 120,
-    'PDF layout shortcuts preserve their settings alongside the default directory.');
+    && !isset($savedLayout['pdfNoteSize'], $savedLayout['pdfBeatSize']),
+    'App settings keep the directory without project PDF sizes.');
+  MADSCORE\Render\PdfLayout::configure(70, 200);
+  SPTK\Core\AppData::saveJson('settings.json', ['defaultDir' => $home . '/Other',
+    'pdfNoteSize' => 70, 'pdfBeatSize' => 200]);
   MADSCORE\Render\PdfLayout::configure(100, 100);
   MADSCORE\App\Settings::initialize();
-  expectSettings(MADSCORE\Render\PdfLayout::noteSize() === 70
-    && MADSCORE\Render\PdfLayout::beatSize() === 120,
-    'PDF layout settings restore on startup.');
+  expectSettings(MADSCORE\App\Settings::legacyPdfLayout() === [70, 200]
+    && MADSCORE\Render\PdfLayout::beatSize() === 100,
+    'Old app PDF sizes are available for a one-time project migration.');
   MADSCORE\App\Files::initialize();
   $browserDirectory = new ReflectionMethod(MADSCORE\App\Files::class, 'browserDirectory');
   expectSettings($browserDirectory->invoke(null) === $home . '/Other',

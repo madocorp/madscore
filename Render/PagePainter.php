@@ -3,6 +3,7 @@
 namespace MADSCORE\Render;
 
 use MADSCORE\Score\Score;
+use MADSCORE\Score\Project;
 
 /** Arranges adaptive vector score bars on landscape A4 pages. */
 final class PagePainter {
@@ -20,25 +21,36 @@ final class PagePainter {
   private const TEMPO_LEVEL_GAP = 8;
 
   /** Draw every score page into a Cairo PDF context. */
-  public static function drawPages(Score $score, \FFI $cairo, \FFI\CData $context): void {
+  public static function drawPages(Score $score, \FFI $cairo, \FFI\CData $context, ?Project $project = null): void {
     $score = $score->visibleCopy()->renderCopy();
-    $states = Prescription::states($score);
+    $figures = new FigureCatalog($score, $project);
+    $states = Prescription::states($score, figures: $figures);
     $pages = self::pages($score, $states);
+    [$inlineTiles, $appendixPages] = self::appendixPlacement($pages, $states, $figures);
+    $pageCount = count($pages) + count($appendixPages);
     foreach ($pages as $index => $page) {
-      self::drawPage($score, $cairo, $context, $page, $states, $index + 1, count($pages));
+      self::drawPage($score, $cairo, $context, $page, $states, $index + 1, $pageCount,
+        $figures, $index === 0 ? $inlineTiles : []);
+      $cairo->cairo_show_page($context);
+    }
+    foreach ($appendixPages as $index => $tiles) {
+      FigureAppendix::drawPage($cairo, $context, $tiles);
+      self::drawHeader($score, $cairo, $context,
+        count($pages) + $index + 1, $pageCount, true);
       $cairo->cairo_show_page($context);
     }
   }
 
   /** Draw a single PDF page into a context scaled to the page bounds. */
-  public static function drawPage(Score $score, \FFI $cairo, \FFI\CData $context, array $page, ?array $states = null, int $pageNumber = 1, int $pageCount = 1): void {
+  public static function drawPage(Score $score, \FFI $cairo, \FFI\CData $context, array $page, ?array $states = null, int $pageNumber = 1, int $pageCount = 1, ?FigureCatalog $figures = null, array $inlineTiles = []): void {
     $score = $score->visibleCopy()->renderCopy();
     $states ??= Prescription::states($score);
     $cairo->cairo_save($context);
     try {
       $cairo->cairo_set_source_rgb($context, 1, 1, 1);
       $cairo->cairo_paint($context);
-      self::drawHeader($score, $cairo, $context, $pageNumber, $pageCount);
+      self::drawHeader($score, $cairo, $context, $pageNumber, $pageCount,
+        $inlineTiles !== []);
       $y = self::FIRST_LINE_Y;
       foreach ($page as $bars) {
         $lineRows = max(4, ...array_map(static fn (int $bar): int => count($states[$bar]['bands']), $bars));
@@ -51,7 +63,7 @@ final class PagePainter {
         foreach ($positions as $position) {
           if (($tempo = TempoPainter::label($score, $position['bar'])) !== null) {
             $tempoReservations[$score->start($position['bar'])] = $position['left']
-              + TempoPainter::width($tempo) + self::TEMPO_LEVEL_GAP;
+              + TempoPainter::width($tempo, true) + self::TEMPO_LEVEL_GAP;
           }
         }
         $cairo->cairo_save($context);
@@ -84,7 +96,7 @@ final class PagePainter {
             $cairo->cairo_clip($context);
             $cairo->cairo_set_source_rgb($context, 0.094, 0.125, 0.11);
             $cairo->cairo_select_font_face($context, 'Sans', 0, 0);
-            $cairo->cairo_set_font_size($context, 30);
+            $cairo->cairo_set_font_size($context, PdfLayout::markFontSize());
             $cairo->cairo_move_to($context, $position['left'], 33);
             $cairo->cairo_show_text($context, $score->bars[$bar]['note']);
             $cairo->cairo_restore($context);
@@ -93,9 +105,10 @@ final class PagePainter {
             RepeatPainter::draw($cairo, $context, $position['right'] - 4, 62, $rowHeight, $repeats);
           }
           if ($position['markerLeft'] !== null) {
-            Prescription::drawMarkers($cairo, $context, $rows, $position['markerLeft'] + self::MARKER_WIDTH / 2);
+            Prescription::drawMarkers($cairo, $context, $rows,
+              $position['markerLeft'] + self::MARKER_WIDTH / 2, true);
           }
-          $sounding = Prescription::soundingBands($score, $bar);
+          $sounding = Prescription::soundingBands($score, $bar, figures: $figures);
           $sectionAtRight = $bar === count($score->bars) - 1
             || ($score->bars[$bar + 1]['sectionLeader'] ?? false);
           foreach ($rows as $band => $row) {
@@ -104,15 +117,17 @@ final class PagePainter {
             }
             $cairo->cairo_save($context);
             $cairo->cairo_translate($context, $position['left'], $row['top']);
-            $clipTop = -min($row['top'], 2 * $row['height'] / 12);
+            $clipTop = -min($row['top'], max(2 * $row['height'] / 12,
+              PdfLayout::noteSize() < 100 ? 2 * PdfLayout::markFontSize() : 0));
             $width = $position['right'] - $position['left'];
             $cairo->cairo_rectangle($context, 0, $clipTop, $width, $row['height'] - $clipTop);
             $cairo->cairo_clip($context);
             $endBar = $index === count($positions) - 1
-              || !Prescription::bandContinues($score, $states, $bar, $band);
+              || !Prescription::bandContinues($score, $states, $bar, $band, figures: $figures);
             BarPainter::draw($cairo, $context, $score, $bar, $band, $width, $row['height'],
               endBar: $endBar && !$sectionAtRight, paintBackground: false,
-              startBorder: !$score->bars[$bar]['sectionLeader'], outsideMarks: $rowHeight < self::ROW_HEIGHT * 0.8);
+              startBorder: !$score->bars[$bar]['sectionLeader'], figures: $figures,
+              printMarks: true);
             $cairo->cairo_restore($context);
           }
           $cairo->cairo_restore($context);
@@ -121,30 +136,35 @@ final class PagePainter {
         $cairo->cairo_translate($context, self::SIDE_MARGIN, $y);
         DynamicPainter::draw($cairo, $context, $dynamicSegments, 68, $rowHeight);
         DynamicPainter::drawLabels($cairo, $context,
-          DynamicPainter::labels($score, $positions, $rowHeight, $tempoReservations), 68, $rowHeight);
+          DynamicPainter::labels($score, $positions, $rowHeight, $tempoReservations, true),
+          68, $rowHeight, true);
         SlurPainter::draw($cairo, $context, $score, $positions,
           static fn (int $bar): array => Prescription::rows($states[$bar],
             self::TOP_SPACE + max(4, count($states[$bar]['bands'])) * $rowHeight, self::TOP_SPACE));
         foreach ($positions as $position) {
           if (($tempo = TempoPainter::label($score, $position['bar'])) !== null) {
-            TempoPainter::draw($cairo, $context, $position['left'], $position['right'], $tempo);
+            TempoPainter::draw($cairo, $context, $position['left'], $position['right'],
+              $tempo, true);
           }
         }
         $cairo->cairo_restore($context);
         $y += $lineHeight;
       }
+      FigureAppendix::drawTiles($cairo, $context, $inlineTiles);
     } finally {
       $cairo->cairo_restore($context);
     }
   }
 
   /** Print title and author on the left, catalog and page count on the right. */
-  private static function drawHeader(Score $score, \FFI $cairo, \FFI\CData $context, int $pageNumber, int $pageCount): void {
+  public static function drawHeader(Score $score, \FFI $cairo, \FFI\CData $context,
+    int $pageNumber, int $pageCount, bool $appendix = false): void {
     $cairo->cairo_set_source_rgb($context, 0.094, 0.125, 0.11);
     self::headerText($cairo, $context, $score->title, self::SIDE_MARGIN, 110, 48, 2000);
-    self::headerText($cairo, $context, $score->author, self::SIDE_MARGIN, 155, 30, 2000);
+    self::headerText($cairo, $context, $score->author, self::SIDE_MARGIN, 155, 32, 2000);
     self::headerText($cairo, $context, $score->catalog, self::WIDTH - self::SIDE_MARGIN, 110, 32, 1050, true);
-    self::headerText($cairo, $context, '- ' . $pageNumber . ' / ' . $pageCount . ' -',
+    self::headerText($cairo, $context, ($appendix ? 'Appendix  ' : '')
+      . '- ' . $pageNumber . ' / ' . $pageCount . ' -',
       self::WIDTH - self::SIDE_MARGIN, 155, 32, 1050, true);
   }
 
@@ -158,7 +178,8 @@ final class PagePainter {
     $extents = $cairo->new('cairo_text_extents_t');
     $cairo->cairo_text_extents($context, $value, \FFI::addr($extents));
     if ($extents->x_advance > $maxWidth) {
-      $cairo->cairo_set_font_size($context, max(18, $size * $maxWidth / $extents->x_advance));
+      $cairo->cairo_set_font_size($context,
+        max(PdfLayout::markFontSize(), $size * $maxWidth / $extents->x_advance));
       $cairo->cairo_text_extents($context, $value, \FFI::addr($extents));
     }
     $cairo->cairo_save($context);
@@ -176,7 +197,15 @@ final class PagePainter {
   }
 
   /** Return the exact line groups used by PDF pagination. */
-  public static function pages(Score $score, ?array $states = null): array {
+  public static function pages(Score $score, ?array $states = null, ?Project $project = null): array {
+    if ($project !== null) {
+      return PdfLayout::withProject($project, static function () use ($score, $states, $project): array {
+        $visible = $score->visibleCopy()->renderCopy();
+        $states ??= Prescription::states($visible,
+          figures: new FigureCatalog($visible, $project));
+        return self::pages($visible, $states);
+      });
+    }
     $score = $score->visibleCopy()->renderCopy();
     $states ??= Prescription::states($score);
     $pages = [];
@@ -197,6 +226,42 @@ final class PagePainter {
       $pages[] = $page;
     }
     return $pages;
+  }
+
+  public static function pageCount(Score $score, ?Project $project = null): int {
+    return PdfLayout::withProject($project, static function () use ($score, $project): int {
+      $score = $score->visibleCopy()->renderCopy();
+      $figures = new FigureCatalog($score, $project);
+      $states = Prescription::states($score, figures: $figures);
+      $pages = self::pages($score, $states);
+      [, $appendixPages] = self::appendixPlacement($pages, $states, $figures);
+      return count($pages) + count($appendixPages);
+    });
+  }
+
+  /** Keep all appendix tiles below a single score page when they fit. */
+  public static function appendixPlacement(array $pages, array $states,
+    FigureCatalog $figures): array {
+    $separatePages = FigureAppendix::pages($figures);
+    if (count($pages) !== 1 || $separatePages === []) {
+      return [[], $separatePages];
+    }
+    $bottom = self::FIRST_LINE_Y;
+    foreach ($pages[0] as $bars) {
+      $rows = max(4, ...array_map(static fn (int $bar): int => count($states[$bar]['bands']), $bars));
+      $bottom += self::TOP_SPACE + self::LINE_PADDING + $rows * self::rowHeight($rows);
+    }
+    $top = max(225, $bottom + 65);
+    $candidate = FigureAppendix::pages($figures, $top);
+    if (count($candidate) !== 1) {
+      return [[], $separatePages];
+    }
+    foreach ($candidate[0] as $tile) {
+      if ($tile['y'] + $tile['spec']['height'] > self::HEIGHT - 110) {
+        return [[], $separatePages];
+      }
+    }
+    return [$candidate[0], []];
   }
 
   /** Grow staff rows with notes, but keep one full line inside the page. */
@@ -254,8 +319,8 @@ final class PagePainter {
     $width = (int)round(2 * $score->bars[$bar]['beats'] * $slotWidth);
     if (($tempo = TempoPainter::label($score, $bar)) !== null) {
       $levelWidth = DynamicPainter::startLabelWidth($score, $bar,
-        self::ROW_HEIGHT * PdfLayout::noteSize() / 100);
-      $width = max($width, (int)ceil(TempoPainter::width($tempo)
+        self::ROW_HEIGHT * PdfLayout::noteSize() / 100, true);
+      $width = max($width, (int)ceil(TempoPainter::width($tempo, true)
         + ($levelWidth > 0 ? self::TEMPO_LEVEL_GAP + $levelWidth : 0)));
     }
     if ($bar === count($score->bars) - 1 || $score->bars[$bar + 1]['sectionLeader']) {

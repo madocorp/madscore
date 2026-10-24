@@ -6,6 +6,7 @@ namespace MADSCORE\Score;
 final class Project {
 
   private array $items;
+  private ?array $pdfLayout = ['noteSize' => 100, 'beatSize' => 100];
 
   public function __construct(public string $title = 'Untitled', public string $author = '',
     public string $catalog = '') {
@@ -26,16 +27,31 @@ final class Project {
   }
 
   public function data(): array {
-    return ['title' => $this->title, 'author' => $this->author,
+    $data = ['title' => $this->title, 'author' => $this->author,
       'catalog' => $this->catalog, 'items' => $this->items];
+    if ($this->pdfLayout !== null) {
+      $data['pdfLayout'] = $this->pdfLayout;
+    }
+    return $data;
   }
 
   public static function fromData(array $data): self {
-    if (count($data) !== 4 || !is_array($data['items'] ?? null)
+    if (count($data) < 4 || count($data) > 5
+      || array_diff(array_keys($data), ['title', 'author', 'catalog', 'items', 'pdfLayout']) !== []
+      || !is_array($data['items'] ?? null)
       || !array_is_list($data['items']) || $data['items'] === []) {
       throw new \DomainException('Invalid MadScore project.');
     }
     $project = new self();
+    $project->pdfLayout = null;
+    if (array_key_exists('pdfLayout', $data)) {
+      $layout = $data['pdfLayout'];
+      if (!is_array($layout) || count($layout) !== 2
+        || array_diff(array_keys($layout), ['noteSize', 'beatSize']) !== []) {
+        throw new \DomainException('Invalid PDF layout.');
+      }
+      $project->setPdfLayout($layout['noteSize'], $layout['beatSize']);
+    }
     $project->items = [];
     $seen = [];
     $mainCount = 0;
@@ -78,6 +94,22 @@ final class Project {
 
   public function items(): array {
     return $this->items;
+  }
+
+  public function pdfLayout(): array {
+    return $this->pdfLayout ?? ['noteSize' => 100, 'beatSize' => 100];
+  }
+
+  public function hasPdfLayout(): bool {
+    return $this->pdfLayout !== null;
+  }
+
+  public function setPdfLayout(mixed $noteSize, mixed $beatSize): void {
+    if (!is_int($noteSize) || $noteSize < 50 || $noteSize > 140
+      || !is_int($beatSize) || $beatSize < $noteSize || $beatSize > 200) {
+      throw new \DomainException('Invalid PDF layout.');
+    }
+    $this->pdfLayout = ['noteSize' => $noteSize, 'beatSize' => $beatSize];
   }
 
   public function item(string $id): array {

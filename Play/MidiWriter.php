@@ -5,6 +5,8 @@ namespace MADSCORE\Play;
 use MADSCORE\Score\DynamicLevel;
 use MADSCORE\Score\Dynamics;
 use MADSCORE\Score\Pitch;
+use MADSCORE\Score\FigurePlayback;
+use MADSCORE\Score\Project;
 use MADSCORE\Score\Score;
 use MADSCORE\Score\Sound;
 
@@ -14,14 +16,15 @@ final class MidiWriter {
   private const TICKS_PER_BEAT = 480;
   private const TICKS_PER_SLOT = 240;
 
-  public static function write(string $path, Score $score): void {
-    $data = self::encode($score);
+  public static function write(string $path, Score $score, ?Project $project = null): void {
+    $data = self::encode($score, project: $project);
     if (file_put_contents($path, $data) !== strlen($data)) {
       throw new \RuntimeException('Could not export MIDI: ' . $path);
     }
   }
 
-  public static function encode(Score $score, ?int $selectedMelody = null, ?int $start = null, ?int $end = null): string {
+  public static function encode(Score $score, ?int $selectedMelody = null, ?int $start = null, ?int $end = null,
+    ?Project $project = null): string {
     $starts = [0];
     foreach ($score->bars as $bar) {
       $starts[] = end($starts) + $bar['beats'] * 2;
@@ -131,6 +134,17 @@ final class MidiWriter {
         $channel = $melodyChannels[$note['melody']];
         $useExpression = $dynamicControls[$note['melody']] === 'expression';
         $noteGain = $useExpression ? $gain : $gain * $levels[$index];
+        if (($parts = FigurePlayback::segments($note, $project)) !== null) {
+          $pitch = 69 + ($note['octave'] - 4) * 12 + Pitch::position($note) - 1;
+          foreach ($parts as $part) {
+            $begin = $onset + (int)round($note['length'] * self::TICKS_PER_SLOT * $part['start']);
+            $finish = $onset + (int)round($note['length'] * self::TICKS_PER_SLOT * $part['end']);
+            self::note($track, $channel, $pitch + $part['offset'], $begin,
+              min($finish, $jump ? $limit : PHP_INT_MAX), $noteGain);
+          }
+          unset($track);
+          continue;
+        }
         $next = ($note['glissandoToNext'] ?? false) ? $score->nextAdjacent($index) : null;
         if ($next !== null) {
           if ($useExpression) {

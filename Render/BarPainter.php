@@ -56,13 +56,13 @@ final class BarPainter {
   }
 
   /** Draw staff lines, notes, and an optional cursor into a Cairo context. */
-  public static function draw(\FFI $cairo, \FFI\CData $context, Score $score, int $bar, int $octave, int $width, int $height, ?array $cursor = null, ?int $melody = null, bool $endBar = false, bool $showSlots = false, bool $paintBackground = true, ?int $activeMelody = null, bool $startBorder = true, bool $outsideMarks = false): void {
+  public static function draw(\FFI $cairo, \FFI\CData $context, Score $score, int $bar, int $octave, int $width, int $height, ?array $cursor = null, ?int $melody = null, bool $endBar = false, bool $showSlots = false, bool $paintBackground = true, ?int $activeMelody = null, bool $startBorder = true, bool $outsideMarks = false, ?FigureCatalog $figures = null, bool $allowOutsideFigure = false, ?string $staffColor = null, bool $printMarks = false): void {
     $step = $height / 12.0;
     $firstLine = $step;
     $thirdLine = 9 * $step;
     $slots = 2 * $score->beats($bar);
     $unit = $width / $slots;
-    $markStep = $outsideMarks ? max(13, $step) : $step;
+    $markStep = $printMarks ? PdfLayout::markFontSize() : $step;
     if ($paintBackground) {
       $cairo->cairo_set_source_rgb($context, 1, 1, 1);
       $cairo->cairo_paint($context);
@@ -75,7 +75,11 @@ final class BarPainter {
         self::line($cairo, $context, $x, $firstLine, $x, $thirdLine);
       }
     }
-    $cairo->cairo_set_source_rgb($context, 0.094, 0.125, 0.11);
+    if ($staffColor === null) {
+      $cairo->cairo_set_source_rgb($context, 0.094, 0.125, 0.11);
+    } else {
+      self::source($cairo, $context, $staffColor);
+    }
     $staffWidth = self::staffLineWidth($height);
     $cairo->cairo_set_line_width($context, $staffWidth);
     foreach ([1, 5, 9] as $position) {
@@ -122,6 +126,38 @@ final class BarPainter {
         }
         $pitch = Pitch::position($note);
         $y = ($octave - $note['octave']) * $height + (11 - $pitch) * $step;
+        $liftMarks = $printMarks && PdfLayout::noteSize() < 100;
+        $markY = $liftMarks ? $y - $step - $markStep * 0.63
+          : ($outsideMarks ? $y - $step * 0.8 : $y);
+        $staccatoY = $liftMarks ? $y - $step - $markStep * 0.34 : $markY;
+        $figure = $note['figure'] ?? null;
+        $reference = isset($figure['motif']) ? $figures?->reference($figure) : null;
+        if ($figure !== null) {
+          $last = $figure['type'] === 'tuplet'
+            ? ($figure['last'] ?? ($reference['notes'][count($reference['notes']) - 1]['offset'] ?? 0))
+            : 0;
+          $lastY = $y - $last * $step;
+          $inset = $note['length'] === 1 ? 0.12 : 0.5;
+          $x1 = ($start - $barStart + $inset) * $unit;
+          $x2 = ($end - $barStart - $inset) * $unit;
+          if (min($y, $lastY) - $step < $height && max($y, $lastY) + $step > 0) {
+            FigurePainter::specialNote($cairo, $context, $x1, $y, $x2, $lastY, $step,
+              $figure['middle'] ?? null, $color, Pitch::isBlack($pitch), $printMarks,
+              $liftMarks);
+            if ($reference !== null && $start >= $barStart) {
+              $span = max(1, $x2 - $x1);
+              $markLeft = $x1 + min($step * 0.15, $span * 0.12);
+              $markRight = min($x2 - min($step * 0.15, $span * 0.12), $width - $step * 0.2);
+              $referenceY = $liftMarks ? min($y, $lastY) - $step - $markStep * 0.63
+                : $y + ($lastY - $y) * ((($markLeft + $markRight) / 2 - $x1) / $span);
+              FigurePainter::referenceMark($cairo, $context, $markLeft, $markRight,
+                $referenceY, $step, $reference, $color, Pitch::isBlack($pitch),
+                $allowOutsideFigure && ($outsideMarks || $markRight - $markLeft < $step),
+                $printMarks, $liftMarks);
+            }
+          }
+          continue;
+        }
         if ($y + $step < 0 || $y - $step >= $height) {
           continue;
         }
@@ -137,21 +173,26 @@ final class BarPainter {
             self::halfNote($cairo, $context, $note, $blackKey, $x1, $y, 2 * $step, $color);
           }
           if ($start >= $barStart && ($note['articulation'] ?? 'ordinary') === 'staccato') {
-            self::staccatoDot($cairo, $context, $outsideMarks ? $x1 - $step * 0.5 : $x1,
-              $outsideMarks ? $y - $step * 0.8 : $y, $markStep,
-              $blackKey && !$outsideMarks, $color);
+            self::staccatoDot($cairo, $context, $x1, $staccatoY, $markStep,
+              $blackKey && !$outsideMarks && !$liftMarks, $color);
           }
           if ($start >= $barStart && ($note['trill'] ?? 0) !== 0) {
-            self::trillMark($cairo, $context, $outsideMarks ? $x1 - $step * 0.5 : $x1 + $step * 0.43,
-              $outsideMarks ? $y - $step * 0.8 : $y, $markStep,
-              $note['trill'], !$outsideMarks, $blackKey && !$outsideMarks, $color);
+            self::trillMark($cairo, $context, $x1 + $step * 0.43,
+              $markY, $markStep, $note['trill'], !$outsideMarks,
+              $blackKey && !$outsideMarks && !$liftMarks, $color);
           }
           if (($note['finger'] ?? '') !== '') {
             $leftHand = $note['finger'][0] === 'L';
             if (($leftHand && $start >= $barStart) || (!$leftHand && $end <= $barEnd)) {
               $edge = (($leftHand ? $start + 0.5 : $end - 0.5) - $barStart) * $unit;
-              self::fingerMark($cairo, $context, $edge, $y, $step, $width, (string)$note['finger'], $color);
+              self::fingerMark($cairo, $context, $edge, $y, $step, $width,
+                (string)$note['finger'], $color, $printMarks);
             }
+          }
+          if ($reference !== null && $start >= $barStart) {
+            FigurePainter::referenceMark($cairo, $context, $x1 + $step * 0.12,
+              $x1 + $step * 0.82, $markY, $step, $reference, $color, $blackKey,
+              $allowOutsideFigure, $printMarks, $liftMarks);
           }
           continue;
         }
@@ -162,21 +203,25 @@ final class BarPainter {
         }
         self::ticks($cairo, $context, $note, $blackKey && !$pitchless, $start, $end, $barStart, $barEnd, $unit, $y, 2 * $step, $color);
         if ($start >= $barStart && ($note['articulation'] ?? 'ordinary') === 'staccato') {
-          self::staccatoDot($cairo, $context, $outsideMarks ? $x1 - $step * 0.5 : $x1,
-            $outsideMarks ? $y - $step * 0.8 : $y, $markStep,
-            $blackKey && !$outsideMarks, $color);
+          self::staccatoDot($cairo, $context, $x1, $staccatoY, $markStep,
+            $blackKey && !$outsideMarks && !$liftMarks, $color);
         }
         if ($start >= $barStart && ($note['trill'] ?? 0) !== 0) {
-          self::trillMark($cairo, $context, $outsideMarks ? $x1 - $step * 0.5 : $x1,
-            $outsideMarks ? $y - $step * 0.8 : $y, $markStep,
-            $note['trill'], false, $blackKey && !$outsideMarks, $color);
+          self::trillMark($cairo, $context, $x1, $markY, $markStep,
+            $note['trill'], false, $blackKey && !$outsideMarks && !$liftMarks, $color);
         }
         if (($note['finger'] ?? '') !== '') {
           $leftHand = $note['finger'][0] === 'L';
           if (($leftHand && $start >= $barStart) || (!$leftHand && $end <= $barEnd)) {
             $edge = (($leftHand ? $start + 0.5 : $end - 0.5) - $barStart) * $unit;
-            self::fingerMark($cairo, $context, $edge, $y, $step, $width, (string)$note['finger'], $color);
+            self::fingerMark($cairo, $context, $edge, $y, $step, $width,
+              (string)$note['finger'], $color, $printMarks);
           }
+        }
+        if ($reference !== null && $start >= $barStart) {
+          FigurePainter::referenceMark($cairo, $context, $x1 - $step * 0.65,
+            $x1 + $step * 0.65, $markY, $step, $reference, $color, $blackKey,
+            $allowOutsideFigure && $outsideMarks, $printMarks, $liftMarks);
         }
       }
     }
@@ -358,7 +403,7 @@ final class BarPainter {
     $width = $step * ($half ? 0.62 : 1.0);
     $amplitude = max(1.1, $step * 0.13);
     $cairo->cairo_set_line_width($context, max(1, $step * 0.11));
-    foreach (abs($interval) === 2 ? [-0.31, 0.31] : [0] as $offset) {
+    foreach (abs($interval) === 2 ? [-0.20, 0.20] : [0] as $offset) {
       $middle = $y + $offset * $step;
       $first = $middle + ($interval > 0 ? $amplitude : -$amplitude);
       $other = $middle - ($interval > 0 ? $amplitude : -$amplitude);
@@ -372,8 +417,9 @@ final class BarPainter {
   }
 
   /** Let the number's side identify the hand without covering the note outline. */
-  private static function fingerMark(\FFI $cairo, \FFI\CData $context, float $x, float $y, float $step, int $tileWidth, string $finger, string $color): void {
-    $font = max(14, $step * 1.35);
+  private static function fingerMark(\FFI $cairo, \FFI\CData $context, float $x, float $y,
+    float $step, int $tileWidth, string $finger, string $color, bool $print = false): void {
+    $font = $print ? PdfLayout::markFontSize() : max(14, $step * 1.35);
     $textWidth = $font * 0.7;
     $left = $finger[0] === 'L' ? $x : $x - $textWidth;
     $left = max(1, min($tileWidth - $textWidth - 1, $left));

@@ -3,16 +3,18 @@
 namespace MADSCORE\Render;
 
 use MADSCORE\Score\Score;
+use MADSCORE\Score\Project;
 
 use SPTK\Core\{RasterImage, Style};
 
 /** Rasterizes a PDF page using the PDF painter itself. */
 final class PagePreview {
-  public static function render(Score $score, int $page, int $width, int $height): RasterImage {
+  public static function render(Score $score, int $page, int $width, int $height, ?Project $project = null): RasterImage {
     $width = max(1, $width);
     $height = max(1, $height);
     $cairo = Cairo::library();
-    $surface = self::surface($score, $page, $width, $height);
+    $surface = PdfLayout::withProject($project,
+      static fn (): \FFI\CData => self::surface($score, $page, $width, $height, $project));
     try {
       return Cairo::raster($surface, $width, $height);
     } finally {
@@ -21,9 +23,11 @@ final class PagePreview {
   }
 
   /** Give SPTK's image viewer a detailed page without a second pixel conversion. */
-  public static function writePng(Score $score, int $page, string $path, int $width, int $height): void {
+  public static function writePng(Score $score, int $page, string $path, int $width, int $height, ?Project $project = null): void {
     $cairo = Cairo::library();
-    $surface = self::surface($score, $page, max(1, $width), max(1, $height));
+    $surface = PdfLayout::withProject($project,
+      static fn (): \FFI\CData => self::surface($score, $page,
+        max(1, $width), max(1, $height), $project));
     try {
       if ($cairo->cairo_surface_write_to_png($surface, $path) !== 0) {
         throw new \RuntimeException('Could not write the PDF preview image.');
@@ -33,13 +37,16 @@ final class PagePreview {
     }
   }
 
-  private static function surface(Score $score, int $page, int $width, int $height): \FFI\CData {
+  private static function surface(Score $score, int $page, int $width, int $height, ?Project $project): \FFI\CData {
     $width = max(1, $width);
     $height = max(1, $height);
     $score = $score->visibleCopy()->renderCopy();
-    $states = Prescription::states($score);
+    $figures = new FigureCatalog($score, $project);
+    $states = Prescription::states($score, figures: $figures);
     $pages = PagePainter::pages($score, $states);
-    $page = max(0, min(count($pages) - 1, $page));
+    [$inlineTiles, $appendixPages] = PagePainter::appendixPlacement($pages, $states, $figures);
+    $pageCount = count($pages) + count($appendixPages);
+    $page = max(0, min($pageCount - 1, $page));
     $cairo = Cairo::library();
     $surface = $cairo->cairo_image_surface_create(0, $width, $height);
     Cairo::check($surface);
@@ -56,8 +63,14 @@ final class PagePreview {
       $cairo->cairo_scale($context, $pageWidth / PagePainter::WIDTH, $pageHeight / PagePainter::HEIGHT);
       $cairo->cairo_rectangle($context, 0, 0, PagePainter::WIDTH, PagePainter::HEIGHT);
       $cairo->cairo_clip($context);
-      PagePainter::drawPage($score, $cairo, $context, $pages[$page], $states,
-        pageNumber: $page + 1, pageCount: count($pages));
+      if ($page < count($pages)) {
+        PagePainter::drawPage($score, $cairo, $context, $pages[$page], $states,
+          pageNumber: $page + 1, pageCount: $pageCount, figures: $figures,
+          inlineTiles: $page === 0 ? $inlineTiles : []);
+      } else {
+        FigureAppendix::drawPage($cairo, $context, $appendixPages[$page - count($pages)]);
+        PagePainter::drawHeader($score, $cairo, $context, $page + 1, $pageCount, true);
+      }
       $cairo->cairo_restore($context);
       if ($cairo->cairo_status($context) !== 0) {
         throw new \RuntimeException('Cairo could not draw the PDF preview.');

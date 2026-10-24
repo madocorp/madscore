@@ -10,9 +10,11 @@ use MADSCORE\Score\Score;
 final class Prescription {
 
   public const REFERENCE_BAND = Pitch::MIDDLE_C_BAND;
+  private const NORMAL_PRINT_ROW_HEIGHT = 220;
 
   /** Return the active prescription for every bar. */
-  public static function states(Score $score, ?int $previewStart = null, ?int $previewEnd = null, ?int $previewBand = null): array {
+  public static function states(Score $score, ?int $previewStart = null, ?int $previewEnd = null,
+    ?int $previewBand = null, ?FigureCatalog $figures = null): array {
     $occupied = [];
     $counts = array_fill(0, 9, 0);
     $melodyRows = self::melodyRows($score);
@@ -21,7 +23,7 @@ final class Prescription {
       $barCount++;
     }
     for ($bar = 0; $bar < $barCount; $bar++) {
-      $occupied[$bar] = self::soundingBands($score, $bar, $melodyRows);
+      $occupied[$bar] = self::soundingBands($score, $bar, $melodyRows, $figures);
       if ($previewStart !== null && $previewEnd !== null && $previewBand !== null
         && $score->start($bar) < $previewEnd && $score->start($bar) + 2 * $score->beats($bar) > $previewStart
         && !in_array($previewBand, $occupied[$bar], true)) {
@@ -57,7 +59,8 @@ final class Prescription {
   }
 
   /** The octave bands that contain sounding notes anywhere in a bar. */
-  public static function soundingBands(Score $score, int $bar, ?array $melodyRows = null): array {
+  public static function soundingBands(Score $score, int $bar, ?array $melodyRows = null,
+    ?FigureCatalog $figures = null): array {
     $start = $score->start($bar);
     $end = $start + 2 * $score->beats($bar);
     $bands = [];
@@ -69,6 +72,15 @@ final class Prescription {
           $melodyRows[$note['melody']] = MelodyRange::bands($score, $note['melody']);
         }
         $bands[self::printedBand($note, $melodyRows)] = true;
+        $figure = $note['figure'] ?? null;
+        if (($figure['type'] ?? null) === 'tuplet') {
+          $firstPitch = 12 * $note['octave'] + Pitch::position($note);
+          $offsets = isset($figure['last']) ? [$figure['middle'], $figure['last']]
+            : array_column($figures?->reference($figure)['notes'] ?? [], 'offset');
+          foreach ($offsets as $offset) {
+            $bands[max(0, min(8, intdiv($firstPitch + $offset - 1, 12)))] = true;
+          }
+        }
       }
     }
     foreach ($score->notes as $index => $note) {
@@ -114,12 +126,14 @@ final class Prescription {
   }
 
   /** Whether this octave staff remains visible in the next bar. */
-  public static function bandContinues(Score $score, array $states, int $bar, int $band, ?array $cursor = null): bool {
+  public static function bandContinues(Score $score, array $states, int $bar, int $band,
+    ?array $cursor = null, ?FigureCatalog $figures = null): bool {
     $next = $bar + 1;
     if (!isset($states[$next]) || $states[$next]['change']) {
       return false;
     }
-    if ($band === $states[$next]['primary'] || in_array($band, self::soundingBands($score, $next), true)) {
+    if ($band === $states[$next]['primary'] || in_array($band, self::soundingBands($score, $next,
+      figures: $figures), true)) {
       return true;
     }
     $start = $score->start($next);
@@ -152,12 +166,13 @@ final class Prescription {
   }
 
   /** Draw octave symbols on the middle staff line at a prescription boundary. */
-  public static function drawMarkers(\FFI $cairo, \FFI\CData $context, array $rows, float $x): void {
+  public static function drawMarkers(\FFI $cairo, \FFI\CData $context, array $rows,
+    float $x, bool $print = false): void {
     $cairo->cairo_set_source_rgb($context, 0, 0, 0);
     foreach ($rows as $band => $row) {
       $step = $row['height'] / 12;
       $middle = $row['top'] + 5 * $step;
-      $size = 2 * self::dotRadius($row['height']);
+      $size = self::markerSize($row['height'], $print);
       if ($band === self::REFERENCE_BAND) {
         $cairo->cairo_arc($context, $x, $middle, $size / 2, 0, 2 * M_PI);
         $cairo->cairo_fill($context);
@@ -175,6 +190,13 @@ final class Prescription {
         $cairo->cairo_fill($context);
       }
     }
+  }
+
+  /** At small print sizes, keep octave symbols legible without exceeding a note head. */
+  public static function markerSize(float $rowHeight, bool $print = false): float {
+    $halfNoteSize = 2 * self::dotRadius($rowHeight);
+    return $print ? min($rowHeight / 6,
+      max(self::NORMAL_PRINT_ROW_HEIGHT / 12, $halfNoteSize)) : $halfNoteSize;
   }
 
   /** Match the filled octave prescription dot at this staff height. */

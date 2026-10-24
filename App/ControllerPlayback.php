@@ -55,12 +55,12 @@ final class ControllerPlayback extends ControllerState {
         throw new \RuntimeException('The score sheet has no drawable area.');
       }
       $cache = new SheetCache(self::$score->visibleCopy(), self::$columns, $width, $height,
-        ControllerSelection::cursorStateForSheet(), self::$melody, $firstPage);
+        ControllerSelection::cursorStateForSheet(), self::$melody, $firstPage, Controller::project());
       $midiFailure = self::$playbackSound === 'midi' ? MidiPlayback::unavailableReason() : null;
       $midiPlayed = false;
       if (self::$playbackSound === 'midi' && $midiFailure === null) {
         try {
-          $wave = MidiPlayback::render(self::$score, $melody, $start, $end);
+          $wave = MidiPlayback::render(self::$score, $melody, $start, $end, Controller::project());
           try {
             $audio->playMusic($wave);
           } finally {
@@ -77,7 +77,7 @@ final class ControllerPlayback extends ControllerState {
           . ($selection === null ? '' : ' selection') . ' with MIDI.');
         return;
       }
-      $source = new ScoreSource(self::$score, $melody, $start, $end);
+      $source = new ScoreSource(self::$score, $melody, $start, $end, Controller::project());
       $audio->playMusic($source);
       self::beginPlayback($mode, $timeline, $cache, $return, $firstBeat, $source->durationSeconds());
       ControllerNavigation::status('Playing ' . ($selectedMelody ? 'melody' : 'score')

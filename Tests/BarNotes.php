@@ -43,8 +43,8 @@ try {
 }
 $tempoPixel = static fn (int $x, int $y): int =>
   (unpack('L', substr($tempoImage->pixels, ($y * 1000 + $x) * 4, 4))[1] >> 8) & 0xffffff;
-expectBarNote($tempoPixel(127, 262) === 0xffffff && $tempoPixel(121, 262) === 0,
-  'The printed tempo starts with a small black outline around an empty center.');
+expectBarNote($tempoPixel(132, 258) === 0xffffff && $tempoPixel(120, 258) < 0x808080,
+  'The printed tempo circle matches the height of its digits.');
 $wedgeScore = new MADSCORE\Score\Score();
 $wedgeScore->ensureBar(1);
 $wedgeStart = $wedgeScore->place(0, 1, 0, 4, 1, 2);
@@ -66,9 +66,9 @@ $wedgeScore->setTempo(1, '90');
 $markedWedge = $renderPrintPage($wedgeScore);
 $printPixel = static fn (\SPTK\Core\RasterImage $image, int $x, int $y): int =>
   (unpack('L', substr($image->pixels, ($y * 1000 + $x) * 4, 4))[1] >> 8) & 0xffffff;
-expectBarNote($printPixel($plainWedge, 446, 268) !== $printPixel($markedWedge, 446, 268)
-  && $printPixel($plainWedge, 476, 268) === $printPixel($markedWedge, 476, 268)
-  && $printPixel($markedWedge, 476, 268) !== 0xffffff,
+expectBarNote($printPixel($plainWedge, 464, 267) !== $printPixel($markedWedge, 464, 267)
+  && $printPixel($plainWedge, 475, 267) === $printPixel($markedWedge, 475, 267)
+  && $printPixel($markedWedge, 475, 267) !== 0xffffff,
   'A changed tempo prints over a crescendo while the background remains transparent.');
 $score->setBarNote(1, 'Second bar');
 expectBarNote(MADSCORE\Score\Score::fromData($score->data())->data() === $score->data(),

@@ -3,16 +3,17 @@
 namespace MADSCORE\Play;
 
 use MADSCORE\Score\Score;
+use MADSCORE\Score\Project;
 
 /** Export SoundFont MIDI audio when available, otherwise use the built-in sound. */
 final class WavWriter {
 
-  public static function write(string $path, Score $score): void {
+  public static function write(string $path, Score $score, ?Project $project = null): void {
     $temp = $path . '.tmp-' . bin2hex(random_bytes(6));
     $midiWave = null;
     if (MidiPlayback::unavailableReason() === null) {
       try {
-        $midiWave = MidiPlayback::render($score);
+        $midiWave = MidiPlayback::render($score, project: $project);
       } catch (\Throwable) {
         // Match playback: use built-in sound if MIDI rendering fails.
       }
@@ -30,7 +31,7 @@ final class WavWriter {
         }
       }
     }
-    $source = new ScoreSource($score);
+    $source = new ScoreSource($score, project: $project);
     $file = fopen($temp, 'wb');
     if ($file === false) {
       throw new \RuntimeException('Could not export WAV: ' . $path);

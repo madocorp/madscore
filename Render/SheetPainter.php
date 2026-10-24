@@ -3,6 +3,7 @@
 namespace MADSCORE\Render;
 
 use MADSCORE\Score\MelodyRange;
+use MADSCORE\Score\Project;
 use MADSCORE\Score\Score;
 
 use SPTK\Core\RasterImage;
@@ -54,8 +55,10 @@ final class SheetPainter {
 
   public static function render(Score $score, int $firstBar, int $columns, int $width, int $height, ?array $cursor = null,
     ?int $melody = null, ?array $selection = null, bool $design = false, int $firstRow = 0,
-    bool $showCursor = true, ?array $composer = null, ?array $fixedBands = null): RasterImage {
+    bool $showCursor = true, ?array $composer = null, ?array $fixedBands = null,
+    ?Project $project = null, ?FigureCatalog $figureCatalog = null): RasterImage {
     $score = $score->visibleCopy();
+    $figures = $figureCatalog ?? new FigureCatalog($score, $project);
     $width = max(1, $width);
     $height = max(1, $height);
     $columns = max(1, $columns);
@@ -65,7 +68,8 @@ final class SheetPainter {
     $sheetHeight = $height - 2 * $insetY;
     $topSpace = max(48, intdiv($sheetHeight, 10));
     $tileHeight = max(1, intdiv($sheetHeight - $topSpace, 4));
-    $states = $design ? [] : Prescription::states($score, $cursor['start'] ?? null, $cursor['end'] ?? null, $cursor['octave'] ?? null);
+    $states = $design ? [] : Prescription::states($score, $cursor['start'] ?? null,
+      $cursor['end'] ?? null, $cursor['octave'] ?? null, $figures);
     if ($design) {
       $bands = $fixedBands ?? MelodyRange::bands($score, $melody ?? 0, $cursor['octave'] ?? null, $cursor['pitch'] ?? 1);
       for ($bar = $firstBar; $bar < $firstBar + $columns; $bar++) {
@@ -134,7 +138,7 @@ final class SheetPainter {
         if ($position['markerLeft'] !== null) {
           Prescription::drawMarkers($cairo, $context, $rows, $position['markerLeft'] + $markerWidth / 2);
         }
-        $sounding = Prescription::soundingBands($score, $bar);
+        $sounding = Prescription::soundingBands($score, $bar, figures: $figures);
         $barStart = $score->start($bar);
         $previewHere = $cursor !== null && $cursor['start'] < $barStart + 2 * $score->beats($bar) && $cursor['end'] > $barStart;
         $nextVisible = $positions[$column + 1]['bar'] ?? null;
@@ -152,11 +156,11 @@ final class SheetPainter {
           $cairo->cairo_rectangle($context, 0, $clipTop, $barWidth, $row['height'] - $clipTop);
           $cairo->cairo_clip($context);
           $endBar = $column === count($positions) - 1
-            || (!$design && !Prescription::bandContinues($score, $states, $bar, $band, $cursor));
+            || (!$design && !Prescription::bandContinues($score, $states, $bar, $band, $cursor, $figures));
           BarPainter::draw($cairo, $context, $score, $bar, $band, $barWidth, $row['height'],
             endBar: $endBar && !$sectionAtRight, showSlots: true, paintBackground: false,
             activeMelody: $design ? ($melody ?? 0) : null,
-            startBorder: !$score->bars[$bar]['sectionLeader']);
+            startBorder: !$score->bars[$bar]['sectionLeader'], figures: $figures);
           $cairo->cairo_restore($context);
         }
       }

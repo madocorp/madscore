@@ -22,6 +22,12 @@ expectPrescription($states[0]['change'] && $states[1]['change'] && !$states[2]['
 expectPrescription(in_array(7, $states[1]['bands'], true), 'The changed prescription includes the new octave.');
 $positions = MADSCORE\Render\Prescription::positions([0, 1, 2], [100, 100, 100], $states, 12);
 expectPrescription($positions[0]['markerLeft'] === 0 && $positions[1]['markerLeft'] === 112 && $positions[2]['markerLeft'] === null, 'Marker gaps appear at the line start and the mid-line change.');
+$markerSize = static fn (float $row): float => MADSCORE\Render\Prescription::markerSize($row, true);
+expectPrescription(abs($markerSize(220) - 220 / 12) < 0.001
+  && abs($markerSize(110) - 110 / 6) < 0.001
+  && abs($markerSize(330) - 330 / 12) < 0.001
+  && $markerSize(70) <= 70 / 6,
+  'Printed octave symbols grow from half a note head to at most one note head.');
 expectPrescription($score->data() === MADSCORE\Score\Score::fromData($score->data())->data(), 'Current scores round trip.');
 
 $previewScore = new MADSCORE\Score\Score(12);

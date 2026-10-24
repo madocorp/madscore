@@ -2,7 +2,6 @@
 
 namespace MADSCORE\App;
 
-use MADSCORE\Render\PdfLayout;
 use SPTK\Core\AppData;
 use SPTK\Events\EventContext;
 
@@ -11,13 +10,15 @@ final class Settings {
 
   private static string $directory = '';
   private static bool $handlingDirectoryInput = false;
+  private static ?array $legacyPdfLayout = null;
 
   /** Restore the default directory and show the license. */
   public static function initialize(): void {
     $stored = AppData::loadJson('settings.json');
     self::$directory = is_string($stored['defaultDir'] ?? null) ? $stored['defaultDir'] : '';
-    PdfLayout::configure(is_int($stored['pdfNoteSize'] ?? null) ? $stored['pdfNoteSize'] : 100,
-      is_int($stored['pdfBeatSize'] ?? null) ? $stored['pdfBeatSize'] : 100);
+    self::$legacyPdfLayout = is_int($stored['pdfNoteSize'] ?? null)
+      && is_int($stored['pdfBeatSize'] ?? null)
+      ? [$stored['pdfNoteSize'], $stored['pdfBeatSize']] : null;
     $input = Controller::screen('settings')->widget('defaultDirectory');
     $input->setValue(self::$directory);
     $input->setInputInterceptor(self::interceptDirectoryInput(...));
@@ -37,13 +38,12 @@ final class Settings {
     self::save();
   }
 
-  public static function savePdfLayout(): void {
-    self::save();
+  public static function legacyPdfLayout(): ?array {
+    return self::$legacyPdfLayout;
   }
 
   private static function save(): void {
-    if (!AppData::saveJson('settings.json', ['defaultDir' => self::$directory,
-      'pdfNoteSize' => PdfLayout::noteSize(), 'pdfBeatSize' => PdfLayout::beatSize()])) {
+    if (!AppData::saveJson('settings.json', ['defaultDir' => self::$directory])) {
       ControllerNavigation::status('Could not save settings.');
     }
   }

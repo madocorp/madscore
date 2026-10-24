@@ -245,9 +245,9 @@ final class Files {
       $path = self::exportPath($format === 'midi' ? 'mid' : $format);
       try {
         match ($format) {
-          'midi' => MidiWriter::write($path, Controller::score()),
-          'pdf' => PdfWriter::write($path, Controller::score()),
-          'wav' => WavWriter::write($path, Controller::score()),
+          'midi' => MidiWriter::write($path, Controller::score(), Controller::project()),
+          'pdf' => PdfWriter::write($path, Controller::score(), Controller::project()),
+          'wav' => WavWriter::write($path, Controller::score(), Controller::project()),
           default => throw new \DomainException('Unknown export format: ' . $format),
         };
         $exported[] = basename($path);
