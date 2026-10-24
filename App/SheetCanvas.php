@@ -3,6 +3,7 @@
 namespace MADSCORE\App;
 
 use MADSCORE\Render\SheetPainter;
+use MADSCORE\Render\FigureCatalog;
 use MADSCORE\Score\MelodyRange;
 use MADSCORE\Score\Score;
 
@@ -71,17 +72,21 @@ final class SheetCanvas extends Canvas {
       $this->visibleScore = self::visibleWindow($score, $firstBar, $columns);
       $this->editBands = MelodyRange::bands($score->visibleCopy(), $melody,
         $cursor['octave'], $cursor['pitch']);
+      $figures = new FigureCatalog($score, Controller::project());
       $image = SheetPainter::render($this->visibleScore, $firstBar, $columns,
         $surface->width(), $surface->height(), melody: $melody, design: true,
-        composer: Controller::composerPreview(), fixedBands: $this->editBands);
+        composer: Controller::composerPreview(), fixedBands: $this->editBands,
+        figureCatalog: $figures);
       $this->editBase = $textures->textureFromImage($image);
       $this->editKey = $key;
       $this->contentDirty = false;
     }
     if ($selection !== null) {
+      $figures = new FigureCatalog($score, Controller::project());
       $image = SheetPainter::render($this->visibleScore, $firstBar, $columns,
         $surface->width(), $surface->height(), $cursor, $melody, $selection, true,
-        composer: Controller::composerPreview(), fixedBands: $this->editBands);
+        composer: Controller::composerPreview(), fixedBands: $this->editBands,
+        figureCatalog: $figures);
       $texture = $textures->textureFromImage($image);
       $texture->copyTo($surface, 0, 0);
       $texture->destroy();

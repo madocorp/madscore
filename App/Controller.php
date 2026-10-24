@@ -3,6 +3,7 @@
 namespace MADSCORE\App;
 
 use MADSCORE\Render\PagePainter;
+use MADSCORE\Render\PdfLayout;
 use MADSCORE\Score\HarmonicContext;
 use MADSCORE\Score\MelodyRange;
 use MADSCORE\Score\Project;
@@ -63,6 +64,13 @@ final class Controller extends ControllerState {
     self::screen('editor')->activateLeaf(self::$sheet);
     self::screen('editor')->widget('color')->setPalette(Score::COLORS);
     Settings::initialize();
+    if (!self::$project->hasPdfLayout() && ($legacy = Settings::legacyPdfLayout()) !== null) {
+      PdfLayout::configure(...$legacy);
+      self::$project->setPdfLayout(PdfLayout::noteSize(), PdfLayout::beatSize());
+    }
+    $layout = self::$project->pdfLayout();
+    PdfLayout::configure($layout['noteSize'], $layout['beatSize']);
+    self::$previewPage = min(self::$previewPage, PagePainter::pageCount(self::$score, self::$project) - 1);
     Files::initialize();
     ControllerSheet::refreshEditorFields();
     ControllerMotifGeneration::refreshContextHeader();
@@ -122,6 +130,8 @@ final class Controller extends ControllerState {
       throw new \DomainException('The previous editor session is invalid.');
     }
     $project = Project::fromData($state['project']);
+    $layout = $project->pdfLayout();
+    PdfLayout::configure($layout['noteSize'], $layout['beatSize']);
     $activeItemId = $state['activeItemId'] ?? null;
     if (!is_string($activeItemId)) {
       throw new \DomainException('The previous editor item is invalid.');
@@ -212,7 +222,7 @@ final class Controller extends ControllerState {
     self::$pitchPosition = $pitch;
     self::$firstBar = $firstBar;
     self::$firstRow = $firstRow;
-    self::$previewPage = min($previewPage, count(PagePainter::pages($score)) - 1);
+    self::$previewPage = $previewPage;
     self::$view = $view;
     self::$playbackSound = $playbackSound;
     self::$lastChordSettings = $chordSettings;
@@ -242,6 +252,12 @@ final class Controller extends ControllerState {
   /** Return the active score for renderers and commands. */
   public static function score(): Score {
     return self::$score;
+  }
+
+  /** Give renderers the project with the active score's latest edits. */
+  public static function project(): Project {
+    self::$project->setScore(self::$activeItemId, self::$score);
+    return self::$project;
   }
 
   public static function firstVisibleBar(): int {

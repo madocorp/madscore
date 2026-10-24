@@ -25,6 +25,7 @@ $screens[0]->statusBar->setScheduler(static function(int $delay, callable $callb
 $score = new MADSCORE\Score\Score();
 $score->title = 'File round trip';
 $score->place(0, 0, 0, 4, 1, 2);
+MADSCORE\Render\PdfLayout::configure(70, 200);
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'score'))->setValue(null, $score);
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'project'))->setValue(null,
   MADSCORE\Score\Project::fromScore($score));
@@ -56,9 +57,12 @@ try {
   $saved = json_decode(gzdecode($compressed), true, 512, JSON_THROW_ON_ERROR);
   $read = new ReflectionMethod(MADSCORE\App\Files::class, 'readProject');
   $loaded = MADSCORE\Score\Project::fromData($saved);
-  expectFiles($saved === MADSCORE\Score\Project::fromScore($score)->data()
+  $expectedProject = MADSCORE\Score\Project::fromScore($score);
+  $expectedProject->setPdfLayout(70, 200);
+  expectFiles($saved === $expectedProject->data()
     && $saved['items'][0]['id'] === 'main' && !isset($saved['items'][0]['type'])
     && !isset($saved['items'][0]['score']['title']) && $loaded->score('main')->data() === $score->data()
+    && $loaded->pdfLayout() === ['noteSize' => 70, 'beatSize' => 200]
     && $read->invoke(null, $path)->data() === $saved,
     'Saved compressed project has one main item and loads without changing the score.');
   try {
@@ -73,9 +77,14 @@ try {
   expectFiles(MADSCORE\Score\Project::fromData($extra)->data() === $extra,
     'Project items survive a saved-file round trip.');
   expectFiles(glob($path . '.tmp-*') === [], 'Successful save leaves no temporary file.');
-  file_put_contents($legacyPath, json_encode($saved, JSON_THROW_ON_ERROR));
-  expectFiles($read->invoke(null, $legacyPath)->data() === $saved,
-    'An older plain JSON project still opens.');
+  $legacySaved = $saved;
+  unset($legacySaved['pdfLayout']);
+  file_put_contents($legacyPath, json_encode($legacySaved, JSON_THROW_ON_ERROR));
+  $legacyLoaded = $read->invoke(null, $legacyPath);
+  expectFiles($legacyLoaded->data() === $legacySaved
+    && !$legacyLoaded->hasPdfLayout()
+    && $legacyLoaded->pdfLayout() === ['noteSize' => 100, 'beatSize' => 100],
+    'An older plain JSON project opens with default PDF sizes.');
   MADSCORE\App\Files::restorePath($path);
   expectFiles(MADSCORE\App\Files::currentPath() === $path, 'Named path can be restored for Ctrl+W.');
   $score->title = 'Written again';

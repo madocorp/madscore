@@ -187,6 +187,17 @@ try {
     ->invoke(null, $wideBar, 0);
   expectSection($wideBarWidth / 64 + 0.02 >= $rowHeight->invoke(null, 4) / 6,
     'Even the widest bar keeps each beat slot at least one note diameter wide.');
+  MADSCORE\Render\PdfLayout::configure(100, 195);
+  MADSCORE\Render\PdfLayout::change(0, 5);
+  expectSection(MADSCORE\Render\PdfLayout::noteSize() === 100
+    && MADSCORE\Render\PdfLayout::beatSize() === 200,
+    'PDF beat width reaches 200% without changing note size.');
+  MADSCORE\Render\PdfLayout::change(0, 5);
+  expectSection(MADSCORE\Render\PdfLayout::beatSize() === 200,
+    'PDF beat width stops at 200%.');
+  MADSCORE\Render\PdfLayout::configure(100, 250);
+  expectSection(MADSCORE\Render\PdfLayout::beatSize() === 200,
+    'Saved PDF beat width is capped at 200%.');
 } finally {
   MADSCORE\Render\PdfLayout::configure(100, 100);
 }

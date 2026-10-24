@@ -3,6 +3,7 @@
 namespace MADSCORE\Play;
 
 use MADSCORE\Render\SheetPainter;
+use MADSCORE\Score\Project;
 use MADSCORE\Score\Score;
 use SPTK\Core\{AppData, RasterImage};
 
@@ -14,7 +15,8 @@ final class SheetCache {
   private $worker = null;
 
   public function __construct(private Score $score, private int $columns, private int $width,
-    private int $height, private array $cursor, private int $melody, int $firstPage) {
+    private int $height, private array $cursor, private int $melody, int $firstPage,
+    private ?Project $project = null) {
     $count = $this->pageCount();
     $this->render($firstPage);
     if ($firstPage + 1 < $count) {
@@ -27,7 +29,8 @@ final class SheetCache {
     if (!mkdir($this->directory, 0700)) {
       throw new \RuntimeException('Could not create the playback page cache.');
     }
-    $input = ['score' => $score->data(), 'columns' => $columns, 'width' => $width,
+    $input = ['score' => $score->data(), 'project' => $project?->data(),
+      'columns' => $columns, 'width' => $width,
       'height' => $height, 'cursor' => $cursor, 'melody' => $melody, 'skip' => array_keys($this->images)];
     try {
       foreach ($this->images as $page => $image) {
@@ -116,6 +119,7 @@ final class SheetCache {
 
   private function render(int $index): void {
     $this->images[$index] = SheetPainter::render($this->score, $index * $this->columns,
-      $this->columns, $this->width, $this->height, $this->cursor, $this->melody, null, true, 0, false);
+      $this->columns, $this->width, $this->height, $this->cursor, $this->melody, null, true, 0, false,
+      project: $this->project);
   }
 }

@@ -103,6 +103,9 @@ CTRL+Z/Y Undo/Redo</Text>
             <Input id="finger" height="2" label="Finger (L/R1–5)">
               <Event type="accept" action="MADSCORE\App\ControllerEditorActions::editorFieldAccepted" />
             </Input>
+            <Input id="figure" height="2" label="Figure" tip="OA-OZ ornament, TA-TZ tuplet motif, or +middle+last semitones (e.g. +2-1). Optional separators are accepted.">
+              <Event type="accept" action="MADSCORE\App\ControllerEditorActions::editorFieldAccepted" />
+            </Input>
             <Text id="noteHelp" height="9" navigate="false" highlighter="MADSCORE\App\HelpHighlighter">Space Add/follow
 Return Add/change
 1-9 All ppp-fff

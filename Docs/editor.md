@@ -208,6 +208,39 @@ to the next in its melody. Shared marks are filled black. Melody marks are
 outlined in that melody's color. A written level remains in effect until a
 later mark changes it.
 
+## Figures and tuplets
+
+The Note tile's **Figure** field compresses a figure into one written note span.
+Enter `+2+0` for three evenly timed notes: the marked pitch, a note two
+semitones above it, and the marked pitch again. The two signed numbers give the
+middle and last pitches relative to the first. Every nonempty Figure field
+uses the square-ended special note body. An ornament reference is horizontal.
+A tuplet is horizontal when its first and last pitches match, or a
+parallelogram with vertical ends when they differ. A simple tuplet shows only
+the middle offset inside the body.
+
+Enter `OA` for an ornament based on motif A, or `TA` for a more complex
+tuplet based on motif A. Motifs A–Z can be referenced. Their notes remain at
+their actual pitches in the motif editor; the figure plays them relative to
+the marked note, scaled to its written duration. Every reference uses the same
+filled five-point star followed by its motif number: A is star 1, B is star 2,
+and Z is star 26. Extra separators are accepted, such as `O:A`, `T:A`, and
+`+2,-1`; the editor displays the compact form.
+The PDF packs referenced motifs into appendix tiles, filling columns from top
+to bottom before adding pages. If the score has one page and all tiles fit
+below it, the appendix shares that page. Otherwise appendix pages carry the
+same title, author, and catalog as score pages, with Appendix before the page
+number. The star and number sit beside the middle of each figure. An ornament
+panel has one
+dashed line for the marked note pitch. The first motif note anchors that pitch.
+Other notes keep their written lengths and note shapes at offsets from -2 to
++2 semitones; every note is hollow because its key color depends on the marked
+note. A tuplet panel instead shows
+the motif's original pitches and rhythms on only the octave rows it uses, in
+black. A motif used both ways has both panels in its tile. An empty,
+polyphonic, or nested motif is reported as an invalid figure. Figures replace
+conflicting note marks such as trills and staccato.
+
 ## Bars, sections, and print
 
 Bar settings hold its beat count, tempo, and optional note. A new bar inherits
@@ -236,10 +269,16 @@ tile. Use **Space** to toggle MIDI, PDF, and WAV, then choose **Export selected*
 write every selected format beside the project file.
 WAV uses FluidSynth and a SoundFont when available, falling back to the built-in sound.
 In the PDF preview, **U/J** increase/decrease note size and **H/K** decrease/increase
-beat width in 5% steps. The PDF layout keeps a section on one line when it fits; longer
-sections wrap between bars. Note size changes staff height too. Increasing it
+beat width in 5% steps, up to 200%. The PDF layout keeps a section on one line
+when it fits; longer sections wrap between bars. Note size changes staff height
+too. Increasing it
 also increases beat width when needed; decreasing beat width reduces note size
-when needed. These settings are saved for later sessions.
+when needed. Save the project to keep its PDF sizes with the project file.
+PDF text keeps at least the page number's 32-unit print size (about 7.7 pt on
+A4). Octave symbols are half a note head at normal size; as notes shrink, they
+can grow relative to the note head but never exceed it.
+When PDF note size is below 100%, note marks appear above their notes at the
+same horizontal position. Fingering digits stay at the lower note corners.
 
 The current score, cursor, selection, and visible bar position are restored
 from `~/.madscore/session.json` when the app starts again. Settings stores its

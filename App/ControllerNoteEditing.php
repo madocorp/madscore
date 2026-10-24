@@ -3,6 +3,7 @@
 namespace MADSCORE\App;
 
 use MADSCORE\Render\PagePainter;
+use MADSCORE\Render\PdfLayout;
 use MADSCORE\Score\MelodyRange;
 use MADSCORE\Score\Pitch;
 use MADSCORE\Score\Project;
@@ -91,7 +92,7 @@ final class ControllerNoteEditing extends ControllerState {
     }
     ControllerSheet::clearSelection();
     ControllerSheet::syncNoteLength();
-    self::$previewPage = min(self::$previewPage, count(PagePainter::pages(self::$score)) - 1);
+    self::$previewPage = min(self::$previewPage, PagePainter::pageCount(self::$score, Controller::project()) - 1);
     ControllerSheet::refreshMelodyFields();
     self::$displayedReadout = '';
     ControllerSheet::focusCursor();
@@ -127,6 +128,8 @@ final class ControllerNoteEditing extends ControllerState {
       self::$playbackMode = null;
     }
     $score = $project->score($itemId);
+    $layout = $project->pdfLayout();
+    PdfLayout::configure($layout['noteSize'], $layout['beatSize']);
     self::$project = $project;
     self::$activeItemId = $itemId;
     self::$score = $score;
@@ -157,6 +160,7 @@ final class ControllerNoteEditing extends ControllerState {
   public static function projectData(): array {
     ControllerComposer::saveScorePattern();
     self::$project->setScore(self::$activeItemId, self::$score);
+    self::$project->setPdfLayout(PdfLayout::noteSize(), PdfLayout::beatSize());
     return self::$project->data();
   }
 

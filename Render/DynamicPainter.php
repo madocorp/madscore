@@ -9,7 +9,8 @@ use MADSCORE\Score\Score;
 /** Draws colored volume triangles and levels on the dynamics row. */
 final class DynamicPainter {
 
-  public static function labels(Score $score, array $positions, float $rowHeight, array $reserved = []): array {
+  public static function labels(Score $score, array $positions, float $rowHeight,
+    array $reserved = [], bool $print = false): array {
     if ($positions === []) {
       return [];
     }
@@ -21,7 +22,7 @@ final class DynamicPainter {
         $inWedge[$index] = true;
       }
     }
-    $fontSize = max(12, $rowHeight / 7.5);
+    $fontSize = self::fontSize($rowHeight, $print);
     $lineStart = $score->start($positions[0]['bar']);
     $lastBar = $positions[count($positions) - 1]['bar'];
     $lineEnd = $score->start($lastBar) + 2 * $score->beats($lastBar);
@@ -78,10 +79,11 @@ final class DynamicPainter {
   }
 
   /** Measure levels attached to a bar start so print layout can keep them beside its tempo. */
-  public static function startLabelWidth(Score $score, int $bar, float $rowHeight): float {
+  public static function startLabelWidth(Score $score, int $bar, float $rowHeight,
+    bool $print = false): float {
     $time = $score->start($bar);
     $width = 0.0;
-    $fontSize = max(12, $rowHeight / 7.5);
+    $fontSize = self::fontSize($rowHeight, $print);
     foreach ($score->scoreDynamics as $mark) {
       if ($mark['time'] === $time && $mark['level'] !== '') {
         $width += strlen($mark['level']) * $fontSize * 0.63 + 4;
@@ -95,9 +97,10 @@ final class DynamicPainter {
     return $width;
   }
 
-  public static function drawLabels(\FFI $cairo, \FFI\CData $context, array $labels, float $baseline, float $rowHeight): void {
+  public static function drawLabels(\FFI $cairo, \FFI\CData $context, array $labels,
+    float $baseline, float $rowHeight, bool $print = false): void {
     $cairo->cairo_select_font_face($context, 'Sans', 0, 0);
-    $cairo->cairo_set_font_size($context, max(12, $rowHeight / 7.5));
+    $cairo->cairo_set_font_size($context, self::fontSize($rowHeight, $print));
     foreach ($labels as $label) {
       $rgb = sscanf($label['color'], '#%02x%02x%02x');
       $cairo->cairo_set_source_rgb($context, $rgb[0] / 255, $rgb[1] / 255, $rgb[2] / 255);
@@ -110,6 +113,10 @@ final class DynamicPainter {
         $cairo->cairo_stroke($context);
       }
     }
+  }
+
+  private static function fontSize(float $rowHeight, bool $print): float {
+    return max($print ? PdfLayout::markFontSize() : 12, $rowHeight / 7.5);
   }
 
   public static function segments(Score $score, array $positions, float $rowHeight): array {

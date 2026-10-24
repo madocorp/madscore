@@ -3,12 +3,13 @@
 namespace MADSCORE\Render;
 
 use MADSCORE\Score\Score;
+use MADSCORE\Score\Project;
 
 /** Writes score geometry directly to a vector PDF. */
 final class PdfWriter {
 
   /** Atomically export every score page with Cairo's vector PDF surface. */
-  public static function write(string $path, Score $score): void {
+  public static function write(string $path, Score $score, ?Project $project = null): void {
     $temp = $path . '.tmp-' . bin2hex(random_bytes(6));
     $cairo = Cairo::library();
     $surface = $cairo->cairo_pdf_surface_create($temp, PagePainter::A4_WIDTH_POINTS, PagePainter::A4_HEIGHT_POINTS);
@@ -18,7 +19,9 @@ final class PdfWriter {
       try {
         $cairo->cairo_scale($context, PagePainter::A4_WIDTH_POINTS / PagePainter::WIDTH,
           PagePainter::A4_HEIGHT_POINTS / PagePainter::HEIGHT);
-        PagePainter::drawPages($score, $cairo, $context);
+        PdfLayout::withProject($project, static function () use ($score, $cairo, $context, $project): void {
+          PagePainter::drawPages($score, $cairo, $context, $project);
+        });
         if ($cairo->cairo_status($context) !== 0) {
           throw new \RuntimeException('Cairo could not draw the PDF.');
         }

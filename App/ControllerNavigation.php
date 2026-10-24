@@ -179,7 +179,7 @@ final class ControllerNavigation extends ControllerState {
     self::$history?->observe(self::$score);
     ControllerSheet::refreshMelodyFields();
     ControllerSheet::invalidateSheet();
-    self::$previewPage = min(self::$previewPage, count(PagePainter::pages(self::$score)) - 1);
+    self::$previewPage = min(self::$previewPage, PagePainter::pageCount(self::$score, Controller::project()) - 1);
     self::$window->refreshLayout();
     self::status('Melody ' . (self::$melody + 1) . ($muted ? ' muted.' : ' unmuted.'));
   }
@@ -281,7 +281,7 @@ final class ControllerNavigation extends ControllerState {
     self::$view = Controller::isDesign() ? 'sheet' : 'editor';
     self::$firstRow = 0;
     if (!Controller::isDesign()) {
-      foreach (PagePainter::pages(self::$score) as $index => $page) {
+      foreach (PagePainter::pages(self::$score, project: Controller::project()) as $index => $page) {
         if (in_array(self::$bar, array_merge(...$page), true)) {
           self::$previewPage = $index;
           break;
@@ -304,7 +304,7 @@ final class ControllerNavigation extends ControllerState {
     if (Controller::isDesign()) {
       return;
     }
-    $page = max(0, min(count(PagePainter::pages(self::$score)) - 1, self::$previewPage + $direction));
+    $page = max(0, min(PagePainter::pageCount(self::$score, Controller::project()) - 1, self::$previewPage + $direction));
     if ($page !== self::$previewPage) {
       self::$previewPage = $page;
       ControllerSheet::invalidateSheet();
@@ -356,8 +356,8 @@ final class ControllerNavigation extends ControllerState {
       return;
     }
     PdfLayout::change($noteDelta, $beatDelta);
-    Settings::savePdfLayout();
-    self::$previewPage = min(self::$previewPage, count(PagePainter::pages(self::$score)) - 1);
+    Controller::project()->setPdfLayout(PdfLayout::noteSize(), PdfLayout::beatSize());
+    self::$previewPage = min(self::$previewPage, PagePainter::pageCount(self::$score, Controller::project()) - 1);
     ControllerSheet::invalidateSheet();
     self::status('PDF note size ' . PdfLayout::noteSize() . '%, beat width ' . PdfLayout::beatSize() . '%.');
   }
@@ -367,7 +367,7 @@ final class ControllerNavigation extends ControllerState {
     if (Controller::isDesign()) {
       return;
     }
-    $page = $last ? count(PagePainter::pages(self::$score)) - 1 : 0;
+    $page = $last ? PagePainter::pageCount(self::$score, Controller::project()) - 1 : 0;
     if ($page !== self::$previewPage) {
       self::$previewPage = $page;
       ControllerSheet::invalidateSheet();

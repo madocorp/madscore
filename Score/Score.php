@@ -424,6 +424,7 @@ final class Score {
     $this->assertMelodyEditable($this->notes[$index]['melody']);
     $this->notes[$index]['articulation'] = $staccato ? 'staccato' : 'ordinary';
     if ($staccato) {
+      unset($this->notes[$index]['figure']);
       $this->clearIncomingGlissando($index);
       $this->notes[$index]['slurToNext'] = false;
       $this->notes[$index]['glissandoToNext'] = false;
@@ -442,6 +443,7 @@ final class Score {
     }
     $this->notes[$index]['slurToNext'] = $slur;
     if ($slur) {
+      unset($this->notes[$index]['figure']);
       $this->clearIncomingGlissando($index);
       $this->notes[$index]['glissandoToNext'] = false;
       $this->notes[$index]['articulation'] = 'ordinary';
@@ -461,6 +463,7 @@ final class Score {
     $this->notes[$index]['glissandoToNext'] = $glissando;
     if ($glissando) {
       $next = $this->nextAdjacent($index);
+      unset($this->notes[$index]['figure'], $this->notes[$next]['figure']);
       $this->notes[$index]['slurToNext'] = false;
       $this->notes[$index]['articulation'] = 'ordinary';
       $this->notes[$index]['fermata'] = false;
@@ -506,6 +509,7 @@ final class Score {
     $this->assertMelodyEditable($this->notes[$index]['melody']);
     $this->notes[$index]['fermata'] = $fermata;
     if ($fermata) {
+      unset($this->notes[$index]['figure']);
       $this->clearIncomingGlissando($index);
       $this->notes[$index]['articulation'] = 'ordinary';
       $this->notes[$index]['slurToNext'] = false;
@@ -525,6 +529,7 @@ final class Score {
     }
     $this->notes[$index]['trill'] = $interval;
     if ($interval !== 0) {
+      unset($this->notes[$index]['figure']);
       $this->clearIncomingGlissando($index);
       $this->notes[$index]['articulation'] = 'ordinary';
     }
@@ -540,6 +545,29 @@ final class Score {
       throw new \DomainException('Finger must be L1–L5, R1–R5, or blank.');
     }
     $this->notes[$index]['finger'] = $finger;
+  }
+
+  /** Attach a compact triplet or a motif reference to one note. */
+  public function setFigure(int $index, ?array $figure): void {
+    if (!isset($this->notes[$index])) {
+      throw new \OutOfBoundsException('No note at this index.');
+    }
+    $this->assertMelodyEditable($this->notes[$index]['melody']);
+    $figure = Figure::validate($figure, $this->notes[$index]);
+    if ($figure !== null && in_array($this->melodies[$this->notes[$index]['melody']]['pattern'], Drum::NAMES, true)) {
+      throw new \DomainException('A figure needs a pitched melody.');
+    }
+    if ($figure === null) {
+      unset($this->notes[$index]['figure']);
+    } else {
+      $this->clearIncomingGlissando($index);
+      $this->notes[$index]['articulation'] = 'ordinary';
+      $this->notes[$index]['slurToNext'] = false;
+      $this->notes[$index]['glissandoToNext'] = false;
+      $this->notes[$index]['fermata'] = false;
+      $this->notes[$index]['trill'] = 0;
+      $this->notes[$index]['figure'] = $figure;
+    }
   }
 
   private static function validTrillPitch(array $note, int $interval): bool {
@@ -742,6 +770,9 @@ final class Score {
     if (!self::validTrillPitch($note, $note['trill'] ?? 0)) {
       $note['trill'] = 0;
     }
+    if (isset($note['figure'])) {
+      Figure::validate($note['figure'], $note);
+    }
     $this->assertMelodyBand($melody, $octave, $position, $index);
     $this->assertFree($note, $index);
     if ($index === null) {
@@ -768,6 +799,9 @@ final class Score {
     if (!self::validTrillPitch($note, $note['trill'] ?? 0)) {
       $note['trill'] = 0;
     }
+    if (isset($note['figure'])) {
+      Figure::validate($note['figure'], $note);
+    }
     $this->assertFree($note, $index);
     $this->notes[$index] = $note;
     $this->normalizeSlurs();
@@ -787,6 +821,9 @@ final class Score {
     $note['alter'] = $alter;
     if (!self::validTrillPitch($note, $note['trill'] ?? 0)) {
       $note['trill'] = 0;
+    }
+    if (isset($note['figure'])) {
+      Figure::validate($note['figure'], $note);
     }
     $this->assertFree($note, $index);
     $this->notes[$index] = $note;
@@ -1301,6 +1338,16 @@ final class Score {
       $note['finger'] = $finger;
       $note['dynamicToNext'] = $dynamic;
       $note['dynamicLevel'] = $dynamicLevel;
+      if (array_key_exists('figure', $inputNote)) {
+        $figure = Figure::validate($inputNote['figure'], $note);
+        if ($figure !== null) {
+          if ($articulation !== 'ordinary' || $slur || $glissando || $fermata || $trill !== 0
+            || in_array($score->melodies[$note['melody']]['pattern'], Drum::NAMES, true)) {
+            throw new \DomainException('A figure needs an unmarked pitched note.');
+          }
+          $note['figure'] = $figure;
+        }
+      }
       if (array_key_exists('chord', $inputNote)) {
         $note['chord'] = ChordGenerator::validateMetadata($inputNote['chord']);
       }

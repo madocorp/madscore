@@ -5,6 +5,7 @@ namespace MADSCORE\App;
 use MADSCORE\Render\PagePainter;
 use MADSCORE\Render\PagePreview;
 use MADSCORE\Score\MelodyRange;
+use MADSCORE\Score\Figure;
 use MADSCORE\Score\Pitch;
 use MADSCORE\Score\Score;
 use MADSCORE\Score\Sound;
@@ -170,7 +171,8 @@ final class ControllerSheet extends ControllerState {
     }
     try {
       PagePreview::writePng(self::$score, self::$previewPage, $path,
-        (int)round(PagePainter::A4_WIDTH_POINTS * 2), (int)round(PagePainter::A4_HEIGHT_POINTS * 2));
+        (int)round(PagePainter::A4_WIDTH_POINTS * 2), (int)round(PagePainter::A4_HEIGHT_POINTS * 2),
+        Controller::project());
       self::$sheets['sheet']->instance()->setSource($path);
     } catch (\Throwable $error) {
       @unlink($path);
@@ -256,7 +258,7 @@ final class ControllerSheet extends ControllerState {
     $readout = $title . "\n" . $cursorTitle . "\n" . $lengthText . "\n" . $sharedLevel . "\n" . $sharedWedge . "\n" . ($index === null ? '' : json_encode([
       $note['articulation'] ?? 'ordinary', $note['slurToNext'] ?? false, $note['glissandoToNext'] ?? false,
       $note['fermata'] ?? false, $note['trill'] ?? 0, $note['finger'] ?? '', $note['dynamicToNext'] ?? '',
-      $note['dynamicLevel'] ?? '',
+      $note['dynamicLevel'] ?? '', ...(isset($note['figure']) ? [$note['figure']] : []),
     ]));
     if ($readout === self::$displayedReadout) {
       return false;
@@ -280,6 +282,7 @@ final class ControllerSheet extends ControllerState {
     Controller::screen('editor')->widget('trill')->setLabel($index === null ? 'Trill: —'
       : 'Trill: ' . (($note['trill'] ?? 0) === 0 ? 'Off' : (($note['trill'] > 0 ? '+' : '') . $note['trill'])));
     Controller::screen('editor')->widget('finger')->setValue($index === null ? '' : (string)($note['finger'] ?? ''));
+    Controller::screen('editor')->widget('figure')->setValue($index === null ? '' : Figure::format($note['figure'] ?? null));
     Controller::screen('editor')->widget('dynamicLevel')->setLabel('All levels: ' . ($sharedLevel === '' ? '—' : $sharedLevel));
     self::$displayedReadout = $readout;
     return true;
@@ -295,6 +298,7 @@ final class ControllerSheet extends ControllerState {
       self::applyMelodyVolume();
       self::applyMelodyColor();
       self::applyFinger();
+      self::applyFigure();
       $screen = Controller::screen('editor');
       foreach (['title', 'author', 'catalog'] as $field) {
         self::$score->$field = str_replace("\t", ' ', $screen->widget($field)->getValue());
@@ -338,6 +342,24 @@ final class ControllerSheet extends ControllerState {
       self::$history?->observe(self::$score, self::$melody);
     }
     Controller::screen('editor')->widget('finger')->setValue($raw);
+    self::refreshCursorReadout();
+    self::invalidateSheet();
+  }
+
+  /** Apply the visible ornament or tuplet field to the selected note. */
+  public static function applyFigure(): void {
+    $raw = strtoupper(trim(Controller::screen('editor')->widget('figure')->getValue()));
+    $index = self::currentNoteIndex();
+    $saved = $index === null ? '' : Figure::format(self::$score->notes[$index]['figure'] ?? null);
+    if ($raw === $saved) {
+      return;
+    }
+    if ($index === null) {
+      throw new \DomainException('Select a note before setting its figure.');
+    }
+    self::$score->setFigure($index, Figure::parse($raw, self::$score->notes[$index]));
+    self::$history?->observe(self::$score, self::$melody);
+    Controller::screen('editor')->widget('figure')->setValue(Figure::format(self::$score->notes[$index]['figure'] ?? null));
     self::refreshCursorReadout();
     self::invalidateSheet();
   }

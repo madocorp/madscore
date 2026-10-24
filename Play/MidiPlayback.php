@@ -3,6 +3,7 @@
 namespace MADSCORE\Play;
 
 use MADSCORE\Score\Score;
+use MADSCORE\Score\Project;
 
 /** Render a MIDI range to a temporary WAV for SPTK's music player. */
 final class MidiPlayback {
@@ -18,7 +19,8 @@ final class MidiPlayback {
     return null;
   }
 
-  public static function render(Score $score, ?int $melody = null, ?int $start = null, ?int $end = null): string {
+  public static function render(Score $score, ?int $melody = null, ?int $start = null, ?int $end = null,
+    ?Project $project = null): string {
     if (($reason = self::unavailableReason()) !== null) {
       throw new \RuntimeException($reason);
     }
@@ -30,7 +32,7 @@ final class MidiPlayback {
     $midi = $base . '.mid';
     $wave = $base . '.wav';
     try {
-      $data = MidiWriter::encode($score, $melody, $start, $end);
+      $data = MidiWriter::encode($score, $melody, $start, $end, $project);
       if (file_put_contents($midi, $data) !== strlen($data)) {
         throw new \RuntimeException('Could not write temporary MIDI.');
       }

@@ -24,6 +24,8 @@ final class ControllerEditorActions extends ControllerState {
         ControllerSheet::applyMelodyColor();
       } else if ($field === 'finger') {
         ControllerSheet::applyFinger();
+      } else if ($field === 'figure') {
+        ControllerSheet::applyFigure();
       } else if (in_array($field, ['title', 'author', 'catalog'], true)) {
         self::$score->$field = str_replace("\t", ' ', $event->widget->getValue());
       }
@@ -35,6 +37,10 @@ final class ControllerEditorActions extends ControllerState {
         $index = ControllerSheet::currentNoteIndex();
         Controller::screen('editor')->widget('finger')->setValue($index === null
           ? '' : (string)(self::$score->notes[$index]['finger'] ?? ''));
+      } else if ($field === 'figure') {
+        $index = ControllerSheet::currentNoteIndex();
+        Controller::screen('editor')->widget('figure')->setValue($index === null
+          ? '' : \MADSCORE\Score\Figure::format(self::$score->notes[$index]['figure'] ?? null));
       }
       ControllerNavigation::status($error->getMessage());
     }
