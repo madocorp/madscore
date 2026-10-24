@@ -27,12 +27,17 @@ Marks inside long notes identify further beats. A note may cross a bar line.
 - **Left/Right** moves between note onsets and whole gaps. **Up/Down** moves
   the pitch cursor by one semitone without changing a note.
 - **Return** adds a note in a gap or changes an existing note to the cursor
-  pitch. **Space** also adds a note in a gap; on a note, it moves the cursor to
-  that note's pitch. After adding a note with either key, the time cursor moves
-  right to the next note or gap.
+  pitch. On a chord, **Return** adds the cursor pitch without changing its other
+  tones. **Space** also adds a note in a gap; on a chord, it moves the pitch
+  cursor to the first-added surviving tone (the base note). **Shift+Space** and
+  **Shift+Return** add a chord tone without advancing.
+  Existing pitches are not duplicated. Every tone in a chord starts together
+  and has the same length; use separate melodies for independent rhythms.
 - **- / +** shortens or lengthens the cursor or current note by half a beat.
   Growing a note uses an available gap, then moves later notes in that melody
-  if more room is needed. Notes in one melody cannot overlap.
+  if more room is needed. A chord's tones resize together. **Page Up/Page Down**
+  moves the pitch cursor on a single note, or transposes every tone of a chord
+  by an octave.
 - **Home/End** goes to the first or last position in the visible bars. Pressing
   again at an edge pages through the score. **Ctrl+Home/End** goes to the ends
   of the entire score. Moving past a visible edge scrolls by half a page so
@@ -40,8 +45,9 @@ Marks inside long notes identify further beats. A note may cross a bar line.
 - **U** duplicates a note at its end. **Insert** inserts a note or gap at the
   cursor's left edge and moves later notes in that melody. It inserts a gap
   only between adjacent notes; otherwise the new note uses the cursor pitch.
-  **Delete** removes the current note or gap; **Backspace** removes the
-  preceding note and closes the space.
+  **Delete** removes the current chord or gap; **Shift+Delete** removes only the
+  chord tone at the pitch cursor. **Backspace** removes the preceding chord and
+  closes the space.
 - **Ctrl+Z / Ctrl+Y** undoes or redoes a score edit. A group edit across
   melodies is one history step.
 
@@ -146,6 +152,11 @@ scale cannot be used as a fixed tone under those settings. Existing notes in
 the chord melodies cannot be overwritten. Placing or changing a chord is
 undoable with **Ctrl+Z**.
 
+The **Place in** button switches between **Separate melodies** and **Current
+melody**. Separate melodies is the default. Current melody stacks equal-length
+tones at one onset. When replacing a chord there, the generator keeps its base
+note and replaces its other tones. Reroll keeps the chosen placement mode.
+
 The motif's scale and home note appear in the Bar title and are used as its
 chord defaults. In the main score, the Bar title shows the current section's
 scale and home note, such as `Bar 2 (Major G)`. A
@@ -245,7 +256,8 @@ conflicting note marks such as trills and staccato.
 
 Bar settings hold its beat count, tempo, and optional note. A new bar inherits
 beat count and tempo. Changing a tempo also updates following bars that still
-have the previous tempo. Bar notes appear above the printed score.
+have the previous tempo. Bar notes appear above their bars in the editor and
+printed score.
 
 Every score starts with a section. Use **|** or the Bar control to start a new
 section at the current bar. A section can repeat up to eight extra times. Dots

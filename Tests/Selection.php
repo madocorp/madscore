@@ -49,7 +49,7 @@ expectSelection($lastBar->moveCursor(0, 0, 7, 1) === [1, 0] && count($lastBar->b
 
 $blank = new MADSCORE\Score\Score(12);
 $state = MADSCORE\Render\Prescription::states($blank)[0];
-$rows = MADSCORE\Render\Prescription::rows($state, 480, 48);
+$rows = MADSCORE\Render\Prescription::rows($state, 480, 80);
 $tops = array_column($rows, 'top');
 $top = min($tops);
 $bottom = max(array_map(static fn (array $row): int => $row['top'] + $row['height'], $rows));

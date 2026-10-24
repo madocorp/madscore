@@ -248,7 +248,9 @@ final class ControllerSheet extends ControllerState {
     $title = '[T] Gap';
     if ($index !== null) {
       $note = self::$score->notes[$index];
-      $title = '[T] Note ' . $note['pitch'] . ($note['alter'] === 1 ? '#' : ($note['alter'] === -1 ? 'b' : '')) . $note['octave'];
+      $count = count(self::$score->chordAt(self::$melody, self::$bar, self::$slot));
+      $title = ($count > 1 ? '[T] Chord (' . $count . ') base ' : '[T] Note ')
+        . $note['pitch'] . ($note['alter'] === 1 ? '#' : ($note['alter'] === -1 ? 'b' : '')) . $note['octave'];
     }
     $length = ControllerNoteEditing::cursorLength();
     $beats = intdiv($length, 2) . ($length % 2 ? '.5' : '');
@@ -364,7 +366,7 @@ final class ControllerSheet extends ControllerState {
     self::invalidateSheet();
   }
 
-  /** Store the current bar's print-only annotation. */
+  /** Store the current bar's annotation for the editor and print view. */
   public static function applyEditorBarNote(): void {
     $note = str_replace("\t", ' ', Controller::screen('editor')->widget('barNote')->getValue());
     self::$score->setBarNote(self::$bar, $note);

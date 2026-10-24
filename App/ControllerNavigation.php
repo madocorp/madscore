@@ -30,6 +30,7 @@ final class ControllerNavigation extends ControllerState {
   /** Move through melody positions or extend a selection. */
   public static function moveTime(int $direction, bool $select = false): void {
     $from = self::$score->start(self::$bar) + self::$slot;
+    $barCount = count(self::$score->bars);
     [self::$bar, self::$slot] = self::$score->moveCursor(self::$melody, self::$bar, self::$slot, $direction, $select || !Controller::isDesign());
     if ($select) {
       ControllerSheet::selection()->extend($from, self::$score->start(self::$bar) + self::$slot, self::$melody);
@@ -37,7 +38,14 @@ final class ControllerNavigation extends ControllerState {
       ControllerSheet::clearSelection();
     }
     ControllerSheet::syncNoteLength();
+    $createdBar = count(self::$score->bars) > $barCount;
+    if ($createdBar) {
+      ControllerSheet::invalidateSheet();
+    }
     ControllerSheet::focusWithoutHistory();
+    if ($createdBar) {
+      self::$history?->rebase(self::$score);
+    }
   }
 
   /** Jump to the first or last position in a visible edge bar, paging from that bar. */
@@ -108,6 +116,13 @@ final class ControllerNavigation extends ControllerState {
 
   /** Move only the pitch cursor to another octave band. */
   public static function moveOctave(int $direction): void {
+    $index = ControllerSheet::currentNoteIndex();
+    if ($index !== null && count(self::$score->chordAt(self::$melody, self::$bar, self::$slot)) > 1) {
+      self::$score->transposeChordOctave($index, -$direction);
+      self::$octave = max(0, min(8, self::$octave - $direction));
+      ControllerSheet::focusCursor();
+      return;
+    }
     $octave = max(0, min(8, self::$octave - $direction));
     ControllerSheet::assertPreviewBand($octave, self::$pitchPosition);
     self::$octave = $octave;

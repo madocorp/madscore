@@ -99,14 +99,8 @@ final class BarPainter {
         $glissandoEnds[$next] = true;
       }
     }
-    foreach ($activeMelody === null ? [null] : [false, true] as $activePass) {
-      foreach ($score->notes as $index => $note) {
-        if ($activePass !== null && ($note['melody'] === $activeMelody) !== $activePass) {
-          continue;
-        }
-        if (isset($glissandoEnds[$index])) {
-          continue;
-        }
+    foreach (self::noteDrawOrder($score, $barStart, $barEnd, $glissandoEnds, $activeMelody) as $index) {
+        $note = $score->notes[$index];
         $start = $score->start($note['bar']) + $note['slot'];
         $next = ($note['glissandoToNext'] ?? false) ? $score->nextAdjacent($index) : null;
         $target = $next === null ? null : $score->notes[$next];
@@ -223,11 +217,53 @@ final class BarPainter {
             $x1 + $step * 0.65, $markY, $step, $reference, $color, $blackKey,
             $allowOutsideFigure && $outsideMarks, $printMarks, $liftMarks);
         }
-      }
     }
     if ($cursor !== null && $melody !== null) {
       self::cursor($cairo, $context, $cursor, self::color($score, $melody), $barStart, $barEnd, $octave, $unit, $width, $height);
     }
+  }
+
+  /** Draw long notes first and collapse identical pitches from different melodies. */
+  private static function noteDrawOrder(Score $score, int $barStart, int $barEnd,
+    array $glissandoEnds, ?int $activeMelody): array {
+    $chosen = [];
+    foreach ($score->notes as $index => $note) {
+      if (isset($glissandoEnds[$index])) {
+        continue;
+      }
+      $start = $score->start($note['bar']) + $note['slot'];
+      $next = ($note['glissandoToNext'] ?? false) ? $score->nextAdjacent($index) : null;
+      $end = $next === null ? $start + $note['length']
+        : $score->start($score->notes[$next]['bar']) + $score->notes[$next]['slot']
+          + $score->notes[$next]['length'];
+      if ($end <= $barStart || $start >= $barEnd) {
+        continue;
+      }
+      $pitchless = in_array($score->melodies[$note['melody']]['pattern'], Drum::NAMES, true);
+      $key = $pitchless ? 'drum:' . $index
+        : $start . ':' . $note['length'] . ':' . $note['octave'] . ':' . Pitch::position($note);
+      if (!isset($chosen[$key]) || ($activeMelody !== null
+        && $note['melody'] === $activeMelody
+        && $score->notes[$chosen[$key]]['melody'] !== $activeMelody)) {
+        $chosen[$key] = $index;
+      }
+    }
+    $indices = array_values($chosen);
+    usort($indices, static function (int $left, int $right) use ($score, $activeMelody): int {
+      $length = $score->notes[$right]['length'] <=> $score->notes[$left]['length'];
+      if ($length !== 0) {
+        return $length;
+      }
+      if ($activeMelody !== null) {
+        $active = (int)($score->notes[$left]['melody'] === $activeMelody)
+          <=> (int)($score->notes[$right]['melody'] === $activeMelody);
+        if ($active !== 0) {
+          return $active;
+        }
+      }
+      return $left <=> $right;
+    });
+    return $indices;
   }
 
   /** Use one stroke width for staff and section borders at this row height. */

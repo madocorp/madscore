@@ -23,7 +23,7 @@ final class SheetPainter {
     $insetY = min(self::INSET, intdiv($height - 1, 2));
     $sheetWidth = $width - 2 * $insetX;
     $sheetHeight = $height - 2 * $insetY;
-    $topSpace = max(48, intdiv($sheetHeight, 10));
+    $topSpace = self::topSpace($sheetHeight, true);
     $tileHeight = max(1, intdiv($sheetHeight - $topSpace, 4));
     $states = [];
     for ($index = $firstBar; $index < $firstBar + $columns; $index++) {
@@ -36,10 +36,7 @@ final class SheetPainter {
       $markers += (int)$states[$index]['change'];
     }
     $usable = max($columns, $sheetWidth - $markers * $markerWidth);
-    $widths = [];
-    for ($column = 0; $column < $columns; $column++) {
-      $widths[] = intdiv($usable * ($column + 1), $columns) - intdiv($usable * $column, $columns);
-    }
+    $widths = self::barWidths($score, $bars, $usable);
     foreach (Prescription::positions($bars, $widths, $states, $markerWidth) as $position) {
       if ($position['bar'] !== $bar) {
         continue;
@@ -66,7 +63,7 @@ final class SheetPainter {
     $insetY = min(self::INSET, intdiv($height - 1, 2));
     $sheetWidth = $width - 2 * $insetX;
     $sheetHeight = $height - 2 * $insetY;
-    $topSpace = max(48, intdiv($sheetHeight, 10));
+    $topSpace = self::topSpace($sheetHeight, $design);
     $tileHeight = max(1, intdiv($sheetHeight - $topSpace, 4));
     $states = $design ? [] : Prescription::states($score, $cursor['start'] ?? null,
       $cursor['end'] ?? null, $cursor['octave'] ?? null, $figures);
@@ -92,10 +89,7 @@ final class SheetPainter {
       $markers += (int)$states[$bar]['change'];
     }
     $usable = max($columns, $sheetWidth - $markers * $markerWidth);
-    $widths = [];
-    for ($column = 0; $column < $columns; $column++) {
-      $widths[] = intdiv($usable * ($column + 1), $columns) - intdiv($usable * $column, $columns);
-    }
+    $widths = self::barWidths($score, $bars, $usable);
     $positions = Prescription::positions($bars, $widths, $states, $markerWidth);
     $cairo = Cairo::library();
     $surface = $cairo->cairo_image_surface_create(0, $width, $height);
@@ -115,6 +109,9 @@ final class SheetPainter {
         $bar = $position['bar'];
         if ($bar >= count($score->bars)) {
           continue;
+        }
+        if ($design && $score->bars[$bar]['note'] !== '') {
+          self::drawBarNote($cairo, $context, $position, $score->bars[$bar]['note']);
         }
         $rows = self::rows($states[$bar], $tileHeight, $topSpace, $design);
         if ($score->bars[$bar]['sectionLeader']) {
@@ -166,10 +163,11 @@ final class SheetPainter {
       }
       $dynamicRows = self::rows($states[$positions[0]['bar']], $tileHeight, $topSpace, $design);
       $dynamicRowHeight = reset($dynamicRows)['height'];
+      $dynamicBaseline = $design ? max(50, $topSpace * 0.55) : $topSpace * 0.45;
       DynamicPainter::draw($cairo, $context,
-        DynamicPainter::segments($score, $positions, $dynamicRowHeight), $topSpace * 0.45, $dynamicRowHeight);
+        DynamicPainter::segments($score, $positions, $dynamicRowHeight), $dynamicBaseline, $dynamicRowHeight);
       DynamicPainter::drawLabels($cairo, $context,
-        DynamicPainter::labels($score, $positions, $dynamicRowHeight), $topSpace * 0.45, $dynamicRowHeight);
+        DynamicPainter::labels($score, $positions, $dynamicRowHeight), $dynamicBaseline, $dynamicRowHeight);
       SlurPainter::draw($cairo, $context, $score, $positions,
         static fn (int $bar): array => self::rows($states[$bar], $tileHeight, $topSpace, $design));
       if ($selection !== null) {
@@ -198,17 +196,16 @@ final class SheetPainter {
     $insetY = min(self::INSET, intdiv($height - 1, 2));
     $sheetWidth = $width - 2 * $insetX;
     $sheetHeight = $height - 2 * $insetY;
-    $topSpace = max(48, intdiv($sheetHeight, 10));
+    $topSpace = self::topSpace($sheetHeight, true);
     $tileHeight = max(1, intdiv($sheetHeight - $topSpace, 4));
     $markerWidth = min(48, max(20, (int)ceil($tileHeight / 12 * 1.9 + 6)));
     $usable = max($columns, $sheetWidth - $markerWidth);
-    $widths = [];
     $bars = range($firstBar, $firstBar + $columns - 1);
     $states = [];
     for ($column = 0; $column < $columns; $column++) {
-      $widths[] = intdiv($usable * ($column + 1), $columns) - intdiv($usable * $column, $columns);
       $states[$bars[$column]] = ['bands' => $bands, 'primary' => $bands[1], 'change' => false];
     }
+    $widths = self::barWidths($score, $bars, $usable);
     $positions = Prescription::positions($bars, $widths, $states, $markerWidth);
     $cairo = Cairo::library();
     $surface = $cairo->cairo_image_surface_create(0, $width, $height);
@@ -224,6 +221,45 @@ final class SheetPainter {
       $cairo->cairo_destroy($context);
       $cairo->cairo_surface_destroy($surface);
     }
+  }
+
+  /** Reserve a separate text row above the editor's dynamics marks. */
+  private static function topSpace(int $sheetHeight, bool $design): int {
+    return $design ? max(80, intdiv($sheetHeight, 8))
+      : max(48, intdiv($sheetHeight, 10));
+  }
+
+  /** Keep a bar annotation above its own staff without spilling into the next bar. */
+  private static function drawBarNote(\FFI $cairo, \FFI\CData $context, array $position, string $note): void {
+    $left = $position['left'];
+    $width = $position['right'] - $left;
+    if ($width <= 6) {
+      return;
+    }
+    $cairo->cairo_save($context);
+    $cairo->cairo_rectangle($context, $left + 3, 1, $width - 6, 25);
+    $cairo->cairo_clip($context);
+    $cairo->cairo_set_source_rgb($context, 0.094, 0.125, 0.11);
+    $cairo->cairo_select_font_face($context, 'Sans', 0, 0);
+    $cairo->cairo_set_font_size($context, 16);
+    $cairo->cairo_move_to($context, $left + 3, 20);
+    $cairo->cairo_show_text($context, $note);
+    $cairo->cairo_restore($context);
+  }
+
+  /** Give every visible beat the same horizontal space, including preview bars. */
+  private static function barWidths(Score $score, array $bars, int $usable): array {
+    $totalBeats = array_sum(array_map($score->beats(...), $bars));
+    $usable = max($usable, $totalBeats);
+    $widths = [];
+    $usedBeats = 0;
+    foreach ($bars as $bar) {
+      $nextBeats = $usedBeats + $score->beats($bar);
+      $widths[] = intdiv($usable * $nextBeats, $totalBeats)
+        - intdiv($usable * $usedBeats, $totalBeats);
+      $usedBeats = $nextBeats;
+    }
+    return $widths;
   }
 
   /** Draw the unrounded generator function faintly behind the visible notes. */

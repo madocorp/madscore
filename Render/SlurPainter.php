@@ -80,13 +80,25 @@ final class SlurPainter {
   /** Return maximal chains of adjacent notes linked by outgoing slur flags. */
   private static function groups(Score $score): array {
     $destinations = [];
+    $seen = [];
     foreach ($score->notes as $index => $note) {
+      $key = $note['melody'] . ':' . ($score->start($note['bar']) + $note['slot']);
+      if (isset($seen[$key])) {
+        continue;
+      }
+      $seen[$key] = true;
       if (($note['slurToNext'] ?? false) && ($next = $score->nextAdjacent($index)) !== null) {
         $destinations[$next] = true;
       }
     }
     $groups = [];
+    $seen = [];
     foreach ($score->notes as $index => $note) {
+      $key = $note['melody'] . ':' . ($score->start($note['bar']) + $note['slot']);
+      if (isset($seen[$key])) {
+        continue;
+      }
+      $seen[$key] = true;
       if (!($note['slurToNext'] ?? false) || isset($destinations[$index])) {
         continue;
       }

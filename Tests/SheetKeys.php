@@ -59,6 +59,12 @@ $before = $score->notes;
 expectSheetKey($canvas->handleInput(sheetKey(SDL::KEY_SPACE)), 'Space handles an existing note.');
 expectSheetKey($score->notes === $before && MADSCORE\App\ControllerSelection::cursorStateForSheet()['pitch'] === 5,
   'Space moves the pitch cursor to the note without changing the note.');
+sheetState('pitchPosition', 8);
+sheetState('displayedReadout', "[T] Chord (2) base C#3\nCursor E3\nLength 1 beat\n\n\n[\"ordinary\",false,false,false,0,\"\",\"\",\"\"]");
+expectSheetKey($canvas->handleInput(sheetKey(SDL::KEY_RETURN, SDL::MOD_SHIFT))
+  && count($score->chordAt(0, 0, 0)) === 2
+  && MADSCORE\App\ControllerNoteEditing::cursorSlot() === 0,
+  'Shift+Return adds a chord tone without moving the time cursor.');
 expectSheetKey($canvas->handleInput(sheetKey(ord('t')))
   && $window->screen('editor')->selectedLeaf()?->instance()?->id() === 'staccato',
   'T selects the Note tile rather than changing the note.');
@@ -74,4 +80,22 @@ expectSheetKey($canvas->handleInput(sheetKey(ord('z'), SDL::MOD_CTRL))
 expectSheetKey($canvas->handleInput(sheetKey(ord('y'), SDL::MOD_CTRL))
   && str_contains($window->screen('editor')->statusBar->text(), 'Nothing to redo'),
   'Ctrl+Y reaches the selected melody redo command.');
+$full = new MADSCORE\Score\Score();
+foreach ([0, 2, 4, 6] as $slot) {
+  $full->place(0, 0, $slot, 3, 4, 2);
+}
+foreach (['score' => $full, 'bar' => 0, 'slot' => 6, 'octave' => 3,
+  'pitchPosition' => 4, 'cursorLength' => 2, 'cursorLengthExplicit' => false,
+  'firstBar' => 0, 'columns' => 2, 'displayedBar' => 1,
+  'lastCursorEndBar' => 0, 'history' => new MADSCORE\App\ScoreHistory($full),
+  'displayedReadout' => "[T] Gap\nCursor C3\nLength 1 beat\n\n\n"] as $name => $value) {
+  sheetState($name, $value);
+}
+$contentDirty = new ReflectionProperty(MADSCORE\App\SheetCanvas::class, 'contentDirty');
+$contentDirty->setValue($canvas, false);
+MADSCORE\App\ControllerNavigation::moveTime(1);
+expectSheetKey(count($full->bars) === 2
+  && MADSCORE\App\ControllerNoteEditing::cursorSlot() === 0
+  && $contentDirty->getValue($canvas),
+  'Moving right from a full last bar creates and redraws the new bar.');
 echo "Sheet key checks passed\n";

@@ -92,7 +92,8 @@ sheet and the controls.
   note stays fixed while the generator adds compatible tones; in empty space,
   it makes a free chord. **Shift+O** changes a generated chord at the cursor,
   or places one with the previous settings. Scale and home note are stored per
-  motif or score section.
+  motif or score section. Choose whether to place the tones in separate
+  melodies or together in the current melody.
 
 The app restores your working score and position when it starts again. Load
 [the example score](Assets/example.json) to explore its melodies, drums, and

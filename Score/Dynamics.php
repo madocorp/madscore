@@ -16,13 +16,25 @@ final class Dynamics {
 
   public static function groups(Score $score): array {
     $incoming = [];
+    $seen = [];
     foreach ($score->notes as $index => $note) {
+      $key = $note['melody'] . ':' . ($score->start($note['bar']) + $note['slot']);
+      if (isset($seen[$key])) {
+        continue;
+      }
+      $seen[$key] = true;
       if (($note['dynamicToNext'] ?? '') !== '' && ($next = $score->nextMelodyNote($index)) !== null) {
         $incoming[$next] = $index;
       }
     }
     $groups = [];
+    $seen = [];
     foreach ($score->notes as $index => $note) {
+      $key = $note['melody'] . ':' . ($score->start($note['bar']) + $note['slot']);
+      if (isset($seen[$key])) {
+        continue;
+      }
+      $seen[$key] = true;
       $direction = $note['dynamicToNext'] ?? '';
       if ($direction === '') {
         continue;

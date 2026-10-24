@@ -2,14 +2,16 @@
 
 namespace MADSCORE\Score;
 
-/** Places diatonic chords into dedicated, reusable melody voices. */
+/** Places diatonic chords in one melody or in dedicated, reusable melodies. */
 final class ChordGenerator {
 
   private const MAX_TRIES = 12;
 
   public static function validateMetadata(mixed $value): array {
+    $keys = is_array($value) ? array_keys($value) : [];
+    $withoutMode = array_values(array_diff($keys, ['mode']));
     if (!is_array($value)
-      || !in_array(array_keys($value), [
+      || !in_array($withoutMode, [
         ['id', 'count', 'degree', 'inversion', 'scale', 'homeNote'],
         ['id', 'count', 'degree', 'inversion', 'scale', 'homeNote', 'anchor'],
         ['id', 'count', 'degree', 'inversion', 'scale', 'homeNote', 'anchor', 'placement'],
@@ -27,7 +29,9 @@ final class ChordGenerator {
       || (($value['placement'] ?? null) === 'fixed'
         && !array_key_exists('fixed', $value))
       || (array_key_exists('fixed', $value)
-        && ($value['placement'] !== 'fixed' || !is_bool($value['fixed'])))) {
+        && ($value['placement'] !== 'fixed' || !is_bool($value['fixed'])))
+      || (array_key_exists('mode', $value)
+        && !in_array($value['mode'], ['separate', 'current'], true))) {
       throw new \DomainException('Invalid chord settings.');
     }
     HarmonicContext::validate(['scale' => $value['scale'],
@@ -179,14 +183,19 @@ final class ChordGenerator {
   public static function place(Score $score, int $bar, int $slot, int $length,
     int $count, int $series, array $music, int $anchor, int $sourceMelody,
     ?int $degree = null, ?int $inversion = null, ?callable $random = null,
-    ?int $replaceId = null): Score {
+    ?int $replaceId = null, string $mode = 'separate'): Score {
     $music = HarmonicContext::validate($music);
     if ($length < 1 || $length > 198 || $count < 2 || $count > 7
       || $series < 1 || $series > 16 || ($degree !== null && ($degree < 1 || $degree > 7))
-      || ($inversion !== null && ($inversion < 0 || $inversion >= $count))) {
+      || ($inversion !== null && ($inversion < 0 || $inversion >= $count))
+      || !in_array($mode, ['separate', 'current'], true)) {
       throw new \DomainException('Use 2–7 notes, 1–16 chords, and valid degree and inversion.');
     }
     $random ??= random_int(...);
+    if ($mode === 'current') {
+      return self::placeInMelody($score, $bar, $slot, $length, $count, $series,
+        $music, $anchor, $sourceMelody, $degree, $inversion, $random, $replaceId);
+    }
     $next = clone $score;
     $next->assertMelodyEditable($sourceMelody);
     if ($replaceId !== null) {
@@ -200,6 +209,17 @@ final class ChordGenerator {
       }
       $fixed = array_values(array_filter($old,
         static fn (array $note): bool => ($note['chord']['fixed'] ?? false) === true));
+      if ($fixed === [] && ($old[0]['chord']['mode'] ?? '') === 'current') {
+        foreach ($next->notes as &$candidate) {
+          if (($candidate['chord']['id'] ?? null) === $replaceId
+            && $candidate['melody'] === $sourceMelody) {
+            $candidate['chord']['fixed'] = true;
+            $fixed = [$candidate];
+            break;
+          }
+        }
+        unset($candidate);
+      }
       if (count($fixed) > 1) {
         throw new \DomainException('The generated chord has more than one fixed note.');
       }
@@ -232,6 +252,12 @@ final class ChordGenerator {
         throw new \DomainException('A chord series cannot start in another section.');
       }
       $selected = $next->noteAt($sourceMelody, $atBar, $atSlot);
+      if ($selected !== null) {
+        $members = $next->chordAt($sourceMelody, $atBar, $atSlot);
+        foreach (array_reverse(array_slice($members, 1)) as $member) {
+          $next->delete($member);
+        }
+      }
       if ($selected !== null && ($next->notes[$selected]['bar'] !== $atBar
         || $next->notes[$selected]['slot'] !== $atSlot
         || $next->notes[$selected]['length'] !== $length
@@ -299,12 +325,143 @@ final class ChordGenerator {
     return Score::fromData($next->data());
   }
 
+  /** Generate equal-rhythm tones in the selected melody, retaining its base note. */
+  private static function placeInMelody(Score $score, int $bar, int $slot, int $length,
+    int $count, int $series, array $music, int $anchor, int $sourceMelody,
+    ?int $degree, ?int $inversion, callable $random, ?int $replaceId): Score {
+    $next = clone $score;
+    $next->assertMelodyEditable($sourceMelody);
+    if ($replaceId !== null && $series !== 1) {
+      throw new \DomainException('Replace one chord at a time.');
+    }
+    if ($replaceId !== null) {
+      $old = array_values(array_filter($next->notes,
+        static fn (array $note): bool => ($note['chord']['id'] ?? null) === $replaceId));
+      if ($old === []) {
+        throw new \DomainException('The chord to replace does not exist.');
+      }
+      $bar = $old[0]['bar'];
+      $slot = $old[0]['slot'];
+      $length = $old[0]['length'];
+      $next->assertMelodyEditable($sourceMelody);
+      $baseIndex = $next->chordAt($sourceMelody, $bar, $slot)[0] ?? null;
+      $base = $baseIndex === null ? null : $next->notes[$baseIndex];
+      $kept = false;
+      $next->notes = array_values(array_filter($next->notes,
+        static function (array $note) use ($replaceId, $base, &$kept): bool {
+          if (($note['chord']['id'] ?? null) !== $replaceId) {
+            return true;
+          }
+          if (!$kept && $base !== null && $note === $base) {
+            $kept = true;
+            return true;
+          }
+          return false;
+        }));
+    }
+    $id = $replaceId ?? max([0, ...array_map(static fn (array $note): int =>
+      $note['chord']['id'] ?? 0, $next->notes)]) + 1;
+    $startTime = $next->start($bar) + $slot;
+    $sectionStart = $score->sectionStart($bar);
+    for ($chord = 0; $chord < $series; $chord++) {
+      [$atBar, $atSlot] = self::atTime($next, $startTime + $chord * $length);
+      if ($atBar < count($score->bars) && $score->sectionStart($atBar) !== $sectionStart) {
+        throw new \DomainException('A chord series cannot start in another section.');
+      }
+      $members = $next->chordAt($sourceMelody, $atBar, $atSlot);
+      $baseIndex = $members[0] ?? null;
+      if ($baseIndex !== null) {
+        $base = $next->notes[$baseIndex];
+        if ($base['bar'] !== $atBar || $base['slot'] !== $atSlot
+          || $base['length'] !== $length) {
+          throw new \DomainException('The melody note cannot be used as a fixed chord note here.');
+        }
+        foreach (array_reverse(array_slice($members, 1)) as $member) {
+          $next->delete($member);
+        }
+        $fixedPitch = 20 + 12 * $base['octave'] + Pitch::position($base);
+        [$chosenDegree, $chosenInversion, $pitches, $fixedIndex] = self::fixedChoice(
+          $count, $degree, $inversion, $music, $fixedPitch, $random,
+          allowed: static function (array $candidate) use ($next, $sourceMelody): bool {
+            $absolute = array_map(static fn (int $pitch): int => $pitch - 20, $candidate);
+            foreach ($next->notes as $note) {
+              if ($note['melody'] === $sourceMelody) {
+                $absolute[] = 12 * $note['octave'] + Pitch::position($note);
+              }
+            }
+            return MelodyRange::possibleBottoms($absolute) !== [];
+          });
+        array_splice($pitches, $fixedIndex, 1);
+        $metadata = ['id' => $id, 'count' => $count, 'degree' => $chosenDegree,
+          'inversion' => $chosenInversion, 'scale' => $music['scale'],
+          'homeNote' => $music['homeNote'], 'anchor' => $fixedPitch,
+          'placement' => 'fixed', 'fixed' => true, 'mode' => 'current'];
+        $next->notes[$baseIndex]['chord'] = $metadata;
+      } else {
+        [$chosenDegree, $chosenInversion, $pitches] = self::choice(
+          $count, $degree, $inversion, $music, $anchor, $random, placement: 'top',
+          allowed: static function (array $candidate) use ($next, $sourceMelody): bool {
+            $absolute = array_map(static fn (int $pitch): int => $pitch - 20, $candidate);
+            foreach ($next->notes as $note) {
+              if ($note['melody'] === $sourceMelody) {
+                $absolute[] = 12 * $note['octave'] + Pitch::position($note);
+              }
+            }
+            return MelodyRange::possibleBottoms($absolute) !== [];
+          });
+        $basePitch = array_pop($pitches);
+        $position = $basePitch - 20;
+        $baseIndex = $next->place($sourceMelody, $atBar, $atSlot,
+          intdiv($position - 1, 12), ($position - 1) % 12 + 1, $length);
+        $metadata = ['id' => $id, 'count' => $count, 'degree' => $chosenDegree,
+          'inversion' => $chosenInversion, 'scale' => $music['scale'],
+          'homeNote' => $music['homeNote'], 'anchor' => $anchor,
+          'placement' => 'top', 'mode' => 'current'];
+        $next->notes[$baseIndex]['chord'] = $metadata;
+      }
+      foreach ($pitches as $pitch) {
+        $position = $pitch - 20;
+        $added = $next->addChordTone($sourceMelody, $atBar, $atSlot,
+          intdiv($position - 1, 12), ($position - 1) % 12 + 1, $length);
+        $next->notes[$added]['chord'] = $metadata;
+        if ($baseIndex !== $added && ($metadata['placement'] ?? '') === 'fixed') {
+          $next->notes[$added]['chord']['fixed'] = false;
+        }
+      }
+      $id++;
+    }
+    return Score::fromData($next->data());
+  }
+
   /** Replace a generated chord with another choice, preserving its voices and length. */
   public static function reroll(Score $score, int $bar, int $slot,
     ?callable $random = null, ?int $melody = null): Score {
     $settings = self::groupAt($score, $bar, $slot, $melody);
     if ($settings === null) {
       throw new \DomainException('No generated chord at the cursor.');
+    }
+    if (($settings['mode'] ?? 'separate') === 'current') {
+      $sourceMelody = $melody;
+      if ($sourceMelody === null) {
+        foreach ($score->notes as $note) {
+          if (($note['chord']['id'] ?? null) === $settings['id']) {
+            $sourceMelody = $note['melody'];
+            break;
+          }
+        }
+      }
+      $baseIndex = $sourceMelody === null ? null
+        : ($score->chordAt($sourceMelody, $bar, $slot)[0] ?? null);
+      if ($baseIndex === null) {
+        throw new \DomainException('The generated chord has no base note.');
+      }
+      $base = $score->notes[$baseIndex];
+      $anchor = 20 + 12 * $base['octave'] + Pitch::position($base);
+      return self::place($score, $base['bar'], $base['slot'], $base['length'],
+        $settings['count'], 1,
+        ['scale' => $settings['scale'], 'homeNote' => $settings['homeNote']],
+        $anchor, $base['melody'], random: $random, replaceId: $settings['id'],
+        mode: 'current');
     }
     $notes = array_values(array_filter($score->notes,
       static fn (array $note): bool => ($note['chord']['id'] ?? null) === $settings['id']));

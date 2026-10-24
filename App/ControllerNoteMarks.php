@@ -16,7 +16,8 @@ final class ControllerNoteMarks extends ControllerState {
       throw new \DomainException('Select a note to change its articulation.');
     }
     $note = self::$score->notes[$index];
-    self::$score->setStaccato($index, ($note['articulation'] ?? 'ordinary') !== 'staccato');
+    self::changeChordMarks($index, static fn (int $member): mixed =>
+      self::$score->setStaccato($member, ($note['articulation'] ?? 'ordinary') !== 'staccato'));
     ControllerSheet::focusCursor();
     ControllerSheet::invalidateSheet();
   }
@@ -27,7 +28,9 @@ final class ControllerNoteMarks extends ControllerState {
     if ($index === null) {
       throw new \DomainException('Select a note to change its fermata.');
     }
-    self::$score->setFermata($index, !self::$score->notes[$index]['fermata']);
+    $enabled = !self::$score->notes[$index]['fermata'];
+    self::changeChordMarks($index, static fn (int $member): mixed =>
+      self::$score->setFermata($member, $enabled));
     ControllerSheet::focusCursor();
     ControllerSheet::invalidateSheet();
   }
@@ -42,7 +45,9 @@ final class ControllerNoteMarks extends ControllerState {
     if ($index === null) {
       throw new \DomainException('Select a note to start a slur.');
     }
-    self::$score->setSlurToNext($index, !self::$score->notes[$index]['slurToNext']);
+    $enabled = !self::$score->notes[$index]['slurToNext'];
+    self::changeChordMarks($index, static fn (int $member): mixed =>
+      self::$score->setSlurToNext($member, $enabled));
     ControllerSheet::focusCursor();
     ControllerSheet::invalidateSheet();
   }
@@ -69,7 +74,9 @@ final class ControllerNoteMarks extends ControllerState {
       throw new \DomainException('Select a note to start a dynamic mark.');
     }
     $current = self::$score->notes[$index]['dynamicToNext'] ?? '';
-    self::$score->setDynamicToNext($index, Dynamics::nextDirection($current));
+    $next = Dynamics::nextDirection($current);
+    self::changeChordMarks($index, static fn (int $member): mixed =>
+      self::$score->setDynamicToNext($member, $next));
     ControllerSheet::focusCursor();
     ControllerSheet::invalidateSheet();
   }
@@ -91,7 +98,8 @@ final class ControllerNoteMarks extends ControllerState {
       if ($index === null) {
         throw new \DomainException('Select a note before setting its dynamic level.');
       }
-      self::$score->setDynamicLevel($index, $level);
+      self::changeChordMarks($index, static fn (int $member): mixed =>
+        self::$score->setDynamicLevel($member, $level));
     }
     self::$displayedReadout = '';
     ControllerSheet::focusCursor();
@@ -202,7 +210,8 @@ final class ControllerNoteMarks extends ControllerState {
     $index = ControllerSheet::currentNoteIndex();
     if ($index !== null) {
       $before = self::$score->notes[$index];
-      self::$score->delete($index);
+      self::$score->deleteChord($index);
+      self::$score->forgetGeneratedChord($before['chord']['id'] ?? null);
       ControllerNavigation::changedNote($before, null);
       self::$cursorLengthExplicit = false;
       ControllerSheet::focusCursor();
@@ -212,6 +221,37 @@ final class ControllerNoteMarks extends ControllerState {
     ControllerSheet::clearSelection();
     ControllerSheet::syncNoteLength();
     ControllerSheet::focusCursor();
+  }
+
+  /** Remove only the tone under the pitch cursor. */
+  public static function deleteToneAtCursor(): void {
+    foreach (self::$score->chordAt(self::$melody, self::$bar, self::$slot) as $index) {
+      $note = self::$score->notes[$index];
+      if ($note['octave'] !== self::$octave || Pitch::position($note) !== self::$pitchPosition) {
+        continue;
+      }
+      self::$score->delete($index);
+      self::$score->forgetGeneratedChord($note['chord']['id'] ?? null);
+      ControllerNavigation::changedNote($note, null);
+      ControllerSheet::syncNoteLength();
+      ControllerSheet::focusCursor();
+      return;
+    }
+  }
+
+  /** Apply a shared mark atomically to all pitches of the current chord. */
+  private static function changeChordMarks(int $index, callable $change): void {
+    $note = self::$score->notes[$index];
+    $members = self::$score->chordAt($note['melody'], $note['bar'], $note['slot']);
+    $old = self::$score->data();
+    try {
+      foreach ($members as $member) {
+        $change($member);
+      }
+    } catch (\Throwable $error) {
+      self::$score = \MADSCORE\Score\Score::fromData($old);
+      throw $error;
+    }
   }
 
   /** Delete the preceding note and its following gap in the active melody. */
@@ -238,6 +278,7 @@ final class ControllerNoteMarks extends ControllerState {
     }
     $note = self::$score->notes[$previous];
     self::$score->deleteAndClose($previous);
+    self::$score->forgetGeneratedChord($note['chord']['id'] ?? null);
     self::$bar = $note['bar'];
     self::$slot = $note['slot'];
     ControllerNavigation::changedNote($note, null);
