@@ -75,11 +75,15 @@ sheet and the controls.
 - **Ctrl+S** saves a compressed `.json.gz` project, **Ctrl+O** loads one, and
   **Ctrl+W** overwrites the current file. The Load panel also has **New** for an
   empty score; save it with **Ctrl+S** before using **Ctrl+W**. After saving,
-  **Ctrl+E** opens the export list. Use **Space** to select MIDI and PDF, then
+  **Ctrl+E** opens the export list. Use **Space** to select MIDI, PDF, and WAV, then
   choose **Export selected** to write those files beside the saved project.
+  WAV uses FluidSynth and a SoundFont when available, falling back to the built-in sound.
 - **V** opens the PDF preview. Use **+/-** to zoom, arrows to scroll, and **B/N**
-  to turn pages. **F1** opens Settings, where you can choose the playback sound
-  and the default file directory.
+  to turn pages. In the preview, **U/J** increase/decrease PDF note size and
+  **H/K** decrease/increase beat width in 5% steps. Note size also changes staff height;
+  beat width stays at least as large as a note. These print settings are remembered.
+  PDF layout keeps a section on one line when it fits. **F1** opens Settings,
+  where you can choose the playback sound and the default file directory.
 - **C** opens the Composer tile. In the main score, enter a motif pattern and
   select **Build score** to replace the score after confirmation. **M** opens
   the motif editor. There, **S** returns to the score, **G** opens generation

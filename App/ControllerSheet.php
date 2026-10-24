@@ -29,7 +29,7 @@ final class ControllerSheet extends ControllerState {
     } else {
       $widget = new Image(APP_DIR . '/Assets/preview-blank.png', bg: (new Style())->background,
         fit: 'contain', padding: true);
-      $widget->setTips('PDF preview.', 'Arrows and Page Up/Down scroll; + and - zoom; Space fits; B/N turn pages; F/L jump to first/last page; V returns to editor.');
+      $widget->setTips('PDF preview.', 'Arrows and Page Up/Down scroll; + and - zoom; Space fits; B/N turn pages; F/L jump to first/last page; U/J change note size; H/K change beat width; V returns to editor.');
     }
     $widget->setId('sheet');
     $sheet = new LayoutLeaf($view === 'editor' ? 'Canvas' : 'Image', '1*', '1*', $widget,

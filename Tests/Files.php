@@ -24,6 +24,7 @@ $window = (new ReflectionClass(SPTK\Core\Window::class))->newInstanceWithoutCons
 $screens[0]->statusBar->setScheduler(static function(int $delay, callable $callback): void {});
 $score = new MADSCORE\Score\Score();
 $score->title = 'File round trip';
+$score->place(0, 0, 0, 4, 1, 2);
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'score'))->setValue(null, $score);
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'project'))->setValue(null,
   MADSCORE\Score\Project::fromScore($score));
@@ -39,6 +40,7 @@ $legacyPath = substr($path, 0, -3);
 $badPath = $path . '.bad.json.gz';
 $midiPath = substr($path, 0, -8) . '.mid';
 $pdfPath = substr($path, 0, -8) . '.pdf';
+$wavPath = substr($path, 0, -8) . '.wav';
 expectFiles($screens[0]->widget('exportFormats')->getValue() === ['midi', 'pdf'],
   'Export starts with MIDI and PDF selected.');
 try {
@@ -89,9 +91,41 @@ try {
   $screens[0]->widget('exportFormats')->setValue(['midi']);
   MADSCORE\App\Files::exportSelected(new SPTK\Events\EventContext('activate'));
   expectFiles(!is_file($pdfPath), 'Unselected formats are not exported.');
+  $screens[0]->widget('exportFormats')->setValue(['wav']);
+  $originalPath = getenv('PATH');
+  putenv('PATH=/nonexistent');
+  try {
+    MADSCORE\App\Files::exportSelected(new SPTK\Events\EventContext('activate'));
+  } finally {
+    $originalPath === false ? putenv('PATH') : putenv('PATH=' . $originalPath);
+  }
+  $wav = file_get_contents($wavPath);
+  expectFiles(substr($wav, 0, 4) === 'RIFF' && substr($wav, 8, 8) === 'WAVEfmt '
+    && unpack('V', substr($wav, 4, 4))[1] === strlen($wav) - 8
+    && unpack('v', substr($wav, 20, 2))[1] === 1
+    && unpack('v', substr($wav, 22, 2))[1] === 1
+    && unpack('V', substr($wav, 24, 4))[1] === MADSCORE\Play\ScoreSource::SAMPLE_RATE
+    && unpack('v', substr($wav, 34, 2))[1] === 16
+    && unpack('V', substr($wav, 40, 4))[1] === strlen($wav) - 44
+    && trim(substr($wav, 44), "\0") !== '',
+    'WAV falls back to complete mono 16-bit PCM with audible score data.');
+  unlink($wavPath);
+  if (MADSCORE\Play\MidiPlayback::unavailableReason() === null) {
+    $rendered = MADSCORE\Play\MidiPlayback::render($score);
+    try {
+      MADSCORE\App\Files::exportSelected(new SPTK\Events\EventContext('activate'));
+      expectFiles(hash_file('sha256', $wavPath) === hash_file('sha256', $rendered),
+        'WAV export prefers the same SoundFont rendering as MIDI playback.');
+    } finally {
+      unlink($rendered);
+      if (is_file($wavPath)) {
+        unlink($wavPath);
+      }
+    }
+  }
   $screens[0]->widget('exportFormats')->setValue([]);
   MADSCORE\App\Files::exportSelected(new SPTK\Events\EventContext('activate'));
-  expectFiles(!is_file($pdfPath), 'An empty selection leaves files unchanged.');
+  expectFiles(!is_file($pdfPath) && !is_file($wavPath), 'An empty selection leaves files unchanged.');
   MADSCORE\App\Files::restorePath($legacyPath);
   $score->title = 'Updated old file';
   MADSCORE\App\Files::write(new SPTK\Events\EventContext('activate'));
@@ -123,7 +157,7 @@ try {
     && MADSCORE\App\Files::currentPath() === null,
     'An invalid selected file leaves the score and current path intact.');
 } finally {
-  foreach ([$path, $legacyPath, $badPath, $midiPath, $pdfPath] as $file) {
+  foreach ([$path, $legacyPath, $badPath, $midiPath, $pdfPath, $wavPath] as $file) {
     if (is_file($file)) {
       unlink($file);
     }

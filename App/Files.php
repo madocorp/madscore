@@ -3,6 +3,7 @@
 namespace MADSCORE\App;
 
 use MADSCORE\Play\MidiWriter;
+use MADSCORE\Play\WavWriter;
 use MADSCORE\Render\PdfWriter;
 use MADSCORE\Score\LegacyImporter;
 use MADSCORE\Score\Project;
@@ -246,6 +247,7 @@ final class Files {
         match ($format) {
           'midi' => MidiWriter::write($path, Controller::score()),
           'pdf' => PdfWriter::write($path, Controller::score()),
+          'wav' => WavWriter::write($path, Controller::score()),
           default => throw new \DomainException('Unknown export format: ' . $format),
         };
         $exported[] = basename($path);

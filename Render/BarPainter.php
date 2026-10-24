@@ -56,12 +56,13 @@ final class BarPainter {
   }
 
   /** Draw staff lines, notes, and an optional cursor into a Cairo context. */
-  public static function draw(\FFI $cairo, \FFI\CData $context, Score $score, int $bar, int $octave, int $width, int $height, ?array $cursor = null, ?int $melody = null, bool $endBar = false, bool $showSlots = false, bool $paintBackground = true, ?int $activeMelody = null, bool $startBorder = true): void {
+  public static function draw(\FFI $cairo, \FFI\CData $context, Score $score, int $bar, int $octave, int $width, int $height, ?array $cursor = null, ?int $melody = null, bool $endBar = false, bool $showSlots = false, bool $paintBackground = true, ?int $activeMelody = null, bool $startBorder = true, bool $outsideMarks = false): void {
     $step = $height / 12.0;
     $firstLine = $step;
     $thirdLine = 9 * $step;
     $slots = 2 * $score->beats($bar);
     $unit = $width / $slots;
+    $markStep = $outsideMarks ? max(13, $step) : $step;
     if ($paintBackground) {
       $cairo->cairo_set_source_rgb($context, 1, 1, 1);
       $cairo->cairo_paint($context);
@@ -136,10 +137,14 @@ final class BarPainter {
             self::halfNote($cairo, $context, $note, $blackKey, $x1, $y, 2 * $step, $color);
           }
           if ($start >= $barStart && ($note['articulation'] ?? 'ordinary') === 'staccato') {
-            self::staccatoDot($cairo, $context, $x1, $y, $step, $blackKey, $color);
+            self::staccatoDot($cairo, $context, $outsideMarks ? $x1 - $step * 0.5 : $x1,
+              $outsideMarks ? $y - $step * 0.8 : $y, $markStep,
+              $blackKey && !$outsideMarks, $color);
           }
           if ($start >= $barStart && ($note['trill'] ?? 0) !== 0) {
-            self::trillMark($cairo, $context, $x1 + $step * 0.43, $y, $step, $note['trill'], true, $blackKey, $color);
+            self::trillMark($cairo, $context, $outsideMarks ? $x1 - $step * 0.5 : $x1 + $step * 0.43,
+              $outsideMarks ? $y - $step * 0.8 : $y, $markStep,
+              $note['trill'], !$outsideMarks, $blackKey && !$outsideMarks, $color);
           }
           if (($note['finger'] ?? '') !== '') {
             $leftHand = $note['finger'][0] === 'L';
@@ -157,10 +162,14 @@ final class BarPainter {
         }
         self::ticks($cairo, $context, $note, $blackKey && !$pitchless, $start, $end, $barStart, $barEnd, $unit, $y, 2 * $step, $color);
         if ($start >= $barStart && ($note['articulation'] ?? 'ordinary') === 'staccato') {
-          self::staccatoDot($cairo, $context, $x1, $y, $step, $blackKey, $color);
+          self::staccatoDot($cairo, $context, $outsideMarks ? $x1 - $step * 0.5 : $x1,
+            $outsideMarks ? $y - $step * 0.8 : $y, $markStep,
+            $blackKey && !$outsideMarks, $color);
         }
         if ($start >= $barStart && ($note['trill'] ?? 0) !== 0) {
-          self::trillMark($cairo, $context, $x1, $y, $step, $note['trill'], false, $blackKey, $color);
+          self::trillMark($cairo, $context, $outsideMarks ? $x1 - $step * 0.5 : $x1,
+            $outsideMarks ? $y - $step * 0.8 : $y, $markStep,
+            $note['trill'], false, $blackKey && !$outsideMarks, $color);
         }
         if (($note['finger'] ?? '') !== '') {
           $leftHand = $note['finger'][0] === 'L';

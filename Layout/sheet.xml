@@ -8,6 +8,10 @@
   <Event type="keyDown" key="n" action="MADSCORE\App\ControllerNavigation::nextPreviewPage" />
   <Event type="keyDown" key="f" action="MADSCORE\App\ControllerNavigation::firstPreviewPage" />
   <Event type="keyDown" key="l" action="MADSCORE\App\ControllerNavigation::lastPreviewPage" />
+  <Event type="keyDown" key="u" action="MADSCORE\App\ControllerNavigation::increasePdfNoteSize" />
+  <Event type="keyDown" key="j" action="MADSCORE\App\ControllerNavigation::decreasePdfNoteSize" />
+  <Event type="keyDown" key="h" action="MADSCORE\App\ControllerNavigation::decreasePdfBeatSize" />
+  <Event type="keyDown" key="k" action="MADSCORE\App\ControllerNavigation::increasePdfBeatSize" />
   <Layout direction="vertical">
     <Layout id="board" direction="horizontal" height="1*"><Empty navigate="false" /></Layout>
     <StatusBar height="1" />

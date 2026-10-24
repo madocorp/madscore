@@ -70,6 +70,17 @@ try {
   MADSCORE\App\Settings::directoryChanged(new SPTK\Events\EventContext('change', $directory));
   expectSettings(MADSCORE\App\Settings::defaultDirectory() === $home . '/Other',
     'A configured directory becomes the first browser location.');
+  MADSCORE\Render\PdfLayout::configure(70, 120);
+  MADSCORE\App\Settings::savePdfLayout();
+  $savedLayout = SPTK\Core\AppData::loadJson('settings.json');
+  expectSettings($savedLayout['defaultDir'] === $home . '/Other'
+    && $savedLayout['pdfNoteSize'] === 70 && $savedLayout['pdfBeatSize'] === 120,
+    'PDF layout shortcuts preserve their settings alongside the default directory.');
+  MADSCORE\Render\PdfLayout::configure(100, 100);
+  MADSCORE\App\Settings::initialize();
+  expectSettings(MADSCORE\Render\PdfLayout::noteSize() === 70
+    && MADSCORE\Render\PdfLayout::beatSize() === 120,
+    'PDF layout settings restore on startup.');
   MADSCORE\App\Files::initialize();
   $browserDirectory = new ReflectionMethod(MADSCORE\App\Files::class, 'browserDirectory');
   expectSettings($browserDirectory->invoke(null) === $home . '/Other',
@@ -80,6 +91,7 @@ try {
   expectSettings($browserDirectory->invoke(null) === $home . '/Music',
     'The last selected directory takes precedence after browsing.');
 } finally {
+  MADSCORE\Render\PdfLayout::configure(100, 100);
   putenv('PATH=' . $oldPath);
   putenv('MADSCORE_TUTORIAL_CAPTURE');
   if (is_file($home . '/opened')) {

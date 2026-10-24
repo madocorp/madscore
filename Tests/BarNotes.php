@@ -66,9 +66,9 @@ $wedgeScore->setTempo(1, '90');
 $markedWedge = $renderPrintPage($wedgeScore);
 $printPixel = static fn (\SPTK\Core\RasterImage $image, int $x, int $y): int =>
   (unpack('L', substr($image->pixels, ($y * 1000 + $x) * 4, 4))[1] >> 8) & 0xffffff;
-expectBarNote($printPixel($plainWedge, 420, 268) !== $printPixel($markedWedge, 420, 268)
-  && $printPixel($plainWedge, 450, 268) === $printPixel($markedWedge, 450, 268)
-  && $printPixel($markedWedge, 450, 268) !== 0xffffff,
+expectBarNote($printPixel($plainWedge, 446, 268) !== $printPixel($markedWedge, 446, 268)
+  && $printPixel($plainWedge, 476, 268) === $printPixel($markedWedge, 476, 268)
+  && $printPixel($markedWedge, 476, 268) !== 0xffffff,
   'A changed tempo prints over a crescendo while the background remains transparent.');
 $score->setBarNote(1, 'Second bar');
 expectBarNote(MADSCORE\Score\Score::fromData($score->data())->data() === $score->data(),

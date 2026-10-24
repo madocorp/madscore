@@ -68,7 +68,8 @@ $pixel = static function (\SPTK\Core\RasterImage $image, int $x, int $y): int {
   return (unpack('L', substr($image->pixels, ($y * $image->width + $x) * 4, 4))[1] >> 8) & 0xffffff;
 };
 $radius = MADSCORE\Render\Prescription::dotRadius(220);
-$firstDot = 386 - 4 - $radius;
+$barWidth = (new ReflectionMethod(MADSCORE\Render\PagePainter::class, 'barWidth'))->invoke(null, $score, 0);
+$firstDot = 75 + 44 + $barWidth - 4 - $radius;
 $secondDot = $firstDot - 2 * $radius - max(2, $radius / 5);
 $gap = (int)round(($firstDot - $radius + $secondDot + $radius) / 2);
 expectRepeat($pixel($page, (int)round($firstDot), 262) === 0
