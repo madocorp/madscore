@@ -116,7 +116,8 @@ $strip = static function (int $center) use ($pageImage): array {
   }
   return $pixels;
 };
-expectSection($strip(375) === $strip(642),
+$barWidth = (new ReflectionMethod(MADSCORE\Render\PagePainter::class, 'barWidth'))->invoke(null, $printBorders, 0);
+expectSection($strip(75 + 44 + $barWidth - 10) === $strip(75 + 44 + 2 * $barWidth - 10),
   'A section border and an ordinary bar border have the same ink strength in print.');
 $endingBand = new MADSCORE\Score\Score(2);
 $endingBand->ensureBar(1);
@@ -125,19 +126,70 @@ $endingBand->place(0, 1, 0, 4, 4, 2);
 $endingBand->place(1, 0, 0, 6, 4, 2);
 $endingBand->setSectionLeader(1, true);
 $endingBandPage = sectionPageImage($endingBand);
-expectSection(sectionRgb($endingBandPage, 385, 325) === 0xffffff
-  && sectionRgb($endingBandPage, 386, 325) !== 0xffffff,
+$edge = 75 + 44 + (new ReflectionMethod(MADSCORE\Render\PagePainter::class, 'barWidth'))
+  ->invoke(null, $endingBand, 0);
+expectSection(sectionRgb($endingBandPage, $edge - 1, 325) === 0xffffff
+  && sectionRgb($endingBandPage, $edge, 325) !== 0xffffff,
   'A staff ending before an octave hidden in the next section uses only the section border.');
 $wrappedSection = new MADSCORE\Score\Score();
-$wrappedSection->ensureBar(12);
-$wrappedSection->setSectionLeader(12, true);
+$wrappedSection->ensureBar(11);
+$wrappedSection->setSectionLeader(11, true);
 $wrappedLines = MADSCORE\Render\PagePainter::pages($wrappedSection)[0];
-expectSection(count($wrappedLines) === 2 && end($wrappedLines[0]) === 11 && $wrappedLines[1][0] === 12,
+expectSection(count($wrappedLines) === 2 && end($wrappedLines[0]) === 10 && $wrappedLines[1][0] === 11,
   'The section leader falls exactly at a PDF line break.');
 $wrappedPage = sectionPageImage($wrappedSection, 3508, 2480);
-expectSection(sectionRgb($wrappedPage, 3322, 540) !== 0xffffff
-  && sectionRgb($wrappedPage, 120, 1580) !== 0xffffff,
+$firstLineRight = 75 + 44 + 11 * (new ReflectionMethod(MADSCORE\Render\PagePainter::class, 'barWidth'))
+  ->invoke(null, $wrappedSection, 0);
+expectSection(sectionRgb($wrappedPage, $firstLineRight - 2, 540) !== 0xffffff
+  && sectionRgb($wrappedPage, 119, 1580) !== 0xffffff,
   'A wrapped section separator appears at both the previous line end and the next line start.');
+
+$grouped = new MADSCORE\Score\Score();
+$grouped->ensureBar(12);
+$grouped->setSectionLeader(4, true);
+$groupedLines = MADSCORE\Render\PagePainter::pages($grouped)[0];
+expectSection($groupedLines === [[0, 1, 2, 3], [4, 5, 6, 7, 8, 9, 10, 11, 12]],
+  'A section that fits by itself moves intact to the next PDF line.');
+$oneLongSection = new MADSCORE\Score\Score();
+$oneLongSection->ensureBar(12);
+expectSection(MADSCORE\Render\PagePainter::pages($oneLongSection)[0]
+  === [[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], [11, 12]],
+  'A section wider than the line still wraps between bars.');
+$rowHeight = new ReflectionMethod(MADSCORE\Render\PagePainter::class, 'rowHeight');
+expectSection($rowHeight->invoke(null, 4) === 220,
+  'The default PDF note size gives the original staff row height.');
+MADSCORE\Render\PdfLayout::configure(70, 80);
+try {
+  expectSection($rowHeight->invoke(null, 4) === 154,
+    'Changing PDF note size also changes staff row and bar height.');
+  expectSection(MADSCORE\Render\PagePainter::pages($grouped)[0]
+    === [[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]],
+    'Smaller beat width lets adjacent sections share one PDF line.');
+  expectSection(MADSCORE\Render\PdfLayout::noteSize() === 70
+    && MADSCORE\Render\PdfLayout::beatSize() === 80,
+    'PDF note size and beat width can be set independently.');
+  MADSCORE\Render\PdfLayout::change(20, 0);
+  expectSection(MADSCORE\Render\PdfLayout::noteSize() === 90
+    && MADSCORE\Render\PdfLayout::beatSize() === 90,
+    'Increasing notes raises beat spacing when needed.');
+  MADSCORE\Render\PdfLayout::change(0, -20);
+  expectSection(MADSCORE\Render\PdfLayout::noteSize() === 70
+    && MADSCORE\Render\PdfLayout::beatSize() === 70,
+    'Decreasing beat spacing also reduces oversized notes.');
+  MADSCORE\Render\PdfLayout::configure(120, 90);
+  expectSection(MADSCORE\Render\PdfLayout::beatSize() === 120
+    && $rowHeight->invoke(null, 9) <= 221,
+    'Saved layout values keep beat spacing wide enough and tall staff lines inside the page.');
+  MADSCORE\Render\PdfLayout::configure(140, 140);
+  $wideBar = new MADSCORE\Score\Score();
+  $wideBar->setBeats(0, 32);
+  $wideBarWidth = (new ReflectionMethod(MADSCORE\Render\PagePainter::class, 'barWidth'))
+    ->invoke(null, $wideBar, 0);
+  expectSection($wideBarWidth / 64 + 0.02 >= $rowHeight->invoke(null, 4) / 6,
+    'Even the widest bar keeps each beat slot at least one note diameter wide.');
+} finally {
+  MADSCORE\Render\PdfLayout::configure(100, 100);
+}
 
 $pdf = tempnam(sys_get_temp_dir(), 'madscore-sections-');
 MADSCORE\Render\PdfWriter::write($pdf, $drawing);

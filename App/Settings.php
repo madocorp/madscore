@@ -2,6 +2,7 @@
 
 namespace MADSCORE\App;
 
+use MADSCORE\Render\PdfLayout;
 use SPTK\Core\AppData;
 use SPTK\Events\EventContext;
 
@@ -15,6 +16,8 @@ final class Settings {
   public static function initialize(): void {
     $stored = AppData::loadJson('settings.json');
     self::$directory = is_string($stored['defaultDir'] ?? null) ? $stored['defaultDir'] : '';
+    PdfLayout::configure(is_int($stored['pdfNoteSize'] ?? null) ? $stored['pdfNoteSize'] : 100,
+      is_int($stored['pdfBeatSize'] ?? null) ? $stored['pdfBeatSize'] : 100);
     $input = Controller::screen('settings')->widget('defaultDirectory');
     $input->setValue(self::$directory);
     $input->setInputInterceptor(self::interceptDirectoryInput(...));
@@ -31,8 +34,17 @@ final class Settings {
   /** Store every edit without a separate Save button. */
   public static function directoryChanged(EventContext $event): void {
     self::$directory = Controller::screen('settings')->widget('defaultDirectory')->getValue();
-    if (!AppData::saveJson('settings.json', ['defaultDir' => self::$directory])) {
-      ControllerNavigation::status('Could not save settings.', 'settings');
+    self::save();
+  }
+
+  public static function savePdfLayout(): void {
+    self::save();
+  }
+
+  private static function save(): void {
+    if (!AppData::saveJson('settings.json', ['defaultDir' => self::$directory,
+      'pdfNoteSize' => PdfLayout::noteSize(), 'pdfBeatSize' => PdfLayout::beatSize()])) {
+      ControllerNavigation::status('Could not save settings.');
     }
   }
 

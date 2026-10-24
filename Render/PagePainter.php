@@ -11,7 +11,6 @@ final class PagePainter {
   public const HEIGHT = 2480;
   public const A4_WIDTH_POINTS = 297 * 72 / 25.4;
   public const A4_HEIGHT_POINTS = 210 * 72 / 25.4;
-  private const TILE_HEIGHT = 200;
   private const MARKER_WIDTH = 44;
   private const ROW_HEIGHT = 220;
   private const TOP_SPACE = 120;
@@ -43,10 +42,11 @@ final class PagePainter {
       $y = self::FIRST_LINE_Y;
       foreach ($page as $bars) {
         $lineRows = max(4, ...array_map(static fn (int $bar): int => count($states[$bar]['bands']), $bars));
-        $lineHeight = self::TOP_SPACE + self::LINE_PADDING + $lineRows * self::ROW_HEIGHT;
+        $rowHeight = self::rowHeight($lineRows);
+        $lineHeight = self::TOP_SPACE + self::LINE_PADDING + $lineRows * $rowHeight;
         $widths = array_map(static fn (int $bar): int => self::barWidth($score, $bar), $bars);
         $positions = Prescription::positions($bars, $widths, $states, self::MARKER_WIDTH);
-        $dynamicSegments = DynamicPainter::segments($score, $positions, self::ROW_HEIGHT);
+        $dynamicSegments = DynamicPainter::segments($score, $positions, $rowHeight);
         $tempoReservations = [];
         foreach ($positions as $position) {
           if (($tempo = TempoPainter::label($score, $position['bar'])) !== null) {
@@ -59,7 +59,7 @@ final class PagePainter {
         $lastPrintedBar = $positions[count($positions) - 1]['bar'];
         foreach ($positions as $position) {
           $bar = $position['bar'];
-          $rows = Prescription::rows($states[$bar], self::TOP_SPACE + max(4, count($states[$bar]['bands'])) * self::ROW_HEIGHT, self::TOP_SPACE);
+          $rows = Prescription::rows($states[$bar], self::TOP_SPACE + max(4, count($states[$bar]['bands'])) * $rowHeight, self::TOP_SPACE);
           if ($score->bars[$bar]['sectionLeader']) {
             SectionPainter::edge($cairo, $context, $rows, $position['left']);
           }
@@ -72,7 +72,7 @@ final class PagePainter {
         foreach ($positions as $index => $position) {
           $bar = $position['bar'];
           $state = $states[$bar];
-          $rows = Prescription::rows($state, self::TOP_SPACE + max(4, count($state['bands'])) * self::ROW_HEIGHT, self::TOP_SPACE);
+          $rows = Prescription::rows($state, self::TOP_SPACE + max(4, count($state['bands'])) * $rowHeight, self::TOP_SPACE);
           $cairo->cairo_save($context);
           $cairo->cairo_translate($context, self::SIDE_MARGIN, $y);
           $repeats = ($bar === count($score->bars) - 1 || $score->bars[$bar + 1]['sectionLeader'])
@@ -90,7 +90,7 @@ final class PagePainter {
             $cairo->cairo_restore($context);
           }
           if ($repeats > 0) {
-            RepeatPainter::draw($cairo, $context, $position['right'] - 4, 62, self::ROW_HEIGHT, $repeats);
+            RepeatPainter::draw($cairo, $context, $position['right'] - 4, 62, $rowHeight, $repeats);
           }
           if ($position['markerLeft'] !== null) {
             Prescription::drawMarkers($cairo, $context, $rows, $position['markerLeft'] + self::MARKER_WIDTH / 2);
@@ -112,19 +112,19 @@ final class PagePainter {
               || !Prescription::bandContinues($score, $states, $bar, $band);
             BarPainter::draw($cairo, $context, $score, $bar, $band, $width, $row['height'],
               endBar: $endBar && !$sectionAtRight, paintBackground: false,
-              startBorder: !$score->bars[$bar]['sectionLeader']);
+              startBorder: !$score->bars[$bar]['sectionLeader'], outsideMarks: $rowHeight < self::ROW_HEIGHT * 0.8);
             $cairo->cairo_restore($context);
           }
           $cairo->cairo_restore($context);
         }
         $cairo->cairo_save($context);
         $cairo->cairo_translate($context, self::SIDE_MARGIN, $y);
-        DynamicPainter::draw($cairo, $context, $dynamicSegments, 68, self::ROW_HEIGHT);
+        DynamicPainter::draw($cairo, $context, $dynamicSegments, 68, $rowHeight);
         DynamicPainter::drawLabels($cairo, $context,
-          DynamicPainter::labels($score, $positions, self::ROW_HEIGHT, $tempoReservations), 68, self::ROW_HEIGHT);
+          DynamicPainter::labels($score, $positions, $rowHeight, $tempoReservations), 68, $rowHeight);
         SlurPainter::draw($cairo, $context, $score, $positions,
           static fn (int $bar): array => Prescription::rows($states[$bar],
-            self::TOP_SPACE + max(4, count($states[$bar]['bands'])) * self::ROW_HEIGHT, self::TOP_SPACE));
+            self::TOP_SPACE + max(4, count($states[$bar]['bands'])) * $rowHeight, self::TOP_SPACE));
         foreach ($positions as $position) {
           if (($tempo = TempoPainter::label($score, $position['bar'])) !== null) {
             TempoPainter::draw($cairo, $context, $position['left'], $position['right'], $tempo);
@@ -183,7 +183,8 @@ final class PagePainter {
     $page = [];
     $y = self::FIRST_LINE_Y;
     foreach (self::lines($score, $states) as $bars) {
-      $height = self::TOP_SPACE + self::LINE_PADDING + max(4, ...array_map(static fn (int $bar): int => count($states[$bar]['bands']), $bars)) * self::ROW_HEIGHT;
+      $rows = max(4, ...array_map(static fn (int $bar): int => count($states[$bar]['bands']), $bars));
+      $height = self::TOP_SPACE + self::LINE_PADDING + $rows * self::rowHeight($rows);
       if ($page !== [] && $y + $height > self::HEIGHT - 125) {
         $pages[] = $page;
         $page = [];
@@ -198,22 +199,48 @@ final class PagePainter {
     return $pages;
   }
 
-  /** Group bars into printable lines, allowing room for prescription symbols. */
+  /** Grow staff rows with notes, but keep one full line inside the page. */
+  private static function rowHeight(int $rows): int {
+    $requested = (int)round(self::ROW_HEIGHT * PdfLayout::noteSize() / 100);
+    $available = self::HEIGHT - self::FIRST_LINE_Y - 125 - self::TOP_SPACE - self::LINE_PADDING;
+    return min($requested, intdiv($available, $rows));
+  }
+
+  /** Keep a section together when it fits; split longer sections at bar edges. */
   private static function lines(Score $score, array $states): array {
     $lines = [];
     $line = [];
     $width = 0;
-    foreach ($score->bars as $bar => $_) {
-      $barWidth = self::barWidth($score, $bar);
-      $marker = $line === [] || $states[$bar]['change'] ? self::MARKER_WIDTH : 0;
-      if ($line !== [] && $width + $barWidth + $marker > self::WIDTH - 2 * self::SIDE_MARGIN) {
+    $limit = self::WIDTH - 2 * self::SIDE_MARGIN;
+    $count = count($score->bars);
+    for ($first = 0; $first < $count; $first = $last) {
+      $last = $first + 1;
+      while ($last < $count && !$score->bars[$last]['sectionLeader']) {
+        $last++;
+      }
+      $sectionWidth = 0;
+      for ($bar = $first; $bar < $last; $bar++) {
+        $sectionWidth += self::barWidth($score, $bar)
+          + ($bar === $first || $states[$bar]['change'] ? self::MARKER_WIDTH : 0);
+      }
+      $widthHere = $sectionWidth - ($line !== [] && !$states[$first]['change'] ? self::MARKER_WIDTH : 0);
+      if ($line !== [] && ($sectionWidth > $limit || $width + $widthHere > $limit)) {
         $lines[] = $line;
         $line = [];
         $width = 0;
-        $marker = self::MARKER_WIDTH;
       }
-      $line[] = $bar;
-      $width += $barWidth + $marker;
+      for ($bar = $first; $bar < $last; $bar++) {
+        $needed = self::barWidth($score, $bar)
+          + ($line === [] || $states[$bar]['change'] ? self::MARKER_WIDTH : 0);
+        if ($line !== [] && $width + $needed > $limit) {
+          $lines[] = $line;
+          $line = [];
+          $width = 0;
+          $needed = self::barWidth($score, $bar) + self::MARKER_WIDTH;
+        }
+        $line[] = $bar;
+        $width += $needed;
+      }
     }
     if ($line !== []) {
       $lines[] = $line;
@@ -221,17 +248,19 @@ final class PagePainter {
     return $lines;
   }
 
-  /** Give each half-beat position twice the vertical note size. */
+  /** Size a bar from its beat count and the configured horizontal spacing. */
   private static function barWidth(Score $score, int $bar): int {
-    $slotWidth = 2 * (self::TILE_HEIGHT / 12);
+    $slotWidth = (self::ROW_HEIGHT / 6) * PdfLayout::beatSize() / 100;
     $width = (int)round(2 * $score->bars[$bar]['beats'] * $slotWidth);
     if (($tempo = TempoPainter::label($score, $bar)) !== null) {
-      $levelWidth = DynamicPainter::startLabelWidth($score, $bar, self::ROW_HEIGHT);
+      $levelWidth = DynamicPainter::startLabelWidth($score, $bar,
+        self::ROW_HEIGHT * PdfLayout::noteSize() / 100);
       $width = max($width, (int)ceil(TempoPainter::width($tempo)
         + ($levelWidth > 0 ? self::TEMPO_LEVEL_GAP + $levelWidth : 0)));
     }
     if ($bar === count($score->bars) - 1 || $score->bars[$bar + 1]['sectionLeader']) {
-      $width = max($width, (int)ceil(RepeatPainter::width($score->sectionRepeats($bar), self::ROW_HEIGHT) + 16));
+      $width = max($width, (int)ceil(RepeatPainter::width($score->sectionRepeats($bar),
+        self::ROW_HEIGHT * PdfLayout::noteSize() / 100) + 16));
     }
     return min(self::WIDTH - 2 * self::SIDE_MARGIN - self::MARKER_WIDTH, $width);
   }

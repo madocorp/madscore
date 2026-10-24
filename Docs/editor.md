@@ -232,8 +232,14 @@ the A3–G♯4 band containing middle C, and triangles mark higher or lower band
 it warns about unsupported features before importing. **New** in the Load panel
 starts an empty, unnamed score. Use **Ctrl+S** to name it before **Ctrl+W** can
 overwrite a file. After saving, **Ctrl+E** opens the export list in the Note
-tile. Use **Space** to toggle MIDI and PDF, then choose **Export selected** to
+tile. Use **Space** to toggle MIDI, PDF, and WAV, then choose **Export selected** to
 write every selected format beside the project file.
+WAV uses FluidSynth and a SoundFont when available, falling back to the built-in sound.
+In the PDF preview, **U/J** increase/decrease note size and **H/K** decrease/increase
+beat width in 5% steps. The PDF layout keeps a section on one line when it fits; longer
+sections wrap between bars. Note size changes staff height too. Increasing it
+also increases beat width when needed; decreasing beat width reduces note size
+when needed. These settings are saved for later sessions.
 
 The current score, cursor, selection, and visible bar position are restored
 from `~/.madscore/session.json` when the app starts again. Settings stores its

@@ -121,6 +121,7 @@ CTRL+* Melody wedge</Text>
         <List id="exportFormats" multiple="true" filterable="false" searchable="false" height="1*">
           <Item value="midi" selected="true">MIDI (.mid)</Item>
           <Item value="pdf" selected="true">PDF (.pdf)</Item>
+          <Item value="wav">WAV (.wav)</Item>
         </List>
         <Button id="exportSelected" label="Export selected" action="MADSCORE\App\ControllerEditorActions::exportSelected" />
       </Layout>

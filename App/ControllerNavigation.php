@@ -3,6 +3,7 @@
 namespace MADSCORE\App;
 
 use MADSCORE\Render\PagePainter;
+use MADSCORE\Render\PdfLayout;
 use MADSCORE\Score\MelodyRange;
 use SPTK\App;
 use SPTK\Events\EventContext;
@@ -330,6 +331,37 @@ final class ControllerNavigation extends ControllerState {
     return true;
   }
 
+  public static function increasePdfNoteSize(EventContext $event): bool {
+    self::changePdfLayout(5, 0);
+    return true;
+  }
+
+  public static function decreasePdfNoteSize(EventContext $event): bool {
+    self::changePdfLayout(-5, 0);
+    return true;
+  }
+
+  public static function decreasePdfBeatSize(EventContext $event): bool {
+    self::changePdfLayout(0, -5);
+    return true;
+  }
+
+  public static function increasePdfBeatSize(EventContext $event): bool {
+    self::changePdfLayout(0, 5);
+    return true;
+  }
+
+  private static function changePdfLayout(int $noteDelta, int $beatDelta): void {
+    if (Controller::isDesign()) {
+      return;
+    }
+    PdfLayout::change($noteDelta, $beatDelta);
+    Settings::savePdfLayout();
+    self::$previewPage = min(self::$previewPage, count(PagePainter::pages(self::$score)) - 1);
+    ControllerSheet::invalidateSheet();
+    self::status('PDF note size ' . PdfLayout::noteSize() . '%, beat width ' . PdfLayout::beatSize() . '%.');
+  }
+
   /** Jump to the first or last PDF preview page. */
   public static function previewEdge(bool $last): void {
     if (Controller::isDesign()) {
@@ -345,7 +377,7 @@ final class ControllerNavigation extends ControllerState {
   /** Keep preview navigation visible in its only status bar. */
   private static function showPreviewHelp(): void {
     Controller::screen('sheet')->statusBar?->display(
-      'V/Esc/Return: editor   B/N: page   F/L: first/last   Arrows/PgUp/PgDown: scroll   +/-: zoom   Space: fit', 'hint', 'continuous');
+      'V/Esc/Return: editor   B/N: page   F/L: first/last   U/J: note +/-   H/K: beat -/+   +/-: zoom   Space: fit', 'hint', 'continuous');
   }
 
   /** Return from tile navigation to the score editor with Escape. */

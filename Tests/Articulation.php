@@ -174,10 +174,10 @@ $upAfter = MADSCORE\Render\SheetPainter::render($upPhrase, 0, 1, 250, 490, desig
 $upRows = articulationChangedRows($upBefore, $upAfter);
 expectArticulation($upRows !== [] && max($upRows) < 220, 'A phrase beginning on D curves upward.');
 $lineBreak = new MADSCORE\Score\Score();
-$lineBreak->ensureBar(15);
-$lastOnLine = $lineBreak->place(0, 11, 6, 4, 1, 2);
-$lineBreak->place(0, 12, 0, 4, 3, 2);
-expectArticulation(end(MADSCORE\Render\PagePainter::pages($lineBreak)[0][0]) === 11,
+$lineBreak->ensureBar(14);
+$lastOnLine = $lineBreak->place(0, 10, 6, 4, 1, 2);
+$lineBreak->place(0, 11, 0, 4, 3, 2);
+expectArticulation(end(MADSCORE\Render\PagePainter::pages($lineBreak)[0][0]) === 10,
   'The linked notes straddle a printed line boundary.');
 $plainPage = MADSCORE\Render\PagePreview::render($lineBreak, 0, 1400, 1000);
 $lineBreak->setSlurToNext($lastOnLine, true);
