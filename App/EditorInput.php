@@ -191,6 +191,22 @@ final class EditorInput {
       ControllerNavigation::moveToVisibleEdge($key === SDL::KEY_END, $shift);
       return true;
     }
+    if ($shift && ($key === SDL::KEY_SPACE || $key === SDL::KEY_RETURN)) {
+      try {
+        ControllerNoteEditing::dropNote(false, true);
+      } catch (\DomainException $error) {
+        ControllerNavigation::status($error->getMessage());
+      }
+      return true;
+    }
+    if ($shift && $key === SDL::KEY_DELETE) {
+      try {
+        ControllerNoteMarks::deleteToneAtCursor();
+      } catch (\DomainException $error) {
+        ControllerNavigation::status($error->getMessage());
+      }
+      return true;
+    }
     if ($shift) {
       return false;
     }

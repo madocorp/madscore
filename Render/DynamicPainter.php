@@ -37,11 +37,17 @@ final class DynamicPainter {
           'filled' => true, 'time' => $mark['time']];
       }
     }
+    $seenLevels = [];
     foreach ($score->notes as $index => $note) {
       $mark = $note['dynamicLevel'] ?? '';
       if ($mark === '') {
         continue;
       }
+      $key = $note['melody'] . ':' . ($score->start($note['bar']) + $note['slot']);
+      if (isset($seenLevels[$key])) {
+        continue;
+      }
+      $seenLevels[$key] = true;
       $left = self::leftEdge($score, $positions, $note, Prescription::dotRadius($rowHeight));
       $right = self::rightEdge($score, $positions, $note, Prescription::dotRadius($rowHeight));
       if ($left === null || $right === null) {
@@ -89,8 +95,14 @@ final class DynamicPainter {
         $width += strlen($mark['level']) * $fontSize * 0.63 + 4;
       }
     }
+    $seenLevels = [];
     foreach ($score->notes as $note) {
       if ($note['bar'] === $bar && $note['slot'] === 0 && ($note['dynamicLevel'] ?? '') !== '') {
+        $key = $note['melody'] . ':' . $bar;
+        if (isset($seenLevels[$key])) {
+          continue;
+        }
+        $seenLevels[$key] = true;
         $width += strlen($note['dynamicLevel']) * $fontSize * 0.63 + 4;
       }
     }

@@ -228,16 +228,30 @@ final class ControllerNoteEditing extends ControllerState {
   }
 
   /** Place the preview note and optionally advance after a new insertion. */
-  public static function dropNote(bool $advanceAfterInsert = false): void {
+  public static function dropNote(bool $advanceAfterInsert = false, bool $addTone = false): void {
     $index = self::$score->noteAt(self::$melody, self::$bar, self::$slot);
     $before = $index === null ? null : self::$score->notes[$index];
     $bar = $before['bar'] ?? self::$bar;
     $slot = $before['slot'] ?? self::$slot;
-    $index = self::$score->place(self::$melody, $bar, $slot, self::$octave, self::$pitchPosition, self::cursorLength());
-    ControllerNavigation::changedNote($before, self::$score->notes[$index]);
+    $adding = $before !== null && ($addTone
+      || count(self::$score->chordAt(self::$melody, $bar, $slot)) > 1);
+    if ($adding) {
+      $count = count(self::$score->notes);
+      $index = self::$score->addChordTone(self::$melody, $bar, $slot,
+        self::$octave, self::$pitchPosition, $before['length']);
+      if (count(self::$score->notes) === $count) {
+        return;
+      }
+      self::$score->forgetGeneratedChord($before['chord']['id'] ?? null);
+      ControllerNavigation::changedNote(null, self::$score->notes[$index]);
+    } else {
+      $index = self::$score->place(self::$melody, $bar, $slot,
+        self::$octave, self::$pitchPosition, self::cursorLength());
+      ControllerNavigation::changedNote($before, self::$score->notes[$index]);
+    }
     ControllerSheet::selectNoteOnset($index);
     self::$cursorLengthExplicit = false;
-    if ($advanceAfterInsert && $before === null) {
+    if ($advanceAfterInsert && ($before === null || $addTone)) {
       self::advanceAfterInsertedNote();
     }
     ControllerSheet::focusCursor();

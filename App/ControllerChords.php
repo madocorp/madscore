@@ -14,6 +14,7 @@ use SPTK\Widgets\Input\Input;
 
 /** Chord settings, placement, and rerolls. */
 final class ControllerChords extends ControllerState {
+  private static string $chordMode = 'separate';
   /** Use the motif's key or the current score section's explicit key. */
   public static function currentMusic(): ?array {
     if (self::$activeItemId === 'main') {
@@ -71,6 +72,7 @@ final class ControllerChords extends ControllerState {
     $previous = self::previousChordSettings();
     $existing = ChordGenerator::groupAt(self::$score, self::$bar, self::$slot,
       self::$melody);
+    self::$chordMode = $existing['mode'] ?? $previous['mode'] ?? 'separate';
     $selected = self::$score->noteAt(self::$melody, self::$bar, self::$slot);
     $fixed = $selected !== null && $existing === null;
     if ($existing !== null) {
@@ -113,10 +115,17 @@ final class ControllerChords extends ControllerState {
 
   private static function refreshChordChoices(): void {
     $screen = Controller::screen('editor');
+    $screen->widget('chordMode')->setLabel('Place in: '
+      . (self::$chordMode === 'current' ? 'Current melody' : 'Separate melodies'));
     $screen->widget('chordScale')->setLabel('Scale: '
       . (self::$chordScaleSelection === '' ? 'Choose' : self::$chordScaleSelection));
     $screen->widget('chordHomeNote')->setLabel('Home note: '
       . (self::$chordHomeNoteSelection === '' ? 'Choose' : self::$chordHomeNoteSelection));
+  }
+
+  public static function toggleChordMode(EventContext $event): void {
+    self::$chordMode = self::$chordMode === 'separate' ? 'current' : 'separate';
+    self::refreshChordChoices();
   }
 
   private static function showChordChoice(string $choice): void {
@@ -223,7 +232,8 @@ final class ControllerChords extends ControllerState {
       return;
     }
     self::placeChord(['count' => $count, 'series' => $series,
-      'degree' => $degree, 'inversion' => $inversion, 'music' => $music],
+      'degree' => $degree, 'inversion' => $inversion, 'music' => $music,
+      'mode' => self::$chordMode],
       $series);
   }
 
@@ -236,7 +246,8 @@ final class ControllerChords extends ControllerState {
       $next = ChordGenerator::place(self::$score, self::$bar, self::$slot,
         ControllerNoteEditing::cursorLength(), $settings['count'], $series, $settings['music'],
         $anchor, self::$melody, $settings['degree'], $settings['inversion'],
-        replaceId: $existing['id'] ?? null);
+        replaceId: $existing['id'] ?? null,
+        mode: $settings['mode'] ?? 'separate');
       $next->setSectionMusic(self::$activeItemId === 'main' ? self::$bar : 0,
         $settings['music']);
     } catch (\DomainException $error) {
@@ -307,6 +318,7 @@ final class ControllerChords extends ControllerState {
       'count' => $existing['count'], 'series' => 1,
       'degree' => null, 'inversion' => null,
       'music' => ['scale' => $existing['scale'], 'homeNote' => $existing['homeNote']],
+      'mode' => $existing['mode'] ?? 'separate',
     ];
     self::followChordPitch();
     self::$history?->observe(self::$score);

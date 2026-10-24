@@ -170,6 +170,7 @@ CTRL+* Melody wedge</Text>
           <Button id="chordScale" width="1*" label="Scale: Choose" action="MADSCORE\App\ControllerChords::showChordScalePicker" />
           <Button id="chordHomeNote" width="1*" label="Home note: Choose" action="MADSCORE\App\ControllerChords::showChordHomeNotePicker" />
         </Layout>
+        <Button id="chordMode" label="Place in: Separate melodies" action="MADSCORE\App\ControllerChords::toggleChordMode" />
         <Button id="chordGenerate" label="Place chord(s)" action="MADSCORE\App\ControllerChords::generateChords" />
         <Empty height="0*" navigate="false" />
       </Layout>

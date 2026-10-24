@@ -201,8 +201,27 @@ final class RangeEdit {
       }
     }
     unset($note);
+    $nextChordId = max([0, ...array_map(static fn (array $note): int =>
+      $note['chord']['id'] ?? 0, $notes)]) + 1;
+    $copiedChordIds = [];
+    $copiedChordCounts = [];
+    foreach ($clip['notes'] as $item) {
+      if (isset($item['note']['chord'])) {
+        $id = $item['note']['chord']['id'];
+        $copiedChordCounts[$id] = ($copiedChordCounts[$id] ?? 0) + 1;
+      }
+    }
     foreach ($clip['notes'] as $item) {
       $note = $item['note'];
+      if (isset($note['chord'])) {
+        $originalId = $note['chord']['id'];
+        if ($copiedChordCounts[$originalId] !== $note['chord']['count']) {
+          unset($note['chord']);
+        } else {
+          $copiedChordIds[$originalId] ??= $nextChordId++;
+          $note['chord']['id'] = $copiedChordIds[$originalId];
+        }
+      }
       $note['melody'] = $scope === 'score' ? $note['melody'] : $melody;
       if (!isset($data['melodies'][$note['melody']])) {
         throw new \DomainException('The destination has too few melodies for this copy.');

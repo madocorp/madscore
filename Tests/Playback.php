@@ -56,6 +56,15 @@ $rect = MADSCORE\Render\SheetPainter::beatRect($score, 0, 2, 640, 360, 0, 0);
 $next = MADSCORE\Render\SheetPainter::beatRect($score, 0, 2, 640, 360, 0, 1);
 expectPlayback($rect[2] > 0 && $rect[3] > 0 && $next[0] >= $rect[0] + $rect[2] - 1,
   'Full-beat highlight regions advance across the score without overlap.');
+$mixedBars = new MADSCORE\Score\Score();
+$mixedBars->ensureBar(2);
+$mixedBars->setBeats(1, 2);
+$fourBeat = MADSCORE\Render\SheetPainter::beatRect($mixedBars, 0, 3, 640, 360, 0, 0);
+$twoBeat = MADSCORE\Render\SheetPainter::beatRect($mixedBars, 0, 3, 640, 360, 1, 0);
+$laterFourBeat = MADSCORE\Render\SheetPainter::beatRect($mixedBars, 0, 3, 640, 360, 2, 0);
+expectPlayback(abs($fourBeat[2] - $twoBeat[2]) <= 1
+  && abs($twoBeat[2] - $laterFourBeat[2]) <= 1,
+  'Playback uses one beat width across four-beat and two-beat bars.');
 $cacheScore = new MADSCORE\Score\Score();
 $cacheScore->ensureBar(7);
 $cursor = ['start' => 0, 'end' => 2, 'octave' => 4, 'pitch' => 4];

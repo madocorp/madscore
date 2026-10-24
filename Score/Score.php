@@ -246,7 +246,7 @@ final class Score {
     return $this->bars[$this->sectionStart($bar)]['repeats'];
   }
 
-  /** Set the optional text printed above this bar. */
+  /** Set the optional text shown above this bar. */
   public function setBarNote(int $bar, string $note): void {
     if (!isset($this->bars[$bar])) {
       throw new \DomainException('The bar is outside the score.');
@@ -293,6 +293,63 @@ final class Score {
       }
     }
     return null;
+  }
+
+  /** Notes at one rhythmic position, in insertion order (base note first). */
+  public function chordAt(int $melody, int $bar, int $slot): array {
+    $first = $this->noteAt($melody, $bar, $slot);
+    if ($first === null) {
+      return [];
+    }
+    $note = $this->notes[$first];
+    $start = $this->start($note['bar']) + $note['slot'];
+    $result = [];
+    foreach ($this->notes as $index => $other) {
+      if ($other['melody'] === $melody
+        && $this->start($other['bar']) + $other['slot'] === $start) {
+        $result[] = $index;
+      }
+    }
+    return $result;
+  }
+
+  /** Add a different pitch to an existing rhythmic event. */
+  public function addChordTone(int $melody, int $bar, int $slot, int $octave, int $position,
+    int $length): int {
+    if ($octave < 0 || $octave > 8 || $position < 1 || $position > 12) {
+      throw new \DomainException('The note pitch is outside the score.');
+    }
+    $members = $this->chordAt($melody, $bar, $slot);
+    if ($members === []) {
+      return $this->place($melody, $bar, $slot, $octave, $position, $length);
+    }
+    $base = $this->notes[$members[0]];
+    if (isset($base['figure'])) {
+      throw new \DomainException('Remove the figure before adding chord tones.');
+    }
+    if ($length !== $base['length']) {
+      throw new \DomainException('Chord tones must have the same length.');
+    }
+    foreach ($members as $member) {
+      $other = $this->notes[$member];
+      if ($other['octave'] === $octave && Pitch::position($other) === $position) {
+        return $member;
+      }
+    }
+    $this->assertMelodyEditable($melody);
+    [$pitch, $alter] = Pitch::spelling($position);
+    $note = ['melody' => $melody, 'bar' => $base['bar'], 'slot' => $base['slot'],
+      'octave' => $octave, 'pitch' => $pitch, 'alter' => $alter, 'length' => $length,
+      'articulation' => $base['articulation'] ?? 'ordinary',
+      'slurToNext' => $base['slurToNext'] ?? false,
+      'glissandoToNext' => false, 'fermata' => $base['fermata'] ?? false,
+      'trill' => 0, 'finger' => '', 'dynamicToNext' => $base['dynamicToNext'] ?? '',
+      'dynamicLevel' => $base['dynamicLevel'] ?? ''];
+    $this->assertMelodyBand($melody, $octave, $position);
+    $this->assertFree($note, null);
+    $this->notes[] = $note;
+    $this->normalizeSlurs();
+    return count($this->notes) - 1;
   }
 
   /** Find the note beginning exactly where this one ends. */
@@ -855,10 +912,13 @@ final class Score {
       }
     }
     $shift = $delta < 0 ? $delta : ($nextStart === null ? 0 : max(0, $start + $length - $nextStart));
+    $members = $this->chordAt($note['melody'], $note['bar'], $note['slot']);
     $oldNotes = $this->notes;
     $oldBars = $this->bars;
     try {
-      $this->notes[$index]['length'] = $length;
+      foreach ($members as $member) {
+        $this->notes[$member]['length'] = $length;
+      }
       if ($shift !== 0) {
         foreach ($later as $otherIndex => $otherStart) {
           [$bar, $slot] = $this->cursorAt($otherStart + $shift);
@@ -866,7 +926,7 @@ final class Score {
           $this->notes[$otherIndex]['slot'] = $slot;
         }
       }
-      $changed = array_merge([$index], array_keys($shift === 0 ? [] : $later));
+      $changed = array_merge($members, array_keys($shift === 0 ? [] : $later));
       foreach ($changed as $changedIndex) {
         $this->assertFree($this->notes[$changedIndex], $changedIndex);
         $this->ensureDuration($this->notes[$changedIndex]);
@@ -940,6 +1000,7 @@ final class Score {
   /** Insert time in the source melody and place a copy in the new space. */
   private function copyAfter(int $index, int $length): int {
     $note = $this->notes[$index];
+    $members = $this->chordAt($note['melody'], $note['bar'], $note['slot']);
     $this->assertMelodyEditable($note['melody']);
     $position = $this->start($note['bar']) + $note['slot'] + $note['length'];
     $oldNotes = $this->notes;
@@ -957,23 +1018,27 @@ final class Score {
         }
       }
       [$bar, $slot] = $this->cursorAt($position);
-      $copy = $note;
-      $copy['bar'] = $bar;
-      $copy['slot'] = $slot;
-      $copy['length'] = $length;
-      $copy['slurToNext'] = false;
-      $copy['glissandoToNext'] = false;
-      $copy['dynamicToNext'] = '';
-      $copy['dynamicLevel'] = '';
       foreach ($this->notes as $otherIndex => $other) {
         $this->assertFree($other, $otherIndex);
         $this->ensureDuration($other);
       }
-      $this->assertFree($copy, null);
-      $this->ensureDuration($copy);
-      $this->notes[] = $copy;
+      $first = count($this->notes);
+      foreach ($members as $member) {
+        $copy = $oldNotes[$member];
+        $copy['bar'] = $bar;
+        $copy['slot'] = $slot;
+        $copy['length'] = $length;
+        $copy['slurToNext'] = false;
+        $copy['glissandoToNext'] = false;
+        $copy['dynamicToNext'] = '';
+        $copy['dynamicLevel'] = '';
+        unset($copy['chord']);
+        $this->assertFree($copy, null);
+        $this->ensureDuration($copy);
+        $this->notes[] = $copy;
+      }
       $this->normalizeSlurs();
-      return count($this->notes) - 1;
+      return $first;
     } catch (\Throwable $error) {
       $this->notes = $oldNotes;
       $this->bars = $oldBars;
@@ -988,10 +1053,22 @@ final class Score {
     }
     $note = $this->notes[$index];
     $this->assertMelodyEditable($note['melody']);
-    $note['length'] = $length;
-    $this->assertFree($note, $index);
-    $this->notes[$index] = $note;
-    $this->ensureDuration($note);
+    $members = $this->chordAt($note['melody'], $note['bar'], $note['slot']);
+    $old = $this->notes;
+    $oldBars = $this->bars;
+    try {
+      foreach ($members as $member) {
+        $this->notes[$member]['length'] = $length;
+      }
+      foreach ($members as $member) {
+        $this->assertFree($this->notes[$member], $member);
+        $this->ensureDuration($this->notes[$member]);
+      }
+    } catch (\Throwable $error) {
+      $this->notes = $old;
+      $this->bars = $oldBars;
+      throw $error;
+    }
     $this->normalizeSlurs();
   }
 
@@ -1098,14 +1175,66 @@ final class Score {
     $this->normalizeSlurs();
   }
 
+  /** Remove every tone at the note's onset. */
+  public function deleteChord(int $index): void {
+    $note = $this->notes[$index] ?? throw new \OutOfBoundsException('No note at this index.');
+    $this->assertMelodyEditable($note['melody']);
+    $members = array_flip($this->chordAt($note['melody'], $note['bar'], $note['slot']));
+    $this->notes = array_values(array_filter($this->notes,
+      static fn (array $item, int $key): bool => !isset($members[$key]), ARRAY_FILTER_USE_BOTH));
+    $this->normalizeSlurs();
+  }
+
+  /** Break a generated-chord association after manual tone editing. */
+  public function forgetGeneratedChord(?int $id): void {
+    if ($id === null) {
+      return;
+    }
+    foreach ($this->notes as &$note) {
+      if (($note['chord']['id'] ?? null) === $id) {
+        unset($note['chord']);
+      }
+    }
+    unset($note);
+  }
+
+  /** Move all tones at an onset by one octave without moving their rhythm. */
+  public function transposeChordOctave(int $index, int $octaves): void {
+    $note = $this->notes[$index];
+    $this->assertMelodyEditable($note['melody']);
+    $members = $this->chordAt($note['melody'], $note['bar'], $note['slot']);
+    $old = $this->notes;
+    try {
+      foreach ($members as $member) {
+        $this->notes[$member]['octave'] += $octaves;
+        $moved = $this->notes[$member];
+        if ($moved['octave'] < 0 || $moved['octave'] > 8) {
+          throw new \DomainException('This pitch is outside the nine octave bands.');
+        }
+        if (!self::validTrillPitch($moved, $moved['trill'] ?? 0)) {
+          $this->notes[$member]['trill'] = 0;
+        }
+      }
+      foreach ($members as $member) {
+        $moved = $this->notes[$member];
+        $this->assertMelodyBand($moved['melody'], $moved['octave'], Pitch::position($moved), $member);
+      }
+      $this->normalizeSlurs();
+    } catch (\Throwable $error) {
+      $this->notes = $old;
+      throw $error;
+    }
+  }
+
   /** Remove a note and the following gap, bringing the next note to its onset. */
   public function deleteAndClose(int $index): void {
     $note = $this->notes[$index] ?? throw new \OutOfBoundsException('No note at this index.');
     $this->assertMelodyEditable($note['melody']);
     $start = $this->start($note['bar']) + $note['slot'];
+    $members = array_flip($this->chordAt($note['melody'], $note['bar'], $note['slot']));
     $nextStart = null;
     foreach ($this->notes as $otherIndex => $other) {
-      if ($otherIndex === $index || $other['melody'] !== $note['melody']) {
+      if (isset($members[$otherIndex]) || $other['melody'] !== $note['melody']) {
         continue;
       }
       $otherStart = $this->start($other['bar']) + $other['slot'];
@@ -1116,7 +1245,8 @@ final class Score {
     $oldNotes = $this->notes;
     $oldBars = $this->bars;
     try {
-      array_splice($this->notes, $index, 1);
+      $this->notes = array_values(array_filter($this->notes,
+        static fn (array $item, int $key): bool => !isset($members[$key]), ARRAY_FILTER_USE_BOTH));
       if ($nextStart !== null) {
         $removedLength = $nextStart - $start;
         foreach ($this->notes as $otherIndex => $other) {
@@ -1169,7 +1299,12 @@ final class Score {
       }
       $otherStart = $this->start($other['bar']) + $other['slot'];
       if ($start < $otherStart + $other['length'] && $otherStart < $end) {
-        throw new \DomainException('Notes in one melody cannot overlap.');
+        if ($start === $otherStart && $note['length'] === $other['length']
+          && ($note['octave'] !== $other['octave']
+            || Pitch::position($note) !== Pitch::position($other))) {
+          continue;
+        }
+        throw new \DomainException('Overlapping melody notes must share their start and length, with different pitches.');
       }
     }
   }

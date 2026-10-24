@@ -86,13 +86,14 @@ try {
   expectBarNote(true, 'Bar notes are single-line text.');
 }
 $score->setBarNote(0, '');
-$score->setBarNote(1, 'Only on print');
+$score->setBarNote(1, 'Visible note');
 expectBarNote(!$score->removeEmptyLastBar(1), 'A bar with an annotation is not removed as empty.');
-$sheet = MADSCORE\Render\SheetPainter::render($score, 0, 2, 500, 490);
+$sheet = MADSCORE\Render\SheetPainter::render($score, 0, 2, 500, 490, melody: 0, design: true);
 $preview = MADSCORE\Render\PagePreview::render($score, 0, 1200, 850);
 $score->setBarNote(1, '');
-expectBarNote(MADSCORE\Render\SheetPainter::render($score, 0, 2, 500, 490)->pixels === $sheet->pixels,
-  'Bar notes do not appear on the editing sheet.');
+expectBarNote(MADSCORE\Render\SheetPainter::render($score, 0, 2, 500, 490,
+  melody: 0, design: true)->pixels !== $sheet->pixels,
+  'Bar notes appear above their bars in the editor.');
 expectBarNote(MADSCORE\Render\PagePreview::render($score, 0, 1200, 850)->pixels !== $preview->pixels,
   'Bar notes appear in the PDF preview.');
 

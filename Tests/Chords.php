@@ -220,6 +220,8 @@ foreach ($screens as $screen) {
     && $screen->restore('chordPanel')
     && $screen->show('chordScalePicker'),
     'The chord scale list replaces the chord panel.');
+  checkChord($screen->widget('chordMode') !== null,
+    'The chord panel offers a placement-mode button.');
   $screen->widget('chordScalePicker')->setValue('Dorian');
   checkChord($screen->widget('chordScalePicker')->activeValue() === 'Dorian'
     && $screen->restore('chordScalePicker')
@@ -234,5 +236,104 @@ foreach ($screens as $screen) {
     'Composer can occupy the note tile after chord settings close.');
   break;
 }
+
+$stack = new Score();
+$base = $stack->place(0, 0, 0, 3, 4, 2);
+$upper = $stack->addChordTone(0, 0, 0, 3, 8, 2);
+checkChord($stack->chordAt(0, 0, 1) === [$base, $upper]
+  && $stack->addChordTone(0, 0, 0, 3, 8, 2) === $upper
+  && count($stack->notes) === 2,
+  'Equal-rhythm tones retain insertion order and duplicate pitches are ignored.');
+try {
+  $stack->addChordTone(0, 0, 0, 3, 11, 1);
+  throw new RuntimeException('A different chord-tone length was accepted.');
+} catch (DomainException $error) {
+  checkChord(count($stack->notes) === 2, 'Different lengths cannot share a melody onset.');
+}
+$stack->resizeAndShift($base, 4);
+checkChord($stack->notes[$base]['length'] === 4 && $stack->notes[$upper]['length'] === 4,
+  'A length edit resizes every chord tone.');
+$stack->transposeChordOctave($base, 1);
+checkChord($stack->notes[$base]['octave'] === 4 && $stack->notes[$upper]['octave'] === 4,
+  'An octave move transposes the entire chord.');
+$savedStack = Score::fromData($stack->data());
+checkChord($savedStack->chordAt(0, 0, 0) === [0, 1],
+  'A saved chord retains its base-note order.');
+$copy = $stack->repeatAfter($base);
+checkChord(count($stack->chordAt(0, 0, 4)) === 2 && $copy === 2,
+  'Repeating a chord keeps both tones together.');
+$stack->delete($base);
+checkChord($stack->notes[$stack->chordAt(0, 0, 0)[0]]['pitch'] === 'E',
+  'The oldest surviving tone becomes the base after deleting a tone.');
+$stack->deleteChord($stack->chordAt(0, 0, 0)[0]);
+checkChord($stack->chordAt(0, 0, 0) === [] && count($stack->notes) === 2,
+  'Deleting a chord removes all tones at its onset only.');
+$rippleChord = new Score();
+$rippleChord->place(0, 0, 0, 3, 4, 2);
+$rippleChord->addChordTone(0, 0, 0, 3, 8, 2);
+$rippleChord->place(0, 0, 2, 3, 6, 2);
+$rippleChord->addChordTone(0, 0, 2, 3, 9, 2);
+$rippleChord->resizeAndShift(0, 3);
+checkChord(count($rippleChord->chordAt(0, 0, 3)) === 2,
+  'Growing a chord shifts the following chord together.');
+$rippleChord->deleteAndClose(0);
+checkChord(count($rippleChord->notes) === 2
+  && count($rippleChord->chordAt(0, 0, 0)) === 2,
+  'Closing after a chord removes the group and shifts the following group together.');
+$highChord = new Score();
+$highChord->place(0, 0, 0, 8, 4, 2);
+$highChord->addChordTone(0, 0, 0, 8, 8, 2);
+$beforeHigh = $highChord->data();
+try {
+  $highChord->transposeChordOctave(0, 1);
+  throw new RuntimeException('An out-of-range chord was transposed.');
+} catch (DomainException $error) {
+  checkChord($highChord->data() === $beforeHigh,
+    'An invalid octave move leaves every chord tone unchanged.');
+}
+
+$sameMelody = ChordGenerator::place(new Score(), 0, 0, 2, 3, 1,
+  $music, 60, 0, 1, 0, mode: 'current');
+checkChord(count($sameMelody->melodies) === 1
+  && count($sameMelody->chordAt(0, 0, 0)) === 3
+  && ChordGenerator::groupAt($sameMelody, 0, 0)['mode'] === 'current',
+  'Current-melody generation stacks tones and records its mode.');
+$rerolledSame = ChordGenerator::reroll($sameMelody, 0, 0, melody: 0);
+checkChord(count($rerolledSame->chordAt(0, 0, 0)) === 3
+  && $rerolledSame->notes[0]['octave'] === $sameMelody->notes[0]['octave']
+  && $rerolledSame->notes[0]['pitch'] === $sameMelody->notes[0]['pitch'],
+  'Reroll keeps the current-melody base note.');
+$separated = ChordGenerator::place($sameMelody, 0, 0, 2, 3, 1,
+  $music, 60, 0, replaceId: ChordGenerator::groupAt($sameMelody, 0, 0)['id']);
+checkChord(count(array_unique(array_column($separated->notes, 'melody'))) === 3
+  && $separated->notes[$separated->noteAt(0, 0, 0)]['pitch'] === $sameMelody->notes[0]['pitch'],
+  'Switching a generated chord to separate melodies retains its base tone.');
+$clip = MADSCORE\Score\RangeEdit::copy($sameMelody,
+  ['scope' => 'melody', 'melody' => 0, 'start' => 0, 'end' => 2]);
+$pasted = MADSCORE\Score\RangeEdit::paste($sameMelody, $clip, null, 0, 4);
+checkChord(count($pasted->chordAt(0, 0, 4)) === 3
+  && ChordGenerator::groupAt($pasted, 0, 4)['id']
+    !== ChordGenerator::groupAt($pasted, 0, 0)['id'],
+  'Copying a chord keeps all tones and gives the pasted generator group a new ID.');
+$manual = new Score();
+$manual->place(0, 0, 0, 3, 4, 2);
+$manual->addChordTone(0, 0, 0, 3, 10, 2);
+$regenerated = ChordGenerator::place($manual, 0, 0, 2, 3, 1,
+  $music, 60, 0, 1, 0, mode: 'current');
+checkChord(count($regenerated->chordAt(0, 0, 0)) === 3
+  && $regenerated->notes[0]['pitch'] === 'C'
+  && !in_array(10, array_map(static fn (array $note): int =>
+    MADSCORE\Score\Pitch::position($note), $regenerated->notes), true),
+  'The generator keeps the manual base and replaces the other tones.');
+$separateManual = ChordGenerator::place($manual, 0, 0, 2, 3, 1,
+  $music, 60, 0, 1, 0);
+checkChord(count($separateManual->notes) === 3
+  && count($separateManual->chordAt(0, 0, 0)) === 1,
+  'Separate-melody generation also replaces manual tones after the base.');
+$stackedSheet = MADSCORE\Render\SheetPainter::render($sameMelody, 0, 1, 320, 480,
+  melody: 0, design: true);
+$stackedPage = MADSCORE\Render\PagePreview::render($sameMelody, 0, 842, 595);
+checkChord($stackedSheet->width === 320 && $stackedPage->height === 595,
+  'The editor and PDF preview render a chord within one melody.');
 
 echo "chord checks passed.\n";

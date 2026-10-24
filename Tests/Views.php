@@ -49,12 +49,47 @@ $inactiveBlue = MADSCORE\Render\BarPainter::inactiveColor($colors, 1);
 expectView($inactiveBlue !== $colors->melodies[1]['color'], 'Inactive blue is lightened toward white.');
 expectView(hasColor($editorFirst, $colors->melodies[0]['color']) && hasColor($editorFirst, $inactiveBlue)
   && !hasColor($editorFirst, $colors->melodies[1]['color']), 'The first melody is vivid while the second is pale.');
-$overlapPixel = unpack('L', substr($editorFirst->pixels, (242 * $editorFirst->width + 63) * 4, 4))[1];
+$overlapPixel = unpack('L', substr($editorFirst->pixels, (259 * $editorFirst->width + 63) * 4, 4))[1];
 expectView((($overlapPixel >> 8) & 0xffffff) === hexdec(substr($colors->melodies[0]['color'], 1)),
   'The active note stays on top when two melodies have the same pitch and time.');
 expectView(hasColor($editorSecond, $colors->melodies[1]['color'])
   && hasColor($editorSecond, MADSCORE\Render\BarPainter::inactiveColor($colors, 0))
   && !hasColor($editorSecond, $colors->melodies[0]['color']), 'Switching melodies swaps the vivid and pale colors.');
+$shortFirst = new MADSCORE\Score\Score(2);
+$shortFirst->place(0, 0, 0, 4, 4, 2);
+$shortFirst->place(1, 0, 0, 4, 4, 4);
+$longFirst = new MADSCORE\Score\Score(2);
+$longFirst->place(1, 0, 0, 4, 4, 4);
+$longFirst->place(0, 0, 0, 4, 4, 2);
+$shortFirstImage = MADSCORE\Render\BarPainter::render($shortFirst, 0, 4, 240, 120);
+$longFirstImage = MADSCORE\Render\BarPainter::render($longFirst, 0, 4, 240, 120);
+expectView($shortFirstImage->pixels === $longFirstImage->pixels,
+  'The shorter overlapping melody note draws last regardless of insertion order.');
+$shortOnly = new MADSCORE\Score\Score(2);
+$shortOnly->place(0, 0, 0, 4, 4, 2);
+$longOnly = new MADSCORE\Score\Score(2);
+$longOnly->place(1, 0, 0, 4, 4, 4);
+$shortImage = MADSCORE\Render\BarPainter::render($shortOnly, 0, 4, 240, 120);
+$longImage = MADSCORE\Render\BarPainter::render($longOnly, 0, 4, 240, 120);
+$shortInk = hexdec(substr($shortFirst->melodies[0]['color'], 1));
+$longInk = hexdec(substr($shortFirst->melodies[1]['color'], 1));
+$shortOnTop = false;
+for ($offset = 0; $offset < strlen($shortImage->pixels); $offset += 4) {
+  $top = (unpack('L', substr($shortFirstImage->pixels, $offset, 4))[1] >> 8) & 0xffffff;
+  $shortPixel = (unpack('L', substr($shortImage->pixels, $offset, 4))[1] >> 8) & 0xffffff;
+  $longPixel = (unpack('L', substr($longImage->pixels, $offset, 4))[1] >> 8) & 0xffffff;
+  if ($shortPixel === $shortInk && $longPixel === $longInk && $top === $shortInk) {
+    $shortOnTop = true;
+    break;
+  }
+}
+expectView($shortOnTop, 'The short note remains visible where both note shapes overlap.');
+$sameLength = new MADSCORE\Score\Score(2);
+$sameLength->place(0, 0, 0, 4, 4, 2);
+$sameLength->place(1, 0, 0, 4, 4, 2);
+expectView(MADSCORE\Render\BarPainter::render($sameLength, 0, 4, 240, 120)->pixels
+  === $shortImage->pixels,
+  'Equal-length notes at the same pitch and onset draw only once.');
 $rangeScore = new MADSCORE\Score\Score();
 $rangeScore->place(0, 0, 0, 3, 4, 2);
 $rangeScore->place(0, 0, 2, 3, 4, 2);
@@ -81,11 +116,11 @@ $lowerPixel = (unpack('L', substr($symmetricSheet->pixels, (475 * 250 + 50) * 4,
 expectView($lowerPixel === $melodyInk, 'The lower G-sharp is visible in the bottom editor row.');
 $lowerCursor = MADSCORE\Render\SheetPainter::render($symmetric, 0, 1, 250, 490,
   ['start' => 4, 'end' => 6, 'octave' => 2, 'pitch' => 12], 0, design: true);
-$cursorPixel = (unpack('L', substr($lowerCursor->pixels, (475 * 250 + 150) * 4, 4))[1] >> 8) & 0xffffff;
+$cursorPixel = (unpack('L', substr($lowerCursor->pixels, (476 * 250 + 150) * 4, 4))[1] >> 8) & 0xffffff;
 expectView($cursorPixel === $melodyInk,
   'The cursor appears at the lower G-sharp outside the four stored octave bands.');
-$sideAbove = (unpack('L', substr($lowerCursor->pixels, (470 * 250 + 138) * 4, 4))[1] >> 8) & 0xffffff;
-$sideBelow = (unpack('L', substr($lowerCursor->pixels, (480 * 250 + 138) * 4, 4))[1] >> 8) & 0xffffff;
+$sideAbove = (unpack('L', substr($lowerCursor->pixels, (470 * 250 + 135) * 4, 4))[1] >> 8) & 0xffffff;
+$sideBelow = (unpack('L', substr($lowerCursor->pixels, (480 * 250 + 135) * 4, 4))[1] >> 8) & 0xffffff;
 expectView($sideAbove === 0xffffff && $sideBelow !== 0xffffff,
   'The lower G-sharp cursor sides extend into the overflow octave below its crossbar.');
 $printBands = MADSCORE\Render\Prescription::states($symmetric)[0]['bands'];

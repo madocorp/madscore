@@ -78,6 +78,14 @@ $score->setMelodyPattern(1, 'kick');
 $score->place(0, 0, 0, 4, 1, 2);
 $score->place(0, 1, 0, 4, 4, 2);
 $score->place(1, 0, 0, 4, 1, 1);
+$stacked = new MADSCORE\Score\Score();
+$stacked->place(0, 0, 0, 3, 4, 2);
+$stacked->addChordTone(0, 0, 0, 3, 8, 2);
+$stackedOnsets = array_values(array_filter(midiMelodyEvents($stacked),
+  static fn (array $event): bool => ($event[1] & 0xf0) === 0x90));
+expectMidi(count($stackedOnsets) === 2
+  && $stackedOnsets[0][0] === 0 && $stackedOnsets[1][0] === 0,
+  'Two tones in one melody start together in MIDI.');
 $articulation = new MADSCORE\Score\Score();
 $short = $articulation->place(0, 0, 0, 4, 2, 2);
 $articulation->setStaccato($short, true);
