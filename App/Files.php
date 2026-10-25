@@ -6,6 +6,8 @@ use MADSCORE\Play\MidiWriter;
 use MADSCORE\Play\WavWriter;
 use MADSCORE\Render\PdfWriter;
 use MADSCORE\Score\LegacyImporter;
+use MADSCORE\Score\MusicXmlImporter;
+use MADSCORE\Score\MusicXmlWriter;
 use MADSCORE\Score\Project;
 use MADSCORE\Score\Score;
 use SPTK\Events\EventContext;
@@ -168,6 +170,18 @@ final class Files {
         self::finishOpen($score, null, 'Imported core notes. Save as a project to keep editing.');
         return true;
       }
+      if (in_array(strtolower(pathinfo($path, PATHINFO_EXTENSION)), ['musicxml', 'xml', 'mxl'], true)) {
+        [$score, $warnings] = MusicXmlImporter::read($path);
+        if ($warnings !== []) {
+          Controller::screen('editor')->statusBar?->confirm(
+            'Import and omit: ' . implode(', ', $warnings) . '?',
+            static function() use ($score): void { self::finishOpen($score, null, 'Imported MusicXML. Save as a project to keep editing.'); },
+            static function(): void { ControllerNavigation::status('Import cancelled.'); });
+          return true;
+        }
+        self::finishOpen($score, null, 'Imported MusicXML. Save as a project to keep editing.');
+        return true;
+      }
       $project = self::readProject($path);
       self::finishOpenProject($project, $path, 'Opened ' . basename($path));
     } catch (\Throwable $error) {
@@ -246,6 +260,7 @@ final class Files {
       try {
         match ($format) {
           'midi' => MidiWriter::write($path, Controller::score(), Controller::project()),
+          'musicxml' => MusicXmlWriter::write($path, Controller::score()),
           'pdf' => PdfWriter::write($path, Controller::score(), Controller::project()),
           'wav' => WavWriter::write($path, Controller::score(), Controller::project()),
           default => throw new \DomainException('Unknown export format: ' . $format),

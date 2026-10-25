@@ -230,6 +230,12 @@ expectComposer($editor->widget('composerBeats') !== null
   && $editor->widget('composerGenerateTitle') !== null
   && $editor->widget('composerCancelGenerate') === null
   && $editor->widget('composerAddVersion') !== null
+  && $editor->widget('motifSectionKey') !== null
+  && $editor->widget('scoreSectionKey') !== null
+  && $editor->widget('sectionKeyScale') !== null
+  && $editor->widget('sectionKeyHomeNote') !== null
+  && $editor->widget('sectionScalePicker') !== null
+  && $editor->widget('sectionHomeNotePicker') !== null
   && $editor->widget('motifVersionCancel') === null
   && $editor->widget('motifVersionList') !== null
   && $editor->widget('motifVersionSourceTarget') !== null
@@ -318,11 +324,12 @@ $editor->restore('composerScorePanel');
 $editor->show('composerPanel');
 expectComposer(array_map(static fn ($leaf): ?string => $leaf->instance()->id(),
     $editor->layout->findTile('composerPanel')->movementLeaves())
-    === ['composerItem', 'composerToScore', 'composerOpenGenerate', 'composerAddVersion']
+    === ['composerItem', 'composerToScore', 'composerOpenGenerate', 'composerAddVersion',
+      'motifSectionKey']
   && $hotkeys()['s']->id() === 'composerToScore'
   && $hotkeys()['g']->id() === 'composerOpenGenerate'
   && $hotkeys()['v']->id() === 'composerAddVersion',
-  'The motif tile shows the current motif and its three mode buttons.');
+  'The motif tile shows the current motif and its mode and key buttons.');
 $editor->statusBar->setScheduler(static function (int $durationMs, callable $dismiss): void {});
 expectComposer((new ReflectionMethod(MADSCORE\App\ControllerComposer::class,
   'composerFocused'))->invoke(null),

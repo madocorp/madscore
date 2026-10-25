@@ -189,7 +189,8 @@ final class Score {
   /** Discard an unused final bar after the cursor moves back out of it. */
   public function removeEmptyLastBar(int $bar): bool {
     $last = count($this->bars) - 1;
-    if ($bar !== $last || $last === 0 || $this->bars[$last]['note'] !== '' || $this->bars[$last]['repeats'] > 0) {
+    if ($bar !== $last || $last === 0 || $this->bars[$last]['note'] !== ''
+      || $this->bars[$last]['repeats'] > 0 || array_key_exists('music', $this->bars[$last])) {
       return false;
     }
     $start = $this->start($last);
@@ -219,7 +220,6 @@ final class Score {
     if (!$leader) {
       $this->bars[$bar]['repeats'] = 0;
       unset($this->bars[$bar]['motifVersion']);
-      unset($this->bars[$bar]['music']);
     }
   }
 
@@ -267,17 +267,42 @@ final class Score {
     return $number;
   }
 
+  /** Return the latest key change at or before this bar, even across sections. */
   public function sectionMusic(int $bar): ?array {
-    return $this->bars[$this->sectionStart($bar)]['music'] ?? null;
+    if (!isset($this->bars[$bar])) {
+      throw new \DomainException('The bar is outside the score.');
+    }
+    for (; $bar >= 0; $bar--) {
+      if (array_key_exists('music', $this->bars[$bar])) {
+        return $this->bars[$bar]['music'];
+      }
+    }
+    return null;
   }
 
+  /** Define a key change at this bar, dropping repeats of the preceding key. */
   public function setSectionMusic(int $bar, ?array $music): void {
-    $start = $this->sectionStart($bar);
-    if ($music === null) {
-      unset($this->bars[$start]['music']);
-    } else {
-      $this->bars[$start]['music'] = HarmonicContext::validate($music);
+    if (!isset($this->bars[$bar])) {
+      throw new \DomainException('The bar is outside the score.');
     }
+    $this->bars[$bar]['music'] = $music === null ? null : HarmonicContext::validate($music);
+    $this->normalizeKeyChanges();
+  }
+
+  /** Keep only the first bar of each run with the same effective key. */
+  private function normalizeKeyChanges(): void {
+    $previous = null;
+    foreach ($this->bars as &$settings) {
+      if (!array_key_exists('music', $settings)) {
+        continue;
+      }
+      if ($settings['music'] === $previous) {
+        unset($settings['music']);
+      } else {
+        $previous = $settings['music'];
+      }
+    }
+    unset($settings);
   }
 
   /** Find a melody note sounding at the given cursor slot. */
@@ -1423,10 +1448,8 @@ final class Score {
       $savedBar = ['beats' => $bar['beats'], 'tempo' => $tempo,
         'sectionLeader' => $leader, 'repeats' => $repeats, 'note' => $note];
       if (array_key_exists('music', $bar)) {
-        if (!$leader) {
-          throw new \DomainException('Harmonic context belongs on a section start.');
-        }
-        $savedBar['music'] = HarmonicContext::validate($bar['music']);
+        $savedBar['music'] = $bar['music'] === null ? null
+          : HarmonicContext::validate($bar['music']);
       }
       if (array_key_exists('motifVersion', $bar)) {
         if (!$leader || $index === 0) {
@@ -1437,6 +1460,7 @@ final class Score {
       }
       $score->bars[] = $savedBar;
     }
+    $score->normalizeKeyChanges();
     foreach ($data['notes'] as $inputNote) {
       if (!self::validNote($inputNote, $score)) {
         throw new \DomainException('Invalid score note.');

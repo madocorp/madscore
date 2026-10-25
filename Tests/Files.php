@@ -40,6 +40,7 @@ $path = sys_get_temp_dir() . '/madscore-file-' . bin2hex(random_bytes(6)) . '.js
 $legacyPath = substr($path, 0, -3);
 $badPath = $path . '.bad.json.gz';
 $midiPath = substr($path, 0, -8) . '.mid';
+$musicXmlPath = substr($path, 0, -8) . '.musicxml';
 $pdfPath = substr($path, 0, -8) . '.pdf';
 $wavPath = substr($path, 0, -8) . '.wav';
 expectFiles($screens[0]->widget('exportFormats')->getValue() === ['midi', 'pdf'],
@@ -100,6 +101,12 @@ try {
   $screens[0]->widget('exportFormats')->setValue(['midi']);
   MADSCORE\App\Files::exportSelected(new SPTK\Events\EventContext('activate'));
   expectFiles(!is_file($pdfPath), 'Unselected formats are not exported.');
+  $screens[0]->widget('exportFormats')->setValue(['musicxml']);
+  MADSCORE\App\Files::exportSelected(new SPTK\Events\EventContext('activate'));
+  $musicXml = new DOMDocument();
+  expectFiles($musicXml->load($musicXmlPath, LIBXML_NONET)
+    && $musicXml->documentElement->nodeName === 'score-partwise',
+    'MusicXML can be selected and exported beside the project.');
   $screens[0]->widget('exportFormats')->setValue(['wav']);
   $originalPath = getenv('PATH');
   putenv('PATH=/nonexistent');
@@ -166,7 +173,7 @@ try {
     && MADSCORE\App\Files::currentPath() === null,
     'An invalid selected file leaves the score and current path intact.');
 } finally {
-  foreach ([$path, $legacyPath, $badPath, $midiPath, $pdfPath, $wavPath] as $file) {
+  foreach ([$path, $legacyPath, $badPath, $midiPath, $musicXmlPath, $pdfPath, $wavPath] as $file) {
     if (is_file($file)) {
       unlink($file);
     }

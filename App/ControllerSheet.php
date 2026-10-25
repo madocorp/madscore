@@ -265,7 +265,7 @@ final class ControllerSheet extends ControllerState {
     if ($readout === self::$displayedReadout) {
       return false;
     }
-    Controller::screen('editor')->widget('noteTitle')->setText($title);
+    Controller::screen('editor')->widget('noteTitle')->setText('[T] Note · [C] Composer · [O] Chord');
     Controller::screen('editor')->widget('cursorTitle')->setText($cursorTitle);
     Controller::screen('editor')->widget('cursorLength')->setText($lengthText);
     Controller::screen('editor')->widget('staccato')->setLabel($index === null ? 'Staccato: —'

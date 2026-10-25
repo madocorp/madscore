@@ -3,6 +3,7 @@
 namespace MADSCORE\Render;
 
 use MADSCORE\Play\Drum;
+use MADSCORE\Score\HarmonicContext;
 use MADSCORE\Score\Pitch;
 use MADSCORE\Score\Score;
 
@@ -120,6 +121,10 @@ final class BarPainter {
         }
         $pitch = Pitch::position($note);
         $y = ($octave - $note['octave']) * $height + (11 - $pitch) * $step;
+        $pitchless = in_array($score->melodies[$note['melody']]['pattern'], Drum::NAMES, true);
+        $music = $score->sectionMusic($note['bar']);
+        $outsideScale = !$pitchless && $music !== null
+          && !HarmonicContext::containsNote($music, $note);
         $liftMarks = $printMarks && PdfLayout::noteSize() < 100;
         $markY = $liftMarks ? $y - $step - $markStep * 0.63
           : ($outsideMarks ? $y - $step * 0.8 : $y);
@@ -149,6 +154,10 @@ final class BarPainter {
                 $allowOutsideFigure && ($outsideMarks || $markRight - $markLeft < $step),
                 $printMarks, $liftMarks);
             }
+            if ($outsideScale && $end <= $barEnd) {
+              self::scaleMark($cairo, $context, $x2, min($y, $lastY), $step,
+                $width, $color, $printMarks);
+            }
           }
           continue;
         }
@@ -159,7 +168,6 @@ final class BarPainter {
         $x1 = ($start - $barStart + $offset) * $unit;
         $x2 = ($end - $barStart - $offset) * $unit;
         $blackKey = Pitch::isBlack($pitch);
-        $pitchless = in_array($score->melodies[$note['melody']]['pattern'], Drum::NAMES, true);
         if ($note['length'] === 1) {
           if ($pitchless) {
             self::halfHourglassNote($cairo, $context, $x1, $y, 2 * $step, $color);
@@ -182,6 +190,9 @@ final class BarPainter {
               self::fingerMark($cairo, $context, $edge, $y, $step, $width,
                 (string)$note['finger'], $color, $printMarks);
             }
+          }
+          if ($outsideScale && $end <= $barEnd) {
+            self::scaleMark($cairo, $context, $x2, $y, $step, $width, $color, $printMarks);
           }
           if ($reference !== null && $start >= $barStart) {
             FigurePainter::referenceMark($cairo, $context, $x1 + $step * 0.12,
@@ -211,6 +222,9 @@ final class BarPainter {
             self::fingerMark($cairo, $context, $edge, $y, $step, $width,
               (string)$note['finger'], $color, $printMarks);
           }
+        }
+        if ($outsideScale && $end <= $barEnd) {
+          self::scaleMark($cairo, $context, $x2, $y, $step, $width, $color, $printMarks);
         }
         if ($reference !== null && $start >= $barStart) {
           FigurePainter::referenceMark($cairo, $context, $x1 - $step * 0.65,
@@ -466,6 +480,23 @@ final class BarPainter {
     $cairo->cairo_set_font_size($context, $font);
     $cairo->cairo_move_to($context, $left, $baseline);
     $cairo->cairo_show_text($context, substr($finger, -1));
+    $cairo->cairo_new_path($context);
+    $cairo->cairo_restore($context);
+  }
+
+  /** Place an out-of-scale sign just above the note's right corner. */
+  private static function scaleMark(\FFI $cairo, \FFI\CData $context, float $x, float $y,
+    float $step, int $tileWidth, string $color, bool $print = false): void {
+    $font = $print ? PdfLayout::markFontSize() : max(14, $step * 1.35);
+    $textWidth = $font * 0.45;
+    $left = max(1, min($tileWidth - $textWidth - 1, $x + $step * 0.5));
+    $baseline = $y - $step * 0.85;
+    $cairo->cairo_save($context);
+    self::source($cairo, $context, $color);
+    $cairo->cairo_select_font_face($context, 'Sans', 0, 1);
+    $cairo->cairo_set_font_size($context, $font);
+    $cairo->cairo_move_to($context, $left, $baseline);
+    $cairo->cairo_show_text($context, '!');
     $cairo->cairo_new_path($context);
     $cairo->cairo_restore($context);
   }

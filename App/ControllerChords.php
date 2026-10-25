@@ -15,12 +15,9 @@ use SPTK\Widgets\Input\Input;
 /** Chord settings, placement, and rerolls. */
 final class ControllerChords extends ControllerState {
   private static string $chordMode = 'separate';
-  /** Use the motif's key or the current score section's explicit key. */
+  /** Use the key of the section under the cursor. */
   public static function currentMusic(): ?array {
-    if (self::$activeItemId === 'main') {
-      return self::$score->sectionMusic(self::$bar);
-    }
-    return self::$score->sectionMusic(0);
+    return self::$score->sectionMusic(self::$bar);
   }
 
   /** Chord choices belong to one motif or one main-score section. */
@@ -248,8 +245,7 @@ final class ControllerChords extends ControllerState {
         $anchor, self::$melody, $settings['degree'], $settings['inversion'],
         replaceId: $existing['id'] ?? null,
         mode: $settings['mode'] ?? 'separate');
-      $next->setSectionMusic(self::$activeItemId === 'main' ? self::$bar : 0,
-        $settings['music']);
+      $next->setSectionMusic(self::$bar, $settings['music']);
     } catch (\DomainException $error) {
       ControllerNavigation::status($error->getMessage());
       return false;

@@ -39,18 +39,34 @@ $window = (new ReflectionClass(SPTK\Core\Window::class))->newInstanceWithoutCons
 $install = new ReflectionMethod(MADSCORE\App\ControllerSheet::class, 'installSheet');
 $install->invoke(null, 'editor');
 $sheet = (new ReflectionProperty(MADSCORE\App\Controller::class, 'sheets'))->getValue()['editor'];
+(new ReflectionProperty(MADSCORE\App\Controller::class, 'sheet'))->setValue(null, $sheet);
 $editor = $window->screen('editor');
 $editor->measureGrid(new SPTK\Layout\Tile(0, 0, 120, 38));
 $tempo = $editor->layout->findTile('tempo');
 $tempo->instance()->setValue('120');
 $editor->selectLeaf($tempo);
+expectEditorFocus($editor->navigationDepth() === 1,
+  'Selecting a Bar field enters its grouped tile.');
 expectEditorFocus($editor->activeLeaf() === null, 'Selecting a field leaves the screen in navigation mode.');
 expectEditorFocus($editor->handleEvent(editorEscape()), 'Escape is handled in editor navigation mode.');
-expectEditorFocus($editor->activeLeaf() === $sheet, 'Escape activates the sheet editor.');
+expectEditorFocus($editor->activeLeaf() === $sheet && $editor->navigationDepth() === 0,
+  'Escape from a box returns directly to score editing.');
+$editor->handleEvent(editorEscape());
+expectEditorFocus($editor->activeLeaf() === null && $editor->selectedLeaf() === $sheet,
+  'Escape on the score opens outer tile navigation.');
+expectEditorFocus($editor->handleEvent(editorArrow(SDL::KEY_DOWN))
+  && $editor->selectedLeaf()?->instance()?->id() === 'barBox',
+  'Outer navigation moves from the score to a whole settings box.');
+expectEditorFocus($editor->handleEvent(editorArrow(SDL::KEY_RETURN))
+  && $editor->selectedLeaf() === $tempo && $editor->navigationDepth() === 1,
+  'Return enters the Bar box at its first control.');
+$editor->handleEvent(editorEscape());
+expectEditorFocus($editor->activeLeaf() === $sheet, 'Escape after entering a box resumes the score.');
 $editor->release();
 $editor->activateLeaf($tempo);
 $editor->handleEvent(editorEscape());
 expectEditorFocus($editor->activeLeaf() === null, 'Escape from an active field releases it without reactivating the sheet.');
+expectEditorFocus($editor->navigationDepth() === 1, 'Releasing an input keeps its box open.');
 expectEditorFocus(!$editor->handleEvent(editorText('_')) && $editor->activeLeaf() === null,
   'Underscore has no Cursor panel shortcut in navigation mode.');
 $editor->activateLeaf($sheet);
@@ -75,19 +91,46 @@ expectEditorFocus($editor->handleEvent((object)['type' => SDL::SDL_EVENT_KEY_DOW
 $cursor = $editor->widget('cursorBox');
 expectEditorFocus($cursor !== null && !$cursor->canActivate(),
   'Cursor is one selectable readout tile without an action.');
+$editor->selectLeaf($editor->layout->findTile('sound'));
+expectEditorFocus($editor->handleEvent((object)['type' => SDL::SDL_EVENT_KEY_DOWN,
+    'key' => (object)['key' => ord('r'), 'mod' => 0, 'repeat' => false]])
+  && $editor->selectedLeaf() === $tempo && $editor->navigationDepth() === 1,
+  'R jumps from Melody to a Bar field.');
+expectEditorFocus($editor->handleEvent((object)['type' => SDL::SDL_EVENT_KEY_DOWN,
+    'key' => (object)['key' => ord('y'), 'mod' => 0, 'repeat' => false]])
+  && $editor->selectedLeaf()?->instance()?->id() === 'sound',
+  'Y jumps from Bar to a Melody field.');
+expectEditorFocus($editor->show('soundPicker')
+  && $editor->selectedLeaf()?->instance()?->id() === 'soundPicker',
+  'The sound picker opens from inside the Melody box.');
+$editor->restore('soundPicker');
+expectEditorFocus($editor->selectedLeaf()?->instance()?->id() === 'sound'
+  && $editor->navigationDepth() === 1,
+  'Closing the sound picker returns to the Melody box.');
+$editor->handleEvent((object)['type' => SDL::SDL_EVENT_KEY_DOWN,
+  'key' => (object)['key' => ord('t'), 'mod' => 0, 'repeat' => false]]);
+expectEditorFocus($editor->selectedLeaf()?->instance()?->id() === 'staccato',
+  'T jumps from Melody to a Note control.');
 $editor->selectLeaf($editor->layout->findTile('finger'));
+expectEditorFocus($editor->handleEvent(editorArrow(SDL::KEY_RIGHT))
+  && $editor->layout->findTile('noteBox')->pathTo($editor->selectedLeaf()) !== null,
+  'Arrows inside Note stay inside its box.');
+$editor->handleEvent(editorEscape());
+expectEditorFocus($editor->activeLeaf() === $sheet, 'Escape from Note returns to editing.');
+$editor->handleEvent(editorEscape());
+$editor->selectLeaf($editor->layout->findTile('noteBox')->leaves(true)[0]);
 expectEditorFocus($editor->handleEvent(editorArrow(SDL::KEY_RIGHT))
   && $editor->selectedLeaf()?->instance() === $cursor,
   'Right from Note selects the Cursor tile.');
 expectEditorFocus($editor->handleEvent(editorArrow(SDL::KEY_RIGHT))
-  && $editor->selectedLeaf()?->instance()?->id() === 'saveButton',
+  && $editor->selectedLeaf()?->instance()?->id() === 'actionsBox',
   'Right from Cursor selects Actions.');
 expectEditorFocus($editor->handleEvent(editorArrow(SDL::KEY_LEFT))
   && $editor->selectedLeaf()?->instance() === $cursor,
   'Left from Actions returns to Cursor.');
 expectEditorFocus($editor->handleEvent(editorArrow(SDL::KEY_LEFT))
-  && $editor->layout->findTile('noteBox')->pathTo($editor->selectedLeaf()) !== null,
-  'Left from Cursor returns to Note controls.');
+  && $editor->selectedLeaf()?->instance()?->id() === 'noteBox',
+  'Left from Cursor returns to Note as one tile.');
 $editor->show('savePanel');
 expectEditorFocus($editor->layout->findTile('savePanel')->overwriting() === $editor->layout->findTile('noteBox')
   && $editor->selectedLeaf()?->instance()?->id() === 'saveDirectory',

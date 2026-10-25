@@ -93,9 +93,25 @@ try {
   $motifState['cursor']['pitch'] = 4;
   $motifState['firstBar'] = 0;
   $motifState['selection'] = null;
+  $motifState['itemCursors'][$motifId] = $motifState['cursor'];
   $restore->invoke(null, $motifState);
   expectSession($capture->invoke(null) === $motifState,
     'The session restores the active motif and its separate score.');
+  $legacyCursors = $motifState;
+  unset($legacyCursors['itemCursors']);
+  $restore->invoke(null, $legacyCursors);
+  expectSession($capture->invoke(null)['itemCursors'][$motifId] === $motifState['cursor'],
+    'Older sessions seed the active item cursor.');
+  $restore->invoke(null, $motifState);
+  $invalidItemCursor = $motifState;
+  $invalidItemCursor['itemCursors']['main']['bar'] = 99;
+  try {
+    $restore->invoke(null, $invalidItemCursor);
+    throw new \RuntimeException('An invalid inactive cursor was accepted.');
+  } catch (\DomainException) {
+    expectSession($capture->invoke(null) === $motifState,
+      'An invalid inactive cursor leaves the current session intact.');
+  }
   $restore->invoke(null, $state);
   file_put_contents($path, '{broken');
   MADSCORE\App\Session::backupInvalid($path);

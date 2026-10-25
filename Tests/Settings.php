@@ -27,7 +27,7 @@ try {
     && is_file(APP_DIR . '/Tristaff/index.html'),
     'The Settings tutorial shortcut points to the bundled guide.');
   $pages = ['index.html', '01-why.html', '02-pitch.html', '03-time.html',
-    '04-octaves.html', '05-marks.html', '06-phrase.html'];
+    '04-octaves.html', '05-marks.html', '06-ornaments.html', '07-phrase.html'];
   $figures = [];
   foreach ($pages as $page) {
     $guide = file_get_contents(APP_DIR . '/Tristaff/' . $page);
@@ -40,7 +40,7 @@ try {
     preg_match_all('/<img src="(graphics\/[^"]+\.png)"/', $guide, $images);
     array_push($figures, ...$images[1]);
   }
-  expectSettings(count(array_unique($figures)) === 17, 'Every notation example uses a generated image.');
+  expectSettings(count(array_unique($figures)) === 22, 'Every notation example uses a generated image.');
   foreach ($figures as $figure) {
     expectSettings(getimagesize(APP_DIR . '/Tristaff/' . $figure) !== false,
       'The tutorial image exists and is readable: ' . $figure);

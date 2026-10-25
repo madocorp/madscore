@@ -364,6 +364,7 @@ final class RangeEdit {
         $next['sectionLeader'] = false;
         $next['repeats'] = 0;
         $next['note'] = '';
+        unset($next['music'], $next['motifVersion']);
         $bars[] = $next;
       }
       $length = 2 * $bars[$bar]['beats'];

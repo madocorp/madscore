@@ -2,6 +2,7 @@
 
 namespace MADSCORE\App;
 
+use MADSCORE\Score\HarmonicContext;
 use MADSCORE\Score\MotifScoreGenerator;
 use MADSCORE\Score\MotifArrangement;
 use MADSCORE\Score\Score;
@@ -84,11 +85,16 @@ final class ControllerComposer extends ControllerState {
     self::$composerListOpen = false;
     self::$composerGenerateOpen = false;
     self::$composerChoiceOpen = null;
+    self::$composerKeyOpen = false;
+    self::$composerKeyChoiceOpen = null;
     self::$motifVersionPickerOpen = false;
     self::$motifVersionAlgorithm = null;
     $screen = Controller::screen('editor');
     $changed = $screen->restore('composerItems');
     $changed = $screen->restore('composerGeneratePanel') || $changed;
+    $changed = $screen->restore('sectionScalePicker') || $changed;
+    $changed = $screen->restore('sectionHomeNotePicker') || $changed;
+    $changed = $screen->restore('sectionKeyPanel') || $changed;
     $changed = $screen->restore('motifVersionPicker') || $changed;
     $changed = $screen->restore('motifVersionParams') || $changed;
     $changed = $screen->restore('composerScalePicker') || $changed;
@@ -104,6 +110,14 @@ final class ControllerComposer extends ControllerState {
   }
 
   public static function closeComposerShortcut(EventContext $event): bool {
+    if (self::$composerKeyChoiceOpen !== null) {
+      self::cancelSectionKeyChoice();
+      return true;
+    }
+    if (self::$composerKeyOpen) {
+      self::cancelSectionKey();
+      return true;
+    }
     if (self::$motifVersionPickerOpen || self::$motifVersionAlgorithm !== null) {
       ControllerMotifGeneration::cancelMotifVersion();
       return true;
@@ -210,17 +224,146 @@ final class ControllerComposer extends ControllerState {
 
   public static function composerFocused(): bool {
     if (!self::$composerOpen || self::$composerListOpen || self::$composerChoiceOpen !== null
+      || self::$composerKeyOpen
       || self::$motifVersionPickerOpen || self::$motifVersionAlgorithm !== null) {
       return false;
     }
     $leaf = Controller::screen('editor')->selectedLeaf();
     return $leaf !== null && in_array($leaf->instance()->id(), [
-      'scoreToMotif', 'scoreBuild',
+      'scoreToMotif', 'scoreBuild', 'scoreSectionKey',
       'composerToScore', 'composerItem', 'composerOpenGenerate', 'composerBeats',
       'composerNotes', 'composerType', 'composerScale', 'composerHomeNote', 'composerGenerate',
-      'composerAddVersion',
+      'composerAddVersion', 'motifSectionKey',
       'scorePattern',
     ], true);
+  }
+
+  /** Open the key editor at the cursor bar in either project item. */
+  public static function showSectionKey(EventContext $event): void {
+    if (!self::composerFocused()) {
+      return;
+    }
+    self::saveScorePattern();
+    self::$composerKeyBar = self::$bar;
+    $music = self::$score->sectionMusic(self::$bar);
+    self::$composerKeyScale = $music['scale'] ?? 'Major';
+    self::$composerKeyHomeNote = $music['homeNote'] ?? 'C';
+    $screen = Controller::screen('editor');
+    $screen->widget('sectionKeyTitle')->setText('Key from bar ' . (self::$bar + 1));
+    self::refreshSectionKeyChoices();
+    $screen->restore(self::composerPanelId());
+    self::$composerKeyOpen = true;
+    $screen->show('sectionKeyPanel');
+    self::$window->refreshLayout();
+  }
+
+  private static function refreshSectionKeyChoices(): void {
+    $screen = Controller::screen('editor');
+    $screen->widget('sectionKeyScale')->setLabel('Scale: ' . self::$composerKeyScale);
+    $screen->widget('sectionKeyHomeNote')->setLabel('Home note: ' . self::$composerKeyHomeNote);
+  }
+
+  private static function showSectionKeyChoice(string $choice): void {
+    if (!self::$composerKeyOpen || self::$composerKeyChoiceOpen !== null) {
+      return;
+    }
+    $screen = Controller::screen('editor');
+    $id = $choice === 'scale' ? 'sectionScalePicker' : 'sectionHomeNotePicker';
+    $screen->widget($id)->setValue($choice === 'scale'
+      ? self::$composerKeyScale : self::$composerKeyHomeNote);
+    $screen->restore('sectionKeyPanel');
+    self::$composerKeyChoiceOpen = $choice;
+    $screen->show($id);
+    self::$window->refreshLayout();
+  }
+
+  public static function showSectionScalePicker(EventContext $event): void {
+    self::showSectionKeyChoice('scale');
+  }
+
+  public static function showSectionHomeNotePicker(EventContext $event): void {
+    self::showSectionKeyChoice('homeNote');
+  }
+
+  private static function cancelSectionKeyChoice(): void {
+    if (self::$composerKeyChoiceOpen === null) {
+      return;
+    }
+    $screen = Controller::screen('editor');
+    $choice = self::$composerKeyChoiceOpen;
+    self::$composerKeyChoiceOpen = null;
+    $screen->restore($choice === 'scale'
+      ? 'sectionScalePicker' : 'sectionHomeNotePicker');
+    $screen->show('sectionKeyPanel');
+    self::$window->refreshLayout();
+  }
+
+  public static function acceptSectionScale(EventContext $event): void {
+    if (self::$composerKeyChoiceOpen !== 'scale') {
+      return;
+    }
+    $value = Controller::screen('editor')->widget('sectionScalePicker')->activeValue();
+    if (is_string($value) && isset(MotifScoreGenerator::SCALES[$value])) {
+      self::$composerKeyScale = $value;
+      self::refreshSectionKeyChoices();
+      self::cancelSectionKeyChoice();
+    }
+  }
+
+  public static function acceptSectionHomeNote(EventContext $event): void {
+    if (self::$composerKeyChoiceOpen !== 'homeNote') {
+      return;
+    }
+    $value = Controller::screen('editor')->widget('sectionHomeNotePicker')->activeValue();
+    if (is_string($value) && isset(MotifScoreGenerator::HOME_NOTES[$value])) {
+      self::$composerKeyHomeNote = $value;
+      self::refreshSectionKeyChoices();
+      self::cancelSectionKeyChoice();
+    }
+  }
+
+  /** Change the key from the chosen bar; one history step can undo the choice. */
+  private static function applySectionKey(?array $music): void {
+    self::$score->setSectionMusic(self::$composerKeyBar, $music);
+    self::$history?->observe(self::$score);
+  }
+
+  public static function setSectionKey(EventContext $event): void {
+    if (!self::$composerKeyOpen || self::$composerKeyChoiceOpen !== null) {
+      return;
+    }
+    self::applySectionKey(HarmonicContext::validate([
+      'scale' => self::$composerKeyScale, 'homeNote' => self::$composerKeyHomeNote]));
+    self::finishSectionKey();
+  }
+
+  public static function clearSectionKey(EventContext $event): void {
+    if (!self::$composerKeyOpen || self::$composerKeyChoiceOpen !== null) {
+      return;
+    }
+    self::applySectionKey(null);
+    self::finishSectionKey();
+  }
+
+  private static function finishSectionKey(): void {
+    ControllerSheet::refreshSelectedBarFields();
+    ControllerMotifGeneration::refreshContextHeader();
+    ControllerSheet::invalidateSheet();
+    self::cancelSectionKey();
+  }
+
+  public static function cancelSectionKey(?EventContext $event = null): void {
+    if (!self::$composerKeyOpen) {
+      return;
+    }
+    $screen = Controller::screen('editor');
+    $screen->restore('sectionScalePicker');
+    $screen->restore('sectionHomeNotePicker');
+    $screen->restore('sectionKeyPanel');
+    self::$composerKeyChoiceOpen = null;
+    self::$composerKeyOpen = false;
+    $screen->show(self::composerPanelId());
+    self::$window->refreshLayout();
   }
 
   private static function refreshComposerChoices(): void {

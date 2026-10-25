@@ -5,7 +5,7 @@ madscore is an SPTK score editor for the Tristaff notation method.
 ## Requirements
 
 - Linux with a graphical desktop session and PHP 8.2 or newer on the command
-  line. Enable FFI, XMLReader, mbstring, and PCNTL. GD is needed for non-PNG
+  line. Enable FFI, DOM, XMLReader, mbstring, PCNTL, and ZIP. GD is needed for non-PNG
   images handled by SPTK.
 - [SPTK](https://github.com/madocorp/SPTK), with SDL3 and SDL3_ttf installed
   as described in its installation instructions. SDL3_ttf also needs FreeType
@@ -20,7 +20,7 @@ Check the PHP version and extensions with:
 
 ```sh
 php --version
-php -m | grep -Ei '^(FFI|xmlreader|mbstring|pcntl|gd)$'
+php -m | grep -Ei '^(FFI|dom|xmlreader|mbstring|pcntl|zip|gd)$'
 ```
 
 Install missing PHP extensions and native libraries with your system's package
@@ -75,9 +75,16 @@ sheet and the controls.
 - **Ctrl+S** saves a compressed `.json.gz` project, **Ctrl+O** loads one, and
   **Ctrl+W** overwrites the current file. The Load panel also has **New** for an
   empty score; save it with **Ctrl+S** before using **Ctrl+W**. After saving,
-  **Ctrl+E** opens the export list. Use **Space** to select MIDI, PDF, and WAV, then
+  **Ctrl+E** opens the export list. Use **Space** to select MIDI, MusicXML, PDF, and WAV, then
   choose **Export selected** to write those files beside the saved project.
   WAV uses FluidSynth and a SoundFont when available, falling back to the built-in sound.
+  MusicXML exports visible pitched melodies with notes, rests, and key signatures,
+  choosing treble or bass clef for each melody's range.
+  The Load panel also imports `.musicxml`, `.xml`, and compressed `.mxl` files as
+  new unnamed scores. Basic import preserves pitches, chords, rests, ties, keys,
+  meter, and bar-aligned tempo changes. It reports omitted notation marks before
+  replacing the current score. Dense rhythms that exceed MadScore's bar or note
+  limits are reported rather than shortened.
 - **V** opens the PDF preview. Use **+/-** to zoom, arrows to scroll, and **B/N**
   to turn pages. In the preview, **U/J** increase/decrease PDF note size and
   **H/K** decrease/increase beat width in 5% steps. Note size also changes staff height;
@@ -114,6 +121,10 @@ JSON.
 
 Run `php Tests/run.php` for the main score checks. Other focused checks are in
 `Tests/`, for example `php Tests/Settings.php` and `php Tests/Midi.php`.
+Run `php Tests/MusicXml.php` for MusicXML content checks. If LilyPond is installed,
+run `php Tests/MusicXmlInterop.php` to convert and compile an exported score with
+`musicxml2ly` and `lilypond`.
+Run `php Tests/MusicXmlImport.php` for MusicXML import and timing checks.
 
 ## License
 

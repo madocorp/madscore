@@ -34,10 +34,13 @@ final class Controller extends ControllerState {
     self::$composerListOpen = false;
     self::$composerGenerateOpen = false;
     self::$composerChoiceOpen = null;
+    self::$composerKeyOpen = false;
+    self::$composerKeyChoiceOpen = null;
     self::$composerGenerateTarget = 0;
     self::$motifVersionPickerOpen = false;
     self::$motifVersionAlgorithm = null;
     self::$recentMotifId = null;
+    self::$itemCursors = [];
     self::$pendingBuiltScore = null;
     $restoreWarning = null;
     try {
@@ -101,18 +104,12 @@ final class Controller extends ControllerState {
   private static function sessionState(): array {
     ControllerComposer::saveScorePattern();
     self::$project->setScore(self::$activeItemId, self::$score);
+    self::$itemCursors[self::$activeItemId] = ControllerNoteEditing::cursorState();
     return [
       'project' => self::$project->data(),
       'activeItemId' => self::$activeItemId,
-      'cursor' => [
-        'bar' => self::$bar,
-        'slot' => self::$slot,
-        'octave' => self::$octave,
-        'melody' => self::$melody,
-        'length' => self::$cursorLength,
-        'lengthExplicit' => self::$cursorLengthExplicit,
-        'pitch' => self::$pitchPosition,
-      ],
+      'cursor' => self::$itemCursors[self::$activeItemId],
+      'itemCursors' => self::$itemCursors,
       'firstBar' => self::$firstBar,
       'firstRow' => self::$firstRow,
       'previewPage' => self::$previewPage,
@@ -137,6 +134,16 @@ final class Controller extends ControllerState {
       throw new \DomainException('The previous editor item is invalid.');
     }
     $score = $project->score($activeItemId);
+    $itemCursors = $state['itemCursors'] ?? [];
+    if (!is_array($itemCursors)) {
+      throw new \DomainException('The previous item cursors are invalid.');
+    }
+    foreach ($itemCursors as $id => $position) {
+      if (!is_string($id) || !is_array($position)) {
+        throw new \DomainException('The previous item cursors are invalid.');
+      }
+      ControllerNoteEditing::validateCursorState($position, $project->score($id));
+    }
     $cursor = $state['cursor'];
     $bar = $cursor['bar'] ?? null;
     $slot = $cursor['slot'] ?? null;
@@ -213,6 +220,8 @@ final class Controller extends ControllerState {
     self::$project = $project;
     self::$activeItemId = $activeItemId;
     self::$recentMotifId = $activeItemId === 'main' ? null : $activeItemId;
+    self::$itemCursors = $itemCursors;
+    self::$itemCursors[$activeItemId] = $cursor;
     self::$bar = $bar;
     self::$slot = $slot;
     self::$octave = $octave;

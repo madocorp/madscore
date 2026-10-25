@@ -46,6 +46,26 @@ $old->scoreDynamics = $built->scoreDynamics;
 $history->observe($old);
 expectArrangement($history->undo($old) && count($old->bars) === 1
   && count($old->notes) === 1, 'One undo restores the replaced main score.');
+$keyed = new Project();
+$keyA = $keyed->create();
+$keyB = $keyed->create();
+$aScore = $keyed->score($keyA);
+$aScore->place(0, 0, 0, 4, 4, 2);
+$aScore->setSectionMusic(0, ['scale' => 'Major', 'homeNote' => 'C']);
+$keyed->setScore($keyA, $aScore);
+$bScore = $keyed->score($keyB);
+$bScore->place(0, 0, 0, 4, 6, 2);
+$bScore->setSectionMusic(0, ['scale' => 'Minor', 'homeNote' => 'A']);
+$keyed->setScore($keyB, $bScore);
+$mixed = MotifArrangement::build($keyed, 'A | A B');
+expectArrangement($mixed->sectionMusic(0) === $aScore->sectionMusic(0)
+  && $mixed->sectionMusic(1) === null
+  && array_key_exists('music', $mixed->bars[1]),
+  'A mixed-key pattern section explicitly clears the preceding section’s key.');
+$same = MotifArrangement::build($keyed, 'A | A');
+expectArrangement($same->sectionMusic(1) === $aScore->sectionMusic(0)
+  && !array_key_exists('music', $same->bars[1]),
+  'Repeated pattern keys retain only the first change.');
 foreach (['A2', 'Z', 'A |', 'A || B', '123'] as $invalid) {
   try {
     MotifArrangement::build($project, $invalid);

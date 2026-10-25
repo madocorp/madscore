@@ -7,6 +7,7 @@ use MADSCORE\Render\PdfLayout;
 use MADSCORE\Score\MelodyRange;
 use SPTK\App;
 use SPTK\Events\EventContext;
+use SPTK\Events\KeyNormalizer;
 use SPTK\Layout\LayoutLeaf;
 
 /** Cursor navigation, melodies, views, and settings. */
@@ -262,6 +263,21 @@ final class ControllerNavigation extends ControllerState {
     if ($leaf instanceof LayoutLeaf) {
       Controller::screen('editor')->selectLeaf($leaf);
     }
+  }
+
+  /** Let box shortcuts jump directly to a field in another grouped tile. */
+  public static function selectSettingsShortcut(EventContext $event): bool {
+    if ($event->input->key->repeat || Controller::screen('editor')->activeLeaf() !== null) {
+      return false;
+    }
+    $field = match (KeyNormalizer::keyName((int)$event->input->key->key, 0)) {
+      'r' => 'tempo', 'y' => 'sound', 't' => 'staccato', default => null,
+    };
+    if ($field === null) {
+      return false;
+    }
+    self::selectSettings($field);
+    return true;
   }
 
   /** Run the editor's visible buttons through the same commands as its shortcuts. */

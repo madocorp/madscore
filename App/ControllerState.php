@@ -64,6 +64,11 @@ abstract class ControllerState {
   protected static bool $composerListOpen = false;
   protected static bool $composerGenerateOpen = false;
   protected static ?string $composerChoiceOpen = null;
+  protected static bool $composerKeyOpen = false;
+  protected static ?string $composerKeyChoiceOpen = null;
+  protected static string $composerKeyScale = 'Major';
+  protected static string $composerKeyHomeNote = 'C';
+  protected static int $composerKeyBar = 0;
   protected static bool $motifVersionPickerOpen = false;
   protected static ?string $motifVersionAlgorithm = null;
   protected static int $motifVersionSource = 0;
@@ -72,6 +77,8 @@ abstract class ControllerState {
   protected static string $composerTypeSelection = 'random-step';
   protected static int $composerGenerateTarget = 0;
   protected static ?string $recentMotifId = null;
+  /** @var array<string, array<string, int|bool>> */
+  protected static array $itemCursors = [];
   protected static ?Score $pendingBuiltScore = null;
 
 }

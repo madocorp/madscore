@@ -8,12 +8,16 @@ require APP_DIR . '/SPTK/App.php';
 use MADSCORE\Render\BarPainter;
 use MADSCORE\Render\Cairo;
 use MADSCORE\Render\DynamicPainter;
+use MADSCORE\Render\FigurePainter;
+use MADSCORE\Render\FigureAppendix;
+use MADSCORE\Render\FigureCatalog;
 use MADSCORE\Render\Prescription;
 use MADSCORE\Render\RepeatPainter;
 use MADSCORE\Render\SectionPainter;
 use MADSCORE\Render\SlurPainter;
 use MADSCORE\Render\TempoPainter;
 use MADSCORE\Score\Score;
+use MADSCORE\Score\Project;
 
 /** Rebuild the tutorial's notation images with madscore's own painters. */
 final class TutorialFigures {
@@ -37,6 +41,11 @@ final class TutorialFigures {
     self::render('fermata', 260, 205, self::drawFermata(...));
     self::render('trill', 260, 205, self::drawTrill(...));
     self::render('double-trill', 260, 205, self::drawDoubleTrill(...));
+    self::render('trill-down', 260, 205, self::drawTrillDown(...));
+    self::render('double-trill-down', 260, 205, self::drawDoubleTrillDown(...));
+    self::render('ornament', 920, 420, self::drawOrnament(...));
+    self::render('tuplet', 920, 420, self::drawTuplet(...));
+    self::render('appendix-formats', 920, 760, self::drawAppendixFormats(...));
     self::render('glissando', 260, 205, self::drawGlissando(...));
     self::render('crescendo', 420, 220, self::drawCrescendo(...));
     self::render('decrescendo', 420, 220, self::drawDecrescendo(...));
@@ -207,6 +216,82 @@ final class TutorialFigures {
     $note = $score->place(0, 0, 2, 4, 4, 2);
     $score->setTrill($note, 2);
     self::bar($cairo, $context, $score, 4, 10, 25, 240, 160);
+  }
+
+  /** Show the two downward alternatives with the same score renderer. */
+  private static function drawTrillDown(\FFI $cairo, \FFI\CData $context): void {
+    $score = self::score();
+    $note = $score->place(0, 0, 2, 4, 4, 2);
+    $score->setTrill($note, -1);
+    self::bar($cairo, $context, $score, 4, 10, 25, 240, 160);
+  }
+
+  private static function drawDoubleTrillDown(\FFI $cairo, \FFI\CData $context): void {
+    $score = self::score();
+    $note = $score->place(0, 0, 2, 4, 4, 2);
+    $score->setTrill($note, -2);
+    self::bar($cairo, $context, $score, 4, 10, 25, 240, 160);
+  }
+
+  /** Compare one ornament reference with the notes represented by motif A. */
+  private static function drawOrnament(\FFI $cairo, \FFI\CData $context): void {
+    $written = self::score();
+    $written->setBeats(0, 3);
+    $note = $written->place(0, 0, 0, 3, 4, 6);
+    $written->setFigure($note, ['type' => 'ornament', 'motif' => 'A']);
+    self::bar($cairo, $context, $written, 3, 90, 25, 740, 160);
+    FigurePainter::referenceMark($cairo, $context, 120, 800, 25 + 7 * 160 / 12,
+      160 / 12, ['number' => 1], self::COLOR, false);
+
+    $expanded = self::score();
+    $expanded->setBeats(0, 3);
+    $expanded->place(0, 0, 0, 3, 4, 2);
+    $expanded->place(0, 0, 2, 3, 6, 2);
+    $expanded->place(0, 0, 4, 3, 4, 2);
+    self::bar($cairo, $context, $expanded, 3, 90, 225, 740, 160);
+  }
+
+  /** Show a simple tuplet whose final pitch changes its written outline. */
+  private static function drawTuplet(\FFI $cairo, \FFI\CData $context): void {
+    $written = self::score();
+    $written->setBeats(0, 3);
+    $note = $written->place(0, 0, 0, 3, 4, 6);
+    $written->setFigure($note, ['type' => 'tuplet', 'middle' => 2, 'last' => 4]);
+    self::bar($cairo, $context, $written, 3, 90, 25, 740, 160);
+
+    $expanded = self::score();
+    $expanded->setBeats(0, 3);
+    $expanded->place(0, 0, 0, 3, 4, 2);
+    $expanded->place(0, 0, 2, 3, 6, 2);
+    $expanded->place(0, 0, 4, 3, 8, 2);
+    self::bar($cairo, $context, $expanded, 3, 90, 225, 740, 160);
+  }
+
+  /** Reuse the printed appendix painter for its relative and absolute panels. */
+  private static function drawAppendixFormats(\FFI $cairo, \FFI\CData $context): void {
+    $project = new Project();
+    $id = $project->create();
+    $motif = new Score();
+    $motif->setBeats(0, 3);
+    $motif->place(0, 0, 0, 3, 4, 2);
+    $motif->place(0, 0, 2, 3, 6, 2);
+    $motif->place(0, 0, 4, 3, 4, 2);
+    $project->setScore($id, $motif);
+
+    $score = new Score();
+    $ornament = $score->place(0, 0, 0, 3, 4, 2);
+    $tuplet = $score->place(0, 0, 2, 3, 4, 2);
+    $score->setFigure($ornament, ['type' => 'ornament', 'motif' => $id]);
+    $score->setFigure($tuplet, ['type' => 'tuplet', 'motif' => $id]);
+    $project->setScore('main', $score);
+    $tile = FigureAppendix::pages(new FigureCatalog($score, $project))[0][0];
+    $scale = min(2.0, 880 / $tile['spec']['width'], 720 / $tile['spec']['height']);
+    $tile['x'] = (920 / $scale - $tile['spec']['width']) / 2;
+    $tile['y'] = (760 / $scale - $tile['spec']['height']) / 2;
+    $cairo->cairo_save($context);
+    $cairo->cairo_scale($context, $scale, $scale);
+    FigureAppendix::drawTiles($cairo, $context, [$tile]);
+    $cairo->cairo_restore($context);
   }
 
   private static function drawCrescendo(\FFI $cairo, \FFI\CData $context): void {

@@ -18,6 +18,13 @@ G♯, including both endpoints.
 
 ## Notes and navigation
 
+On the score sheet, **Esc** opens tile navigation. The Bar, Melody, Note, and
+Actions boxes each act as one tile: use arrows to select a box and **Return** to
+enter its controls. **Esc** from a box returns to score editing. While navigating
+inside a box, **R**, **Y**, and **T** jump to Bar, Melody, and Note controls.
+When editing a text field, the first **Esc** finishes the field and the next
+returns to the score.
+
 Each octave has twelve equally spaced pitch positions. The three staff lines
 cross A♯, D, and F♯. White piano keys use hollow note heads; black keys use
 filled ones. Time has two positions per beat. A round note lasts one beat, a
@@ -64,8 +71,14 @@ the motif ID, an editable name, and its scale and home note. Activate the motif
 row labeled **Current motif** to choose another motif or **Create new item**.
 **Esc** cancels the list and **Return** loads the selected item. Below the
 current motif, **S** returns to the main score, **G** opens generation settings,
-and **V** opens the version picker. **Esc** returns from generation or version
-settings to the motif tile; from there it closes Composer and returns to the
+**V** opens the version picker, and **K** edits the key from the current bar.
+The main score's Composer tile also has a **Key** button beside Motif editor
+and Build score. Choose a scale and home note, then select **Set key**;
+**Clear key** removes both choices from this bar onward. A key lasts until the
+next different key or clear change, even across section boundaries. Repeating
+the active key does not add another change. Key edits can be undone with **Ctrl+Z**.
+**Esc** returns from the key tile, generation, or version settings to the motif
+tile; from there it closes Composer and returns to the
 Note tile.
 
 In the main score's Composer tile, replace the help text with motif references
@@ -291,9 +304,13 @@ A4). Octave symbols are half a note head at normal size; as notes shrink, they
 can grow relative to the note head but never exceed it.
 When PDF note size is below 100%, note marks appear above their notes at the
 same horizontal position. Fingering digits stay at the lower note corners.
+When a key is active, an exclamation mark above the right corner identifies
+each pitched note outside its scale. The mark is omitted when no key is active.
 
-The current score, cursor, selection, and visible bar position are restored
-from `~/.madscore/session.json` when the app starts again. Settings stores its
+The current score, selection, visible bar position, and each score or motif's
+cursor are restored from `~/.madscore/session.json` when the app starts again.
+Switching between the score and motifs also returns to each item's last cursor
+position. Settings stores its
 default directory as it is edited. The first file selector starts there, or
 in `~/Music` when no directory is set; later selectors remember the last
 directory browsed. Press **F1** from the editor to open Settings and **F1**

@@ -105,6 +105,9 @@ final class ControllerNoteEditing extends ControllerState {
   }
 
   public static function loadProject(Project $project, string $itemId = 'main'): void {
+    if (isset(self::$project) && self::$project === $project) {
+      self::$itemCursors[self::$activeItemId] = self::cursorState();
+    }
     self::$pendingDeleteMelody = null;
     self::$pendingBuiltScore = null;
     self::$composerOpen = false;
@@ -116,12 +119,15 @@ final class ControllerNoteEditing extends ControllerState {
     self::$composerListOpen = false;
     self::$composerGenerateOpen = false;
     self::$composerChoiceOpen = null;
+    self::$composerKeyOpen = false;
+    self::$composerKeyChoiceOpen = null;
     self::$composerGenerateTarget = 0;
     self::$motifVersionPickerOpen = false;
     self::$motifVersionAlgorithm = null;
     if (!isset(self::$project) || self::$project !== $project) {
       self::$recentMotifId = null;
       self::$lastChordSettings = [];
+      self::$itemCursors = [];
     }
     if (self::$playbackMode !== null) {
       App::audio()->stopMusic();
@@ -143,6 +149,21 @@ final class ControllerNoteEditing extends ControllerState {
     self::$cursorLengthExplicit = false;
     self::$lastCursorEndBar = 0;
     self::$pitchPosition = 4;
+    if (isset(self::$itemCursors[$itemId])) {
+      $cursor = self::$itemCursors[$itemId];
+      self::$bar = min($cursor['bar'], count($score->bars) - 1);
+      self::$slot = min($cursor['slot'], 2 * $score->beats(self::$bar));
+      self::$melody = min($cursor['melody'], count($score->melodies) - 1);
+      self::$octave = $cursor['octave'];
+      self::$pitchPosition = $cursor['pitch'];
+      self::$cursorLength = $cursor['length'];
+      self::$cursorLengthExplicit = $cursor['lengthExplicit'];
+      try {
+        MelodyRange::bands($score, self::$melody, self::$octave, self::$pitchPosition);
+      } catch (\DomainException) {
+        self::$octave = MelodyRange::bands($score, self::$melody)[1];
+      }
+    }
     self::$firstBar = 0;
     self::$firstRow = 0;
     self::$previewPage = 0;
@@ -150,11 +171,34 @@ final class ControllerNoteEditing extends ControllerState {
     self::$sheet = self::$sheets['editor'];
     self::$window->setCurrentScreenId('editor');
     self::$columns = ControllerSheet::fitColumns();
+    ControllerSheet::alignTimeline();
+    self::$lastCursorEndBar = min(ControllerSheet::cursorEndBar(), count($score->bars) - 1);
     Controller::screen('editor')->activateLeaf(self::$sheet);
     ControllerSheet::invalidateSheet();
     ControllerSheet::refreshEditorFields();
     ControllerMotifGeneration::refreshContextHeader();
     self::$window->refreshLayout();
+  }
+
+  public static function cursorState(): array {
+    return ['bar' => self::$bar, 'slot' => self::$slot, 'octave' => self::$octave,
+      'melody' => self::$melody, 'length' => self::$cursorLength,
+      'lengthExplicit' => self::$cursorLengthExplicit, 'pitch' => self::$pitchPosition];
+  }
+
+  public static function validateCursorState(array $cursor, Score $score): void {
+    $bar = $cursor['bar'] ?? null;
+    if (!is_int($bar) || $bar < 0 || $bar >= count($score->bars)
+      || !is_int($cursor['slot'] ?? null) || $cursor['slot'] < 0
+      || $cursor['slot'] > 2 * $score->beats($bar)
+      || !is_int($cursor['octave'] ?? null) || $cursor['octave'] < 0 || $cursor['octave'] > 8
+      || !is_int($cursor['melody'] ?? null) || $cursor['melody'] < 0
+      || $cursor['melody'] >= count($score->melodies)
+      || !is_int($cursor['length'] ?? null) || $cursor['length'] < 1 || $cursor['length'] > 198
+      || !is_bool($cursor['lengthExplicit'] ?? null)
+      || !is_int($cursor['pitch'] ?? null) || $cursor['pitch'] < 1 || $cursor['pitch'] > 12) {
+      throw new \DomainException('The previous item cursor is invalid.');
+    }
   }
 
   public static function projectData(): array {

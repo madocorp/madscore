@@ -115,8 +115,9 @@ final class MotifArrangement {
         unset($settings['motifVersion'], $settings['music']);
         $settings['sectionLeader'] = $bar === $start && $newSection;
         $settings['repeats'] = 0;
-        if ($settings['sectionLeader'] && $sectionMusic[$sectionIndex] !== []) {
-          $settings['music'] = $sectionMusic[$sectionIndex];
+        if ($settings['sectionLeader']) {
+          $settings['music'] = $sectionMusic[$sectionIndex] === []
+            ? null : $sectionMusic[$sectionIndex];
         }
         $result->bars[] = $settings;
       }

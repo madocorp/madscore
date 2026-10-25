@@ -45,6 +45,9 @@ expectNotePanel(count($cursorFillers) === 1 && $cursorFillers[0]->grid()->height
 expectNotePanel($editor->layout->findTile('noteBox')->grid()->width
   > $editor->layout->findTile('melodyBox')->grid()->width,
   'The Note box receives more width than the other controls.');
+expectNotePanel($editor->layout->findTile('noteTitle')->grid()->width
+  >= mb_strwidth($editor->widget('noteTitle')->text()),
+  'The complete Note title fits in its box.');
 foreach (['noteHelp', 'cursorHelp', 'melodyHelp', 'actionsHelp'] as $helpId) {
   $help = $editor->layout->findTile($helpId);
   expectNotePanel($help->grid()->height >= substr_count($help->instance()->text(), "\n") + 1,
@@ -56,6 +59,11 @@ foreach (['noteHelp', 'cursorHelp', 'melodyHelp', 'actionsHelp'] as $helpId) {
       "The {$helpId} line fits inside its column.");
   }
 }
+$editor->measureGrid(new SPTK\Layout\Tile(0, 0, 120, 38));
+$noteTitle = $editor->layout->findTile('noteTitle');
+expectNotePanel(mb_strwidth($noteTitle->instance()->text()) <= $noteTitle->grid()->width,
+  'The complete Note title fits at the default window width.');
+$editor->measureGrid(new SPTK\Layout\Tile(0, 0, 132, 38));
 $helpGrid = new SPTK\Rendering\Grid(20, 1);
 $editor->widget('melodyHelp')->paint(new SPTK\Rendering\GridWriter($helpGrid, new SPTK\Layout\Tile(0, 0, 20, 1)));
 expectNotePanel($helpGrid->cell(0, 0)->glyph === 'T'
@@ -85,7 +93,8 @@ expectNotePanel($editor->widget('barSettingsTitle')->text() === '[R] Bar 1 (Majo
 expectNotePanel($editor->widget('section')->hotkey() === '|'
   && (new ReflectionProperty(SPTK\Widgets\Button\Button::class, 'label'))->getValue($editor->widget('section')) === 'Section start: Yes',
   'The Bar tile shows the highlighted section shortcut like other toggle buttons.');
-expectNotePanel($editor->widget('noteTitle')->text() === '[T] Gap', 'The Note tile title shows T even in a gap.');
+expectNotePanel($editor->widget('noteTitle')->text() === '[T] Note · [C] Composer · [O] Chord',
+  'The Note tile title shows its three shortcuts in a gap.');
 expectNotePanel($editor->widget('cursorTitle')->text() === 'Cursor A#3'
   && $editor->widget('cursorLength')->text() === 'Length 1 beat',
   'The Cursor title shows its pitch and the length remains below it.');
@@ -96,7 +105,8 @@ expectNotePanel($editor->widget('slur')->hotkey() === 'l'
   'The Note box shows L and an empty link state in a gap.');
 $score->place(0, 0, 0, 3, 2, 2);
 expectNotePanel($refresh->invoke(null), 'Adding a note updates the title even when details stay the same.');
-expectNotePanel($editor->widget('noteTitle')->text() === '[T] Note A#3', 'The note pitch appears beside T in the title.');
+expectNotePanel($editor->widget('noteTitle')->text() === '[T] Note · [C] Composer · [O] Chord',
+  'The Note tile title keeps its shortcuts when a note is selected.');
 expectNotePanel($editor->widget('cursorTitle')->text() === 'Cursor A#3'
   && $editor->widget('cursorLength')->text() === 'Length 1 beat',
   'Adding a note leaves the cursor readout unchanged.');
@@ -135,7 +145,7 @@ expectNotePanel($linkLabel->getValue($editor->widget('slur')) === 'Link to next:
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'pitchPosition'))->setValue(null, 4);
 expectNotePanel($refresh->invoke(null)
   && $editor->widget('cursorTitle')->text() === 'Cursor C3'
-  && $editor->widget('noteTitle')->text() === '[T] Note A#3',
+  && $editor->widget('noteTitle')->text() === '[T] Note · [C] Composer · [O] Chord',
   'Moving the cursor pitch changes its heading without changing the selected note heading.');
 expectNotePanel(str_contains($editor->widget('noteHelp')->text(), 'Bksp Delete + gap')
   && !str_contains($editor->widget('noteHelp')->text(), 'Toggle staccato'),
