@@ -27,7 +27,7 @@ final class PagePainter {
     $states = Prescription::states($score, figures: $figures);
     $pages = self::pages($score, $states);
     [$inlineTiles, $appendixPages] = self::appendixPlacement($pages, $states, $figures);
-    $pageCount = count($pages) + count($appendixPages);
+    $pageCount = count($pages);
     foreach ($pages as $index => $page) {
       self::drawPage($score, $cairo, $context, $page, $states, $index + 1, $pageCount,
         $figures, $index === 0 ? $inlineTiles : []);
@@ -36,7 +36,7 @@ final class PagePainter {
     foreach ($appendixPages as $index => $tiles) {
       FigureAppendix::drawPage($cairo, $context, $tiles);
       self::drawHeader($score, $cairo, $context,
-        count($pages) + $index + 1, $pageCount, true);
+        count($pages) + $index + 1, $pageCount, $index + 1);
       $cairo->cairo_show_page($context);
     }
   }
@@ -49,8 +49,7 @@ final class PagePainter {
     try {
       $cairo->cairo_set_source_rgb($context, 1, 1, 1);
       $cairo->cairo_paint($context);
-      self::drawHeader($score, $cairo, $context, $pageNumber, $pageCount,
-        $inlineTiles !== []);
+      self::drawHeader($score, $cairo, $context, $pageNumber, $pageCount);
       $y = self::FIRST_LINE_Y;
       foreach ($page as $bars) {
         $lineRows = max(4, ...array_map(static fn (int $bar): int => count($states[$bar]['bands']), $bars));
@@ -69,11 +68,16 @@ final class PagePainter {
         $cairo->cairo_save($context);
         $cairo->cairo_translate($context, self::SIDE_MARGIN, $y);
         $lastPrintedBar = $positions[count($positions) - 1]['bar'];
-        foreach ($positions as $position) {
+        foreach ($positions as $index => $position) {
           $bar = $position['bar'];
           $rows = Prescription::rows($states[$bar], self::TOP_SPACE + max(4, count($states[$bar]['bands'])) * $rowHeight, self::TOP_SPACE);
           if ($score->bars[$bar]['sectionLeader']) {
             SectionPainter::edge($cairo, $context, $rows, $position['left']);
+          }
+          $nextPosition = $positions[$index + 1] ?? null;
+          if ($nextPosition !== null && $score->bars[$nextPosition['bar']]['sectionLeader']
+            && $nextPosition['markerLeft'] !== null) {
+            SectionPainter::edge($cairo, $context, $rows, $position['right'], right: true);
           }
           if ($bar === count($score->bars) - 1
             || ($bar === $lastPrintedBar && ($score->bars[$bar + 1]['sectionLeader'] ?? false))) {
@@ -158,13 +162,14 @@ final class PagePainter {
 
   /** Print title and author on the left, catalog and page count on the right. */
   public static function drawHeader(Score $score, \FFI $cairo, \FFI\CData $context,
-    int $pageNumber, int $pageCount, bool $appendix = false): void {
+    int $pageNumber, int $pageCount, ?int $appendixPage = null): void {
     $cairo->cairo_set_source_rgb($context, 0.094, 0.125, 0.11);
     self::headerText($cairo, $context, $score->title, self::SIDE_MARGIN, 110, 48, 2000);
     self::headerText($cairo, $context, $score->author, self::SIDE_MARGIN, 155, 32, 2000);
     self::headerText($cairo, $context, $score->catalog, self::WIDTH - self::SIDE_MARGIN, 110, 32, 1050, true);
-    self::headerText($cairo, $context, ($appendix ? 'Appendix  ' : '')
-      . '- ' . $pageNumber . ' / ' . $pageCount . ' -',
+    self::headerText($cairo, $context, $appendixPage === null
+      ? '- ' . $pageNumber . ' / ' . $pageCount . ' -'
+      : 'Appendix - ' . $appendixPage,
       self::WIDTH - self::SIDE_MARGIN, 155, 32, 1050, true);
   }
 

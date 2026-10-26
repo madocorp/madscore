@@ -22,7 +22,6 @@ abstract class ControllerState {
   protected static array $sheets = [];
   protected static int $columns = 0;
   protected static int $firstBar = 0;
-  protected static int $firstRow = 0;
   protected static int $previewPage = 0;
   protected static ?string $previewImagePath = null;
   protected static string $view = 'editor';

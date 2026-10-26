@@ -60,7 +60,7 @@ final class PlaybackTimeline {
         $secondsPerSlot = 30.0 / (float)$score->bars[$bar]['tempo'];
         for ($slot = max($from, $barStart); $slot < min($to, $barEnd); $slot = $next) {
           $next = min($to, $barEnd, $barStart + (intdiv($slot - $barStart, 2) + 1) * 2);
-          $beats[] = ['time' => $time, 'bar' => $bar, 'slot' => intdiv($slot - $barStart, 2),
+          $beats[] = ['time' => $time, 'bar' => $bar, 'beat' => intdiv($slot - $barStart, 2),
             'length' => $next - $slot];
           $time += ($next - $slot) * $secondsPerSlot;
         }

@@ -7,7 +7,6 @@ use MADSCORE\Render\PagePreview;
 use MADSCORE\Score\MelodyRange;
 use MADSCORE\Score\Figure;
 use MADSCORE\Score\Pitch;
-use MADSCORE\Score\Score;
 use MADSCORE\Score\Sound;
 use SPTK\Core\Style;
 use SPTK\Layout\LayoutLeaf;
@@ -46,11 +45,13 @@ final class ControllerSheet extends ControllerState {
   /** Keep the cursor visible and the sheet active. */
   public static function focusCursor(bool $record = true, bool $cursorOnly = false): void {
     if ($record) {
-      self::$history?->observe(self::$score, self::$melody);
+      self::$history?->observe(self::$score);
     }
     $barCount = count(self::$score->bars);
     self::syncTimelineBars();
-    self::$firstRow = 0;
+    if (count(self::$score->bars) !== $barCount) {
+      self::$history?->rebase(self::$score);
+    }
     $barChanged = self::$displayedBar !== self::$bar;
     if ($barChanged) {
       self::refreshSelectedBarFields();
@@ -66,11 +67,7 @@ final class ControllerSheet extends ControllerState {
   }
 
   public static function focusWithoutHistory(): void {
-    $barCount = count(self::$score->bars);
     self::focusCursor(false, true);
-    if (count(self::$score->bars) !== $barCount) {
-      self::$history?->rebase(self::$score);
-    }
   }
 
   /** Grow or trim trailing bars according to the cursor's final occupied position. */
@@ -245,11 +242,11 @@ final class ControllerSheet extends ControllerState {
     $index = self::currentNoteIndex();
     [$letter, $alter] = Pitch::spelling(self::$pitchPosition);
     $cursorTitle = 'Cursor ' . $letter . ($alter === 1 ? '#' : '') . self::$octave;
-    $title = '[T] Gap';
+    $title = 'Gap';
     if ($index !== null) {
       $note = self::$score->notes[$index];
       $count = count(self::$score->chordAt(self::$melody, self::$bar, self::$slot));
-      $title = ($count > 1 ? '[T] Chord (' . $count . ') base ' : '[T] Note ')
+      $title = ($count > 1 ? 'Chord (' . $count . ') base ' : 'Note ')
         . $note['pitch'] . ($note['alter'] === 1 ? '#' : ($note['alter'] === -1 ? 'b' : '')) . $note['octave'];
     }
     $length = ControllerNoteEditing::cursorLength();
@@ -266,6 +263,7 @@ final class ControllerSheet extends ControllerState {
       return false;
     }
     Controller::screen('editor')->widget('noteTitle')->setText('[T] Note · [C] Composer · [O] Chord');
+    Controller::screen('editor')->widget('currentNoteTitle')->setText($title);
     Controller::screen('editor')->widget('cursorTitle')->setText($cursorTitle);
     Controller::screen('editor')->widget('cursorLength')->setText($lengthText);
     Controller::screen('editor')->widget('staccato')->setLabel($index === null ? 'Staccato: —'
@@ -341,7 +339,7 @@ final class ControllerSheet extends ControllerState {
     }
     if ($raw !== $saved) {
       self::$score->setFinger($index, $raw);
-      self::$history?->observe(self::$score, self::$melody);
+      self::$history?->observe(self::$score);
     }
     Controller::screen('editor')->widget('finger')->setValue($raw);
     self::refreshCursorReadout();
@@ -360,7 +358,7 @@ final class ControllerSheet extends ControllerState {
       throw new \DomainException('Select a note before setting its figure.');
     }
     self::$score->setFigure($index, Figure::parse($raw, self::$score->notes[$index]));
-    self::$history?->observe(self::$score, self::$melody);
+    self::$history?->observe(self::$score);
     Controller::screen('editor')->widget('figure')->setValue(Figure::format(self::$score->notes[$index]['figure'] ?? null));
     self::refreshCursorReadout();
     self::invalidateSheet();
@@ -392,7 +390,7 @@ final class ControllerSheet extends ControllerState {
       return;
     }
     self::$score->setMelodyVolume(self::$melody, (int)$raw);
-    self::$history?->observe(self::$score, self::$melody);
+    self::$history?->observe(self::$score);
   }
 
   /** Validate and apply the active melody's hex display color. */
@@ -402,16 +400,16 @@ final class ControllerSheet extends ControllerState {
       return;
     }
     self::$score->setMelodyColor(self::$melody, $color);
-    self::$history?->observe(self::$score, self::$melody);
+    self::$history?->observe(self::$score);
     Controller::screen('editor')->widget('color')->setValue(self::$score->melodies[self::$melody]['color']);
     self::invalidateSheet();
   }
 
-  /** Validate and apply the selected bar's notes-per-bar field. */
+  /** Validate and apply the selected bar's beats-per-bar field. */
   public static function applyEditorBeats(): void {
     $raw = trim(Controller::screen('editor')->widget('beats')->getValue());
     if (!ctype_digit($raw) || (int)$raw < 1 || (int)$raw > 32) {
-      throw new \DomainException('Notes per bar must be a whole number from 1 to 32.');
+      throw new \DomainException('Beats per bar must be a whole number from 1 to 32.');
     }
     $beats = (int)$raw;
     if ($beats === self::$score->beats(self::$bar)) {

@@ -28,7 +28,7 @@ final class ControllerMotifGeneration extends ControllerState {
       . ' → Target: ' . self::motifSectionLabel($target));
     $screen->restore('composerPanel');
     self::$motifVersionPickerOpen = true;
-    $screen->show('motifVersionPicker');
+    Controller::showEditorPanel('motifVersionPicker');
     self::$window->refreshLayout();
   }
 
@@ -62,7 +62,7 @@ final class ControllerMotifGeneration extends ControllerState {
     $screen->widget('motifVersionTitle')->setText(MotifVersions::ALGORITHMS[$algorithm]);
     $screen->widget('motifVersionValue')->setLabel($parameter[0]);
     $screen->widget('motifVersionValue')->setValue($parameter[1]);
-    $screen->show('motifVersionParams');
+    Controller::showEditorPanel('motifVersionParams');
     self::$window->refreshLayout();
   }
 
@@ -73,7 +73,7 @@ final class ControllerMotifGeneration extends ControllerState {
     $screen->restore('motifVersionPicker');
     $screen->restore('motifVersionParams');
     if (self::$composerOpen) {
-      $screen->show('composerPanel');
+      Controller::showEditorPanel('composerPanel');
     }
     self::$window->refreshLayout();
   }
@@ -180,7 +180,7 @@ final class ControllerMotifGeneration extends ControllerState {
     $screen->show('contextHeader', false);
   }
 
-  public static function regenerateComposerFromSheet(): void {
+  public static function regenerateComposerFromSheet(bool $confirmed = false): void {
     if (!Controller::isDesign() || self::$activeItemId === 'main') {
       return;
     }
@@ -189,6 +189,14 @@ final class ControllerMotifGeneration extends ControllerState {
       return;
     }
     $section = self::$score->sectionNumber(self::$bar) - 1;
+    if (!$confirmed) {
+      $extras = MotifVersions::regenerationExtras(self::$score, self::$melody, $section);
+      if ($extras !== []) {
+        self::confirmRegeneration($extras,
+          static function(): void { self::regenerateComposerFromSheet(true); });
+        return;
+      }
+    }
     $barOffset = self::$bar - self::$score->sectionStart(self::$bar);
     $slot = self::$slot;
     try {
@@ -273,7 +281,20 @@ final class ControllerMotifGeneration extends ControllerState {
 
   private static function applyMotif(int $beats, int $pitchCount, ?int $melody = null,
     ?string $scale = null, ?string $homeNote = null,
-    string $type = 'random-step', int $target = 0): void {
+    string $type = 'random-step', int $target = 0, bool $confirmed = false): void {
+    if (!$confirmed) {
+      $extras = MotifVersions::regenerationExtras(self::$score,
+        $target > 0 ? $melody ?? self::$melody : $melody, $target);
+      if ($extras !== []) {
+        self::confirmRegeneration($extras,
+          static function() use ($beats, $pitchCount, $melody, $scale, $homeNote,
+            $type, $target): void {
+            self::applyMotif($beats, $pitchCount, $melody, $scale, $homeNote,
+              $type, $target, true);
+          });
+        return;
+      }
+    }
     try {
       $result = $target > 0
         ? MotifVersions::generateAt(self::$score, $melody ?? self::$melody,
@@ -337,5 +358,12 @@ final class ControllerMotifGeneration extends ControllerState {
     self::$window->refreshLayout();
     ControllerNavigation::status('Generated ' . self::motifSectionLabel($target) . ' with '
       . MotifScoreGenerator::TYPES[$type] . '. Press M to play.');
+  }
+
+  /** Ask before regeneration replaces additions made after generating a motif. */
+  private static function confirmRegeneration(array $extras, callable $regenerate): void {
+    Controller::screen('editor')->statusBar->confirm(
+      'Regenerate and discard ' . implode(', ', $extras) . '?', $regenerate,
+      static function(): void { ControllerNavigation::status('Regeneration cancelled.'); });
   }
 }

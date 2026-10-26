@@ -12,6 +12,7 @@ use MADSCORE\Score\Score;
 use SPTK\App;
 use SPTK\Core\Screen;
 use SPTK\Events\EventContext;
+use SPTK\Layout\LayoutNode;
 
 /** Owns the score, visible sheet, and editor navigation. */
 final class Controller extends ControllerState {
@@ -111,9 +112,7 @@ final class Controller extends ControllerState {
       'cursor' => self::$itemCursors[self::$activeItemId],
       'itemCursors' => self::$itemCursors,
       'firstBar' => self::$firstBar,
-      'firstRow' => self::$firstRow,
       'previewPage' => self::$previewPage,
-      'view' => self::$view,
       'filePath' => Files::currentPath(),
       'selection' => ControllerSelection::selectionStateForSheet(),
       'playbackSound' => self::$playbackSound,
@@ -154,9 +153,7 @@ final class Controller extends ControllerState {
     $lengthExplicit = $cursor['lengthExplicit'] ?? false;
     $pitch = $cursor['pitch'] ?? null;
     $firstBar = $state['firstBar'] ?? null;
-    $firstRow = $state['firstRow'] ?? 0;
     $previewPage = $state['previewPage'] ?? 0;
-    $view = $state['view'] ?? 'editor';
     $playbackSound = $state['playbackSound'] ?? 'midi';
     $chordSettings = $state['chordSettings'] ?? [];
     if (!is_int($bar) || $bar < 0 || $bar >= count($score->bars)
@@ -167,9 +164,7 @@ final class Controller extends ControllerState {
       || !is_bool($lengthExplicit)
       || !is_int($pitch) || $pitch < 1 || $pitch > 12
       || !is_int($firstBar) || $firstBar < 0 || $firstBar >= count($score->bars)
-      || !is_int($firstRow) || $firstRow < 0 || $firstRow > 5
       || !is_int($previewPage) || $previewPage < 0
-      || !in_array($view, ['editor', 'sheet'], true)
       || !in_array($playbackSound, ['midi', 'built-in'], true)) {
       throw new \DomainException('The previous editor position is invalid.');
     }
@@ -180,13 +175,18 @@ final class Controller extends ControllerState {
       if (!is_string($key)
         || preg_match('/^(?:main:[0-9]+|[A-Z]+)$/D', $key) !== 1
         || !is_array($settings)
-        || array_keys($settings) !== ['count', 'series', 'degree', 'inversion', 'music']
+        || !in_array(array_keys($settings), [
+          ['count', 'series', 'degree', 'inversion', 'music'],
+          ['count', 'series', 'degree', 'inversion', 'music', 'mode'],
+        ], true)
         || !is_int($settings['count']) || $settings['count'] < 2
         || $settings['count'] > 7
         || !is_int($settings['series']) || $settings['series'] < 1
         || $settings['series'] > 16
         || ($settings['degree'] !== null && (!is_int($settings['degree'])
           || $settings['degree'] < 1 || $settings['degree'] > 7))
+        || (array_key_exists('mode', $settings)
+          && !in_array($settings['mode'], ['separate', 'current'], true))
         || ($settings['inversion'] !== null && (!is_int($settings['inversion'])
           || $settings['inversion'] < 0
           || $settings['inversion'] >= $settings['count']))) {
@@ -230,9 +230,7 @@ final class Controller extends ControllerState {
     self::$cursorLengthExplicit = $lengthExplicit;
     self::$pitchPosition = $pitch;
     self::$firstBar = $firstBar;
-    self::$firstRow = $firstRow;
     self::$previewPage = $previewPage;
-    self::$view = $view;
     self::$playbackSound = $playbackSound;
     self::$lastChordSettings = $chordSettings;
     self::$selection = $selection;
@@ -273,14 +271,6 @@ final class Controller extends ControllerState {
     return self::$firstBar;
   }
 
-  public static function firstVisibleRow(): int {
-    return self::$firstRow;
-  }
-
-  public static function previewPage(): int {
-    return self::$previewPage;
-  }
-
   public static function isDesign(): bool {
     return self::$view === 'editor';
   }
@@ -293,19 +283,36 @@ final class Controller extends ControllerState {
     return self::$bar;
   }
 
-  /** Return the editor screen. */
+  /** Return the screen with the given ID. */
   public static function screen(string $id): Screen {
     return self::$window->screen($id) ?? throw new \RuntimeException('Missing screen: ' . $id);
+  }
+
+  /** Open a grouped Note panel with focus inside its controls. */
+  public static function showEditorPanel(string $id): bool {
+    $screen = self::screen('editor');
+    if (!$screen->show($id)) {
+      return false;
+    }
+    $panel = $screen->layout->findTile($id);
+    if ($panel instanceof LayoutNode && $panel->entryFocus() !== null) {
+      $first = $panel->childMovementLeaves()[0] ?? null;
+      if ($first !== null) {
+        $screen->selectLeaf($first);
+      }
+    }
+    return true;
+  }
+
+  /** Whether a picker or panel currently occupies the Note tile. */
+  public static function editorPanelOpen(): bool {
+    return self::screen('editor')->layout->findTile('noteBox')->overwrittenBy() !== null;
   }
 
   /** Rebuild the selected melody's saved curve for the editor sheet. */
   public static function composerPreview(): ?array {
     $settings = self::$score->melodies[self::$melody]['generation'] ?? null;
     return is_array($settings) ? PhraseGenerator::fromMetadata($settings) : null;
-  }
-
-  public static function composerOpen(): bool {
-    return self::$composerOpen;
   }
 
 }

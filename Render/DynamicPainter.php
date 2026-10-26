@@ -43,19 +43,27 @@ final class DynamicPainter {
       if ($mark === '') {
         continue;
       }
-      $key = $note['melody'] . ':' . ($score->start($note['bar']) + $note['slot']);
+      $start = $score->start($note['bar']) + $note['slot'];
+      $key = $note['melody'] . ':' . $start;
       if (isset($seenLevels[$key])) {
         continue;
       }
       $seenLevels[$key] = true;
-      $left = self::leftEdge($score, $positions, $note, Prescription::dotRadius($rowHeight));
-      $right = self::rightEdge($score, $positions, $note, Prescription::dotRadius($rowHeight));
-      if ($left === null || $right === null) {
+      $width = strlen($mark) * $fontSize * 0.63;
+      $outgoingLevel = isset($outgoing[$index]);
+      $closingLevel = isset($inWedge[$index]) && !$outgoingLevel;
+      $anchorTime = $closingLevel
+        ? $start + $note['length'] - ($note['length'] === 1 ? 0.5 : 1)
+        : $start;
+      $anchorX = self::timeX($score, $positions, $anchorTime);
+      if ($anchorX === null) {
         continue;
       }
       $barPosition = null;
       foreach ($positions as $position) {
-        if ($position['bar'] === $note['bar']) {
+        $positionStart = $score->start($position['bar']);
+        if ($anchorTime >= $positionStart
+          && $anchorTime < $positionStart + 2 * $score->beats($position['bar'])) {
           $barPosition = $position;
           break;
         }
@@ -63,16 +71,19 @@ final class DynamicPainter {
       if ($barPosition === null) {
         continue;
       }
-      $width = strlen($mark) * $fontSize * 0.63;
       if (!isset($inWedge[$index])) {
-        $x = self::timeX($score, $positions, $score->start($note['bar']) + $note['slot']);
+        $x = $anchorX;
       } else {
-        $x = isset($outgoing[$index]) ? $left - $width - 5 : $right + 5;
+        $radius = Prescription::dotRadius($rowHeight);
+        $edge = $outgoingLevel
+          ? self::leftEdge($score, $positions, $note, $radius)
+          : self::rightEdge($score, $positions, $note, $radius);
+        $x = $outgoingLevel ? ($edge ?? $anchorX) - $width - 5 : ($edge ?? $anchorX) + 5;
         $x = max($barPosition['left'], min($barPosition['right'] - $width, $x));
       }
       $labels[] = ['x' => $x, 'text' => $mark,
         'color' => BarPainter::color($score, $note['melody']), 'filled' => false,
-        'time' => $score->start($note['bar']) + $note['slot']];
+        'time' => $anchorTime];
     }
     $occupied = $reserved;
     foreach ($labels as &$label) {

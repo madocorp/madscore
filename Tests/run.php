@@ -105,7 +105,20 @@ check(count($score->notes) === 2, 'Another melody may sound at the same time.');
 $score->setLength(0, 6);
 check($score->noteAt(0, 1, 4) === 0, 'Length edits continue across bars.');
 $score->setBeats(0, 5);
-check($score->noteAt(0, 1, 2) === 0, 'Changing bar beats shifts later bar positions without losing note continuity.');
+check($score->noteAt(0, 1, 2) === 0, 'Changing bar beats preserves a note spanning the bar line.');
+$expanded = new MADSCORE\Score\Score();
+$expanded->setBeats(0, 2);
+$expanded->ensureBar(1);
+$expanded->place(0, 0, 0, 4, 4, 2);
+$afterBar = $expanded->place(0, 1, 0, 4, 6, 2);
+$expanded->setBeats(0, 4);
+check($expanded->notes[$afterBar]['bar'] === 0
+  && $expanded->notes[$afterBar]['slot'] === 4
+  && $expanded->start($expanded->notes[$afterBar]['bar'])
+    + $expanded->notes[$afterBar]['slot'] === 4,
+  'Lengthening a bar moves its line without adding a gap before later notes.');
+check(MADSCORE\Score\Score::fromData($expanded->data())->data() === $expanded->data(),
+  'Notes shifted across an expanded bar line remain loadable.');
 $shortened = new MADSCORE\Score\Score(2);
 for ($beat = 0; $beat < 4; $beat++) {
   $shortened->put(0, 0, 2 * $beat, 1, 'C');
@@ -293,60 +306,6 @@ $crossing->notes[0]['alter'] = 1;
 $blackLeft = MADSCORE\Render\BarPainter::render($crossing, 0, 1, 240, 120);
 $blackRight = MADSCORE\Render\BarPainter::render($crossing, 1, 1, 240, 120);
 check(rgb($blackLeft, 239, 60) === 0xffffff && rgb($blackRight, 0, 60) === 0xffffff, 'A filled note also keeps its contrasting beat mark across the bar edge.');
-
-$legacy = tempnam(sys_get_temp_dir(), 'madscore-legacy-');
-file_put_contents($legacy, '{"title":"Old song","tempo":"120"}' . "\n{C2 D/ E'} [lyrics]\n{G2}\n");
-[$imported, $warnings] = MADSCORE\Score\LegacyImporter::read($legacy);
-unlink($legacy);
-check($imported->title === 'Old song' && count($imported->notes) === 4 && $imported->bars[0]['tempo'] === '120', 'Legacy import keeps its BPM tempo.');
-check(in_array('lyrics', $warnings, true), 'Legacy import names omitted lyrics.');
-
-$legacy = tempnam(sys_get_temp_dir(), 'madscore-legacy-');
-file_put_contents($legacy, '{"octaves":"1 0! -1! -2"}' . "\n"
-  . "Part A\n{cc c C CC B A,} {aa a A AA}\n...\n{C}\n---\nPart B\n{C}\n###\n{C}\n***\n{C}\n===\n{C}\n");
-[$imported, $warnings] = MADSCORE\Score\LegacyImporter::read($legacy);
-unlink($legacy);
-check(array_slice(array_column($imported->notes, 'octave'), 0, 6) === [4, 3, 2, 1, 2, 1],
-  'Legacy octave slots and A/B pitches keep their original A-to-G-sharp register.');
-check(array_slice(array_column($imported->notes, 'octave'), 6, 4) === [4, 3, 2, 1],
-  'Doubled lowercase through doubled uppercase A notes descend one octave at a time.');
-check(array_map(static fn ($bar): bool => $bar['sectionLeader'], $imported->bars)
-  === [true, false, true, true, false, true],
-  'Separators become sections while page and row wraps remain layout only.');
-check($imported->bars[0]['note'] === 'Part A' && $imported->bars[2]['note'] === 'Part B',
-  'Legacy section labels remain visible as bar notes.');
-check(in_array('page and row layout', $warnings, true), 'Legacy layout warnings name omitted page and row wraps.');
-
-$legacy = tempnam(sys_get_temp_dir(), 'madscore-legacy-');
-file_put_contents($legacy, '{"octaves":"2 0 -1 -2"}' . "\n{CC aa}\n");
-[$imported, $warnings] = MADSCORE\Score\LegacyImporter::read($legacy);
-unlink($legacy);
-check(count($imported->melodies) === 2 && count($imported->notes) === 2,
-  'A legacy melody crossing the four-row limit keeps both pitches on separate melodies.');
-check(in_array('wide melodies split across rows', $warnings, true),
-  'Legacy import reports melody splits.');
-
-$legacy = tempnam(sys_get_temp_dir(), 'madscore-legacy-');
-file_put_contents($legacy, '{}'. "\n{A3 A>}\n{>A2 B2}\n");
-[$imported, $warnings] = MADSCORE\Score\LegacyImporter::read($legacy);
-unlink($legacy);
-check(count($imported->notes) === 3 && $imported->notes[1]['bar'] === 0
-  && $imported->notes[1]['slot'] === 6 && $imported->notes[1]['length'] === 6,
-  'Matching continuation marks make one sustained note across bars.');
-check(!in_array('unmatched continuation marks', $warnings, true),
-  'A matched continuation is fully imported.');
-$legacy = tempnam(sys_get_temp_dir(), 'madscore-legacy-');
-file_put_contents($legacy, '{}'. "\n{A4>}\n{>A4>}\n{>A4}\n");
-[$imported, $warnings] = MADSCORE\Score\LegacyImporter::read($legacy);
-unlink($legacy);
-check(count($imported->notes) === 1 && $imported->notes[0]['length'] === 24,
-  'A chain of continuation marks sustains one note across three bars.');
-$legacy = tempnam(sys_get_temp_dir(), 'madscore-legacy-');
-file_put_contents($legacy, '{}'. "\n{A4>}\n{>B4}\n");
-[$imported, $warnings] = MADSCORE\Score\LegacyImporter::read($legacy);
-unlink($legacy);
-check(count($imported->notes) === 2 && in_array('unmatched continuation marks', $warnings, true),
-  'Different pitches do not become one sustained note.');
 
 $printed = new MADSCORE\Score\Score(12);
 $printed->ensureBar(24);

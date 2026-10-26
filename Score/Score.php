@@ -1097,39 +1097,29 @@ final class Score {
     $this->normalizeSlurs();
   }
 
-  /** Change one bar's beat count, carrying displaced notes into following bars. */
+  /** Change one bar's beat count while preserving every note's score time. */
   public function setBeats(int $bar, int $beats): void {
     if ($beats < 1 || $beats > 32) {
       throw new \DomainException('Bar beats must be between 1 and 32.');
     }
     $previous = $this->bars[$bar]['beats'];
     if ($beats !== $previous) {
-      $this->assertAllMelodiesEditable();
+      foreach ($this->notes as $note) {
+        $this->assertMelodyEditable($note['melody']);
+      }
     }
     $oldBars = $this->bars;
     $oldNotes = $this->notes;
     $oldDynamics = $this->scoreDynamics;
-    $oldEnd = $this->start($bar + 1);
     $positions = [];
-    if ($beats < $previous) {
-      foreach ($oldNotes as $index => $note) {
-        if ($note['bar'] > $bar || ($note['bar'] === $bar && $note['slot'] >= 2 * $beats)) {
-          $positions[$index] = $this->start($note['bar']) + $note['slot'];
-        }
+    foreach ($oldNotes as $index => $note) {
+      if ($note['bar'] > $bar || ($beats < $previous
+        && $note['bar'] === $bar && $note['slot'] >= 2 * $beats)) {
+        $positions[$index] = $this->start($note['bar']) + $note['slot'];
       }
     }
     $this->bars[$bar]['beats'] = $beats;
     try {
-      $delta = 2 * ($beats - $previous);
-      foreach ($this->scoreDynamics as &$mark) {
-        if ($mark['time'] >= $oldEnd) {
-          $mark['time'] += $delta;
-        }
-        if ($mark['end'] !== null && $mark['end'] >= $oldEnd) {
-          $mark['end'] += $delta;
-        }
-      }
-      unset($mark);
       foreach ($this->scoreDynamics as $mark) {
         while (($mark['end'] ?? $mark['time'] + 1) > $this->start(count($this->bars))) {
           $this->ensureBar(count($this->bars));
@@ -1179,12 +1169,6 @@ final class Score {
       }
       $this->bars[$index]['tempo'] = $tempo;
     }
-  }
-
-  /** Keep older beats-per-minute values, falling back when no number was given. */
-  public static function legacyTempo(string $tempo): string {
-    $tempo = trim($tempo);
-    return self::validTempo($tempo) ? $tempo : self::DEFAULT_TEMPO;
   }
 
   private static function validTempo(string $tempo): bool {
@@ -1238,6 +1222,9 @@ final class Score {
         }
         if (!self::validTrillPitch($moved, $moved['trill'] ?? 0)) {
           $this->notes[$member]['trill'] = 0;
+        }
+        if (isset($moved['figure'])) {
+          Figure::validate($moved['figure'], $moved);
         }
       }
       foreach ($members as $member) {

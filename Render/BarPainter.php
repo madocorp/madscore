@@ -57,7 +57,7 @@ final class BarPainter {
   }
 
   /** Draw staff lines, notes, and an optional cursor into a Cairo context. */
-  public static function draw(\FFI $cairo, \FFI\CData $context, Score $score, int $bar, int $octave, int $width, int $height, ?array $cursor = null, ?int $melody = null, bool $endBar = false, bool $showSlots = false, bool $paintBackground = true, ?int $activeMelody = null, bool $startBorder = true, bool $outsideMarks = false, ?FigureCatalog $figures = null, bool $allowOutsideFigure = false, ?string $staffColor = null, bool $printMarks = false): void {
+  public static function draw(\FFI $cairo, \FFI\CData $context, Score $score, int $bar, int $octave, int $width, int $height, ?array $cursor = null, ?int $melody = null, bool $endBar = false, bool $showSlots = false, bool $paintBackground = true, ?int $activeMelody = null, bool $startBorder = true, ?FigureCatalog $figures = null, ?string $staffColor = null, bool $printMarks = false): void {
     $step = $height / 12.0;
     $firstLine = $step;
     $thirdLine = 9 * $step;
@@ -107,9 +107,6 @@ final class BarPainter {
         $target = $next === null ? null : $score->notes[$next];
         $end = $target === null ? $start + $note['length']
           : $score->start($target['bar']) + $target['slot'] + $target['length'];
-        if ($end <= $barStart || $start >= $barEnd) {
-          continue;
-        }
         $color = $activeMelody !== null && $note['melody'] !== $activeMelody
           ? self::inactiveColor($score, $note['melody']) : self::color($score, $note['melody']);
         if ($target !== null) {
@@ -126,8 +123,7 @@ final class BarPainter {
         $outsideScale = !$pitchless && $music !== null
           && !HarmonicContext::containsNote($music, $note);
         $liftMarks = $printMarks && PdfLayout::noteSize() < 100;
-        $markY = $liftMarks ? $y - $step - $markStep * 0.63
-          : ($outsideMarks ? $y - $step * 0.8 : $y);
+        $markY = $liftMarks ? $y - $step - $markStep * 0.63 : $y;
         $staccatoY = $liftMarks ? $y - $step - $markStep * 0.34 : $markY;
         $figure = $note['figure'] ?? null;
         $reference = isset($figure['motif']) ? $figures?->reference($figure) : null;
@@ -151,7 +147,6 @@ final class BarPainter {
                 : $y + ($lastY - $y) * ((($markLeft + $markRight) / 2 - $x1) / $span);
               FigurePainter::referenceMark($cairo, $context, $markLeft, $markRight,
                 $referenceY, $step, $reference, $color, Pitch::isBlack($pitch),
-                $allowOutsideFigure && ($outsideMarks || $markRight - $markLeft < $step),
                 $printMarks, $liftMarks);
             }
             if ($outsideScale && $end <= $barEnd) {
@@ -176,12 +171,12 @@ final class BarPainter {
           }
           if ($start >= $barStart && ($note['articulation'] ?? 'ordinary') === 'staccato') {
             self::staccatoDot($cairo, $context, $x1, $staccatoY, $markStep,
-              $blackKey && !$outsideMarks && !$liftMarks, $color);
+              $blackKey && !$liftMarks, $color);
           }
           if ($start >= $barStart && ($note['trill'] ?? 0) !== 0) {
             self::trillMark($cairo, $context, $x1 + $step * 0.43,
-              $markY, $markStep, $note['trill'], !$outsideMarks,
-              $blackKey && !$outsideMarks && !$liftMarks, $color);
+              $markY, $markStep, $note['trill'], true,
+              $blackKey && !$liftMarks, $color);
           }
           if (($note['finger'] ?? '') !== '') {
             $leftHand = $note['finger'][0] === 'L';
@@ -197,7 +192,7 @@ final class BarPainter {
           if ($reference !== null && $start >= $barStart) {
             FigurePainter::referenceMark($cairo, $context, $x1 + $step * 0.12,
               $x1 + $step * 0.82, $markY, $step, $reference, $color, $blackKey,
-              $allowOutsideFigure, $printMarks, $liftMarks);
+              $printMarks, $liftMarks);
           }
           continue;
         }
@@ -206,14 +201,14 @@ final class BarPainter {
         } else {
           self::note($cairo, $context, $note, $blackKey, $x1, $x2, $y, 2 * $step, $color);
         }
-        self::ticks($cairo, $context, $note, $blackKey && !$pitchless, $start, $end, $barStart, $barEnd, $unit, $y, 2 * $step, $color);
+        self::ticks($cairo, $context, $blackKey && !$pitchless, $start, $end, $barStart, $barEnd, $unit, $y, 2 * $step, $color);
         if ($start >= $barStart && ($note['articulation'] ?? 'ordinary') === 'staccato') {
           self::staccatoDot($cairo, $context, $x1, $staccatoY, $markStep,
-            $blackKey && !$outsideMarks && !$liftMarks, $color);
+            $blackKey && !$liftMarks, $color);
         }
         if ($start >= $barStart && ($note['trill'] ?? 0) !== 0) {
           self::trillMark($cairo, $context, $x1, $markY, $markStep,
-            $note['trill'], false, $blackKey && !$outsideMarks && !$liftMarks, $color);
+            $note['trill'], false, $blackKey && !$liftMarks, $color);
         }
         if (($note['finger'] ?? '') !== '') {
           $leftHand = $note['finger'][0] === 'L';
@@ -229,7 +224,7 @@ final class BarPainter {
         if ($reference !== null && $start >= $barStart) {
           FigurePainter::referenceMark($cairo, $context, $x1 - $step * 0.65,
             $x1 + $step * 0.65, $markY, $step, $reference, $color, $blackKey,
-            $allowOutsideFigure && $outsideMarks, $printMarks, $liftMarks);
+            $printMarks, $liftMarks);
         }
     }
     if ($cursor !== null && $melody !== null) {
@@ -502,7 +497,7 @@ final class BarPainter {
   }
 
   /** Draw internal beat marks inside a long note. */
-  private static function ticks(\FFI $cairo, \FFI\CData $context, array $note, bool $blackKey, int $start, int $end, int $barStart, int $barEnd, float $unit, float $y, float $size, string $color): void {
+  private static function ticks(\FFI $cairo, \FFI\CData $context, bool $blackKey, int $start, int $end, int $barStart, int $barEnd, float $unit, float $y, float $size, string $color): void {
     $cairo->cairo_set_line_width($context, max(1, $size / 8));
     if (!$blackKey) {
       self::source($cairo, $context, $color);

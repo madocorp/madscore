@@ -35,7 +35,6 @@ final class MotifArrangement {
         throw new \DomainException("Motif $parts[1] does not exist.");
       }
       $source = $project->score($parts[1]);
-      $music = $project->item($parts[1])['music'] ?? [];
       $starts = [];
       foreach ($source->bars as $index => $bar) {
         if ($bar['sectionLeader']) {
@@ -46,6 +45,7 @@ final class MotifArrangement {
         throw new \DomainException("Motif $token does not exist.");
       }
       $start = $starts[$version];
+      $music = $source->sectionMusic($start) ?? [];
       $end = $starts[$version + 1] ?? count($source->bars);
       $hasNotes = false;
       foreach ($source->notes as $note) {
@@ -88,6 +88,7 @@ final class MotifArrangement {
     $result->melodies = [];
     $normalDestinations = $chordDestinations = [];
     $nextChordId = 1;
+    $activeMusic = null;
     foreach ($references as [$source, $start, $end, $newSection, $sectionIndex]) {
       $melodyMap = [];
       $normal = 0;
@@ -112,12 +113,24 @@ final class MotifArrangement {
       $timeOffset = self::duration($result->bars) - $source->start($start);
       for ($bar = $start; $bar < $end; $bar++) {
         $settings = $source->bars[$bar];
+        $sourceMusicChange = $settings['music'] ?? null;
+        $hasMusicChange = array_key_exists('music', $settings);
         unset($settings['motifVersion'], $settings['music']);
         $settings['sectionLeader'] = $bar === $start && $newSection;
         $settings['repeats'] = 0;
         if ($settings['sectionLeader']) {
-          $settings['music'] = $sectionMusic[$sectionIndex] === []
+          $activeMusic = $sectionMusic[$sectionIndex] === []
             ? null : $sectionMusic[$sectionIndex];
+          $settings['music'] = $activeMusic;
+        } else if ($bar === $start) {
+          $referenceMusic = $source->sectionMusic($start);
+          if ($referenceMusic !== $activeMusic) {
+            $settings['music'] = $referenceMusic;
+            $activeMusic = $referenceMusic;
+          }
+        } else if ($hasMusicChange && $sourceMusicChange !== $activeMusic) {
+          $settings['music'] = $sourceMusicChange;
+          $activeMusic = $sourceMusicChange;
         }
         $result->bars[] = $settings;
       }

@@ -27,7 +27,7 @@ final class ScoreHistory {
   }
 
   /** Record one completed edit, including changes to several melodies. */
-  public function observe(Score $score, int $melody = 0): bool {
+  public function observe(Score $score): bool {
     $next = $score->data();
     if ($next === $this->current) {
       return false;
@@ -41,7 +41,7 @@ final class ScoreHistory {
     return true;
   }
 
-  public function undo(Score $score, int $melody = 0): bool {
+  public function undo(Score $score): bool {
     $this->observe($score);
     if ($this->undo === []) {
       return false;
@@ -52,7 +52,7 @@ final class ScoreHistory {
     return true;
   }
 
-  public function redo(Score $score, int $melody = 0): bool {
+  public function redo(Score $score): bool {
     $this->observe($score);
     if ($this->redo === []) {
       return false;

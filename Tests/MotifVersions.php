@@ -17,6 +17,53 @@ function expectVersions(bool $condition, string $message): void {
 $draw = static fn (int $low, int $high): int => min($high, max($low, 2));
 $base = MotifScoreGenerator::place(new Score(), 8, 4, random: $draw,
   scale: 'Major', homeNote: 'C')['score'];
+expectVersions(MotifVersions::regenerationExtras($base, 0, 0) === [],
+  'An untouched generated motif needs no overwrite confirmation.');
+$mutedEmpty = clone $base;
+$mutedMelody = $mutedEmpty->addMelody();
+$mutedEmpty->setMelodyMuted($mutedMelody, true);
+$withMuted = MotifVersions::regenerate($mutedEmpty, 0, 6, 3,
+  'Major', 'C', $draw)['score'];
+expectVersions($withMuted->beats(0) === 6 && $withMuted->melodyMuted($mutedMelody),
+  'An empty muted melody does not block motif generation or lose its mute setting.');
+$sixBeat = MotifScoreGenerator::place(new Score(), 6, 3, random: $draw,
+  scale: 'Major', homeNote: 'C')['score'];
+$sixBeatMuted = $sixBeat->addMelody();
+$sixBeat->setMelodyMuted($sixBeatMuted, true);
+$redrawnSixBeat = MotifVersions::regenerateSection($sixBeat, 0, 0, $draw);
+expectVersions($redrawnSixBeat->beats(0) === 6
+    && $redrawnSixBeat->melodyMuted($sixBeatMuted),
+  'An empty muted melody does not block regeneration of a six-beat motif.');
+$protected = clone $mutedEmpty;
+$protected->setMelodyMuted($mutedMelody, false);
+$protected->place($mutedMelody, 0, 0, 4, 4, 2);
+$protected->setMelodyMuted($mutedMelody, true);
+try {
+  $protected->setBeats(0, 6);
+  throw new RuntimeException('Changing beats altered a muted melody with notes.');
+} catch (DomainException $error) {
+  expectVersions(str_contains($error->getMessage(), 'muted and read-only'),
+    'Changing beats still protects notes in a muted melody.');
+}
+$extras = clone $base;
+$extras->addMelody();
+$extras->place(1, 0, 0, 4, 4, 2);
+$extras->setFinger(0, 'L1');
+$extras->setScoreDynamicLevel(0, 'mf');
+$extras->setSectionRepeats(0, 1);
+$extras->setTempo(1, '90');
+$extras->setBarNote(1, 'Added later');
+expectVersions(MotifVersions::regenerationExtras($extras, 0, 0)
+  === ['note marks', 'other notes', 'shared dynamics', 'repeats',
+    'tempo changes', 'bar notes'],
+  'Regeneration identifies added notes, marks, repeats, and later bar settings.');
+$derivedExtras = MotifVersions::append($base, 0,
+  ['algorithm' => 'reverse', 'source' => 0, 'parameters' => []], $draw)['score'];
+$derivedStart = $derivedExtras->sectionStart(count($derivedExtras->bars) - 1);
+$derivedExtras->setScoreDynamicLevel($derivedExtras->start($derivedStart), 'mf');
+expectVersions(MotifVersions::regenerationExtras($derivedExtras, 0, 0)
+    === ['shared dynamics'],
+  'Regenerating the original also warns about additions in derived versions.');
 $up = MotifScoreGenerator::generate(8, 3, $draw, 'Major', 'C',
   type: 'up-wave');
 $down = MotifScoreGenerator::generate(8, 3, $draw, 'Major', 'C',
@@ -290,5 +337,30 @@ $sameEnding = MotifVersions::regenerateSection($fixedEnding, 0, 1, $alwaysLow);
 expectVersions($sectionNotes($sameEnding, 1) === $sectionNotes($fixedEnding, 1)
   && $tries === 12 * $specs[1]['parameters']['replaceNotes'],
   'A constrained random ending stops after twelve attempts.');
+
+$screens = (new SPTK\XmlParser\XmlParser())->windows[0]['screens'];
+$window = (new ReflectionClass(SPTK\Core\Window::class))->newInstanceWithoutConstructor();
+(new ReflectionProperty(SPTK\Core\Window::class, 'screens'))->setValue($window, $screens);
+foreach (['window' => $window, 'score' => $extras, 'activeItemId' => 'A',
+  'view' => 'editor', 'melody' => 0, 'bar' => 0] as $name => $value) {
+  (new ReflectionProperty(MADSCORE\App\Controller::class, $name))->setValue(null, $value);
+}
+$status = $screens[0]->statusBar;
+$status->setScheduler(static function(int $durationMs, callable $dismiss): void {});
+$beforeRegeneration = $extras->data();
+MADSCORE\App\ControllerMotifGeneration::regenerateComposerFromSheet();
+expectVersions($status->confirming() && str_contains($status->text(), 'other notes')
+  && MADSCORE\App\Controller::score()->data() === $beforeRegeneration,
+  'Shift+C asks before discarding additions to a motif.');
+$status->handleBlockingInput((object)['type' => SPTK\SDLWrapper\SDL::SDL_EVENT_KEY_DOWN,
+  'key' => (object)['key' => SPTK\SDLWrapper\SDL::KEY_ESCAPE, 'mod' => 0]]);
+expectVersions(!$status->confirming() && MADSCORE\App\Controller::score()->data() === $beforeRegeneration,
+  'Cancelling motif regeneration keeps the added material.');
+(new ReflectionMethod(MADSCORE\App\ControllerMotifGeneration::class, 'applyMotif'))
+  ->invoke(null, 8, 4, 0, 'Major', 'C', 'random-step', 0);
+expectVersions($status->confirming() && MADSCORE\App\Controller::score()->data() === $beforeRegeneration,
+  'Generate new also asks before replacing additions in the first section.');
+$status->handleBlockingInput((object)['type' => SPTK\SDLWrapper\SDL::SDL_EVENT_KEY_DOWN,
+  'key' => (object)['key' => SPTK\SDLWrapper\SDL::KEY_ESCAPE, 'mod' => 0]]);
 
 echo "Motif version checks passed\n";

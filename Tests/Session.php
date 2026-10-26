@@ -21,10 +21,11 @@ MADSCORE\App\Files::restorePath(sys_get_temp_dir() . '/madscore-session-score.js
 foreach (['score' => $score, 'project' => MADSCORE\Score\Project::fromScore($score),
   'activeItemId' => 'main', 'bar' => 2, 'slot' => 3, 'octave' => 6, 'melody' => 1,
   'cursorLength' => 2, 'cursorLengthExplicit' => true, 'pitchPosition' => 5, 'firstBar' => 1,
-  'firstRow' => 2, 'view' => 'sheet', 'selection' => $selection,
+  'view' => 'sheet', 'selection' => $selection,
   'lastChordSettings' => ['main:0' => ['count' => 3, 'series' => 2,
     'degree' => null, 'inversion' => 1,
-    'music' => ['scale' => 'Major', 'homeNote' => 'C']]]] as $name => $value) {
+    'music' => ['scale' => 'Major', 'homeNote' => 'C'],
+    'mode' => 'current']]] as $name => $value) {
   (new \ReflectionProperty(MADSCORE\App\Controller::class, $name))->setValue(null, $value);
 }
 $capture = new \ReflectionMethod(MADSCORE\App\Controller::class, 'sessionState');
@@ -32,6 +33,8 @@ $restore = new \ReflectionMethod(MADSCORE\App\Controller::class, 'restoreSession
 $path = tempnam(sys_get_temp_dir(), 'madscore-session-');
 try {
   $state = $capture->invoke(null);
+  expectSession(!array_key_exists('view', $state) && !array_key_exists('firstRow', $state),
+    'Sessions do not save unused view and row positions.');
   MADSCORE\App\Session::save($state, $path);
   expectSession(MADSCORE\App\Session::load($path) === $state
     && $state['project']['items'][0]['id'] === 'main'
@@ -40,9 +43,15 @@ try {
   (new \ReflectionProperty(MADSCORE\App\Controller::class, 'score'))->setValue(null, new MADSCORE\Score\Score(12));
   $restore->invoke(null, MADSCORE\App\Session::load($path));
   expectSession($capture->invoke(null) === $state, 'Restoring the session returns the score, cursor, viewport, and selection.');
+  $oldView = $state;
+  $oldView['view'] = 'sheet';
+  $oldView['firstRow'] = 2;
+  $restore->invoke(null, $oldView);
+  expectSession($capture->invoke(null) === $state,
+    'Older session view and row positions are accepted but ignored.');
   expectSession((new \ReflectionMethod(MADSCORE\App\ControllerChords::class,
-    'previousChordSettings'))->invoke(null)['series'] === 2,
-    'The last chord settings remain available after session restore.');
+    'previousChordSettings'))->invoke(null)['mode'] === 'current',
+    'The last chord placement mode remains available after session restore.');
   expectSession(MADSCORE\App\Files::currentPath() === $state['filePath'],
     'Restoring the session retains the named file for Write.');
   $whole = $state;
@@ -50,6 +59,12 @@ try {
   $restore->invoke(null, $whole);
   expectSession($capture->invoke(null)['selection']['scope'] === 'score',
     'A whole-score selection survives session restore.');
+  $restore->invoke(null, $state);
+  $legacyChord = $state;
+  unset($legacyChord['chordSettings']['main:0']['mode']);
+  $restore->invoke(null, $legacyChord);
+  expectSession($capture->invoke(null)['chordSettings'] === $legacyChord['chordSettings'],
+    'Older chord settings without a mode still restore.');
   $restore->invoke(null, $state);
   $invalid = $state;
   $invalid['cursor']['bar'] = 99;
@@ -67,6 +82,15 @@ try {
   } catch (\DomainException $error) {
     expectSession($capture->invoke(null) === $state,
       'Invalid saved chord settings leave the editor state intact.');
+  }
+  $invalidMode = $state;
+  $invalidMode['chordSettings']['main:0']['mode'] = 'invalid';
+  try {
+    $restore->invoke(null, $invalidMode);
+    throw new \RuntimeException('Invalid saved chord placement mode was accepted.');
+  } catch (\DomainException $error) {
+    expectSession($capture->invoke(null) === $state,
+      'An invalid chord placement mode leaves the editor state intact.');
   }
   $oldFormat = $state;
   $oldFormat['score'] = $score->data();

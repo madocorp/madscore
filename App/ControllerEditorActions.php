@@ -46,17 +46,17 @@ final class ControllerEditorActions extends ControllerState {
     }
   }
 
-  /** Show the sound choices in place of the melody settings tile. */
+  /** Show the sound choices in place of the Note tile. */
   public static function showSoundPicker(EventContext $event): void {
-    if (self::$composerOpen) {
-      ControllerComposer::closeComposer();
+    if (Controller::editorPanelOpen()) {
+      ControllerNavigation::status('Press Esc to close the open panel first.');
+      return;
     }
     if (self::$score->melodyMuted(self::$melody)) {
       ControllerNavigation::status('This melody is muted and read-only. Unmute it to edit.');
       return;
     }
     $screen = Controller::screen('editor');
-    $screen->restore('exportPanel');
     ControllerSheet::prepareSoundPicker();
     $screen->widget('soundPicker')->setValue(self::$score->melodies[self::$melody]['instrument']);
     if ($screen->show('soundPicker')) {
@@ -70,7 +70,7 @@ final class ControllerEditorActions extends ControllerState {
     if (is_string($instrument)) {
       try {
         self::$score->setMelodyInstrument(self::$melody, $instrument);
-        self::$history?->observe(self::$score, self::$melody);
+        self::$history?->observe(self::$score);
       } catch (\DomainException $error) {
         ControllerNavigation::status($error->getMessage());
       }
@@ -81,19 +81,12 @@ final class ControllerEditorActions extends ControllerState {
 
   /** Show one file form over the Note tile. */
   public static function showFilePanel(string $id): void {
-    if (self::$composerOpen) {
-      ControllerComposer::closeComposer();
-    }
-    if (self::$chordOpen) {
-      ControllerChords::closeChord();
+    if (Controller::editorPanelOpen()) {
+      ControllerNavigation::status('Press Esc to close the open panel first.');
+      return;
     }
     $screen = Controller::screen('editor');
-    foreach (['savePanel', 'loadPanel', 'exportPanel', 'soundPicker'] as $other) {
-      if ($other !== $id) {
-        $screen->restore($other);
-      }
-    }
-    if ($screen->show($id)) {
+    if (Controller::showEditorPanel($id)) {
       if ($id === 'exportPanel') {
         $screen->activateLeaf($screen->layout->findTile('exportFormats'));
       }
@@ -147,14 +140,14 @@ final class ControllerEditorActions extends ControllerState {
 
   /** Open the list of available export formats. */
   public static function exportDialog(EventContext $event): void {
-    if (!Controller::isDesign() || ControllerSheet::commitEditorFields()) {
+    if (ControllerSheet::commitEditorFields()) {
       Files::showExport();
     }
   }
 
   /** Write every selected export beside the current project. */
   public static function exportSelected(EventContext $event): void {
-    if (!Controller::isDesign() || ControllerSheet::commitEditorFields()) {
+    if (ControllerSheet::commitEditorFields()) {
       Files::exportSelected($event);
     }
   }

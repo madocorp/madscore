@@ -323,6 +323,9 @@ final class RangeEdit {
 
   private static function fragment(array $note, int $originalStart, int $originalEnd, int $from, int $to): array {
     $note['length'] = $to - $from;
+    if ($from !== $originalStart || $to !== $originalEnd) {
+      unset($note['figure'], $note['chord']);
+    }
     if ($from !== $originalStart) {
       $note['articulation'] = 'ordinary';
       $note['fermata'] = false;
@@ -382,6 +385,30 @@ final class RangeEdit {
     $probe->bars = $data['bars'];
     $probe->melodies = $data['melodies'];
     $probe->notes = $data['notes'];
+    $chords = [];
+    foreach ($probe->notes as $index => $note) {
+      if (isset($note['chord'])) {
+        $chords[$note['chord']['id']][] = $index;
+      }
+    }
+    foreach ($chords as $members) {
+      $first = $probe->notes[$members[0]];
+      $start = $probe->start($first['bar']) + $first['slot'];
+      $valid = count($members) === $first['chord']['count'];
+      foreach ($members as $index) {
+        $note = $probe->notes[$index];
+        if ($probe->start($note['bar']) + $note['slot'] !== $start
+          || $note['length'] !== $first['length']
+          || $note['chord']['count'] !== $first['chord']['count']) {
+          $valid = false;
+        }
+      }
+      if (!$valid) {
+        foreach ($members as $index) {
+          unset($data['notes'][$index]['chord']);
+        }
+      }
+    }
     foreach ($probe->notes as $i => $note) {
       $next = $probe->nextAdjacent($i);
       if ($next === null) {

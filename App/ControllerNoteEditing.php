@@ -15,27 +15,27 @@ use SPTK\SDLWrapper\SDL;
 /** Undo, score loading, and note placement. */
 final class ControllerNoteEditing extends ControllerState {
   /** Undo the latest score edit. */
-  public static function undoMelody(): void {
+  public static function undoScore(): void {
     self::changeMelodyHistory(false);
   }
 
-  /** Redo the latest undone edit in the selected melody. */
-  public static function redoMelody(): void {
+  /** Redo the latest undone score edit. */
+  public static function redoScore(): void {
     self::changeMelodyHistory(true);
   }
 
   /** Handle an editor screen shortcut outside the active sheet. */
-  public static function undoMelodyShortcut(EventContext $event): bool {
+  public static function undoScoreShortcut(EventContext $event): bool {
     if (!$event->input->key->repeat) {
-      self::undoMelody();
+      self::undoScore();
     }
     return true;
   }
 
   /** Handle an editor screen redo shortcut outside the active sheet. */
-  public static function redoMelodyShortcut(EventContext $event): bool {
+  public static function redoScoreShortcut(EventContext $event): bool {
     if (!$event->input->key->repeat) {
-      self::redoMelody();
+      self::redoScore();
     }
     return true;
   }
@@ -68,8 +68,8 @@ final class ControllerNoteEditing extends ControllerState {
     self::$history ??= new ScoreHistory(self::$score);
     try {
       $changed = $redo
-        ? self::$history->redo(self::$score, self::$melody)
-        : self::$history->undo(self::$score, self::$melody);
+        ? self::$history->redo(self::$score)
+        : self::$history->undo(self::$score);
     } catch (\DomainException $error) {
       ControllerNavigation::status('Cannot restore the score: ' . $error->getMessage());
       return;
@@ -165,7 +165,6 @@ final class ControllerNoteEditing extends ControllerState {
       }
     }
     self::$firstBar = 0;
-    self::$firstRow = 0;
     self::$previewPage = 0;
     self::$view = 'editor';
     self::$sheet = self::$sheets['editor'];
@@ -244,24 +243,6 @@ final class ControllerNoteEditing extends ControllerState {
     ControllerSheet::focusCursor();
   }
 
-  /** Choose a natural pitch, placing a note if the cursor is empty. */
-  public static function setPitchLetter(string $letter): void {
-    $position = Pitch::naturalPosition($letter);
-    $index = ControllerSheet::currentNoteIndex();
-    if ($index === null) {
-      self::$pitchPosition = $position;
-      self::dropNote();
-      return;
-    }
-    $oldNote = self::$score->notes[$index];
-    self::$score->setPitchPosition($index, $oldNote['octave'], $position);
-    ControllerNavigation::changedNote($oldNote, self::$score->notes[$index]);
-    self::$octave = $oldNote['octave'];
-    ControllerSheet::selectNoteOnset($index);
-    self::$pitchPosition = $position;
-    ControllerSheet::focusCursor();
-  }
-
   /** Move only the pitch cursor by one semitone. */
   public static function stepPitch(int $direction): void {
     [$octave, $position] = Pitch::step(self::$octave, self::$pitchPosition, $direction);
@@ -287,11 +268,11 @@ final class ControllerNoteEditing extends ControllerState {
         return;
       }
       self::$score->forgetGeneratedChord($before['chord']['id'] ?? null);
-      ControllerNavigation::changedNote(null, self::$score->notes[$index]);
+      ControllerNavigation::changedNote();
     } else {
       $index = self::$score->place(self::$melody, $bar, $slot,
         self::$octave, self::$pitchPosition, self::cursorLength());
-      ControllerNavigation::changedNote($before, self::$score->notes[$index]);
+      ControllerNavigation::changedNote();
     }
     ControllerSheet::selectNoteOnset($index);
     self::$cursorLengthExplicit = false;

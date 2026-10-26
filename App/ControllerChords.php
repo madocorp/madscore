@@ -54,17 +54,11 @@ final class ControllerChords extends ControllerState {
   }
 
   public static function openChord(): void {
-    if (!Controller::isDesign() || self::$chordOpen || !ControllerSheet::commitEditorFields()) {
+    if (!Controller::isDesign() || Controller::editorPanelOpen()
+      || !ControllerSheet::commitEditorFields()) {
       return;
     }
-    if (self::$composerOpen) {
-      ControllerComposer::closeComposer();
-    }
     $screen = Controller::screen('editor');
-    $screen->restore('savePanel');
-    $screen->restore('loadPanel');
-    $screen->restore('exportPanel');
-    $screen->restore('soundPicker');
     $music = self::currentMusic();
     $previous = self::previousChordSettings();
     $existing = ChordGenerator::groupAt(self::$score, self::$bar, self::$slot,
@@ -106,7 +100,7 @@ final class ControllerChords extends ControllerState {
       });
     }
     self::$chordOpen = true;
-    $screen->show('chordPanel');
+    Controller::showEditorPanel('chordPanel');
     self::$window->refreshLayout();
   }
 
@@ -157,7 +151,7 @@ final class ControllerChords extends ControllerState {
     $screen->restore(self::$chordChoiceOpen === 'scale'
       ? 'chordScalePicker' : 'chordHomeNotePicker');
     self::$chordChoiceOpen = null;
-    $screen->show('chordPanel');
+    Controller::showEditorPanel('chordPanel');
     self::$window->refreshLayout();
   }
 

@@ -5,7 +5,6 @@ namespace MADSCORE\App;
 use MADSCORE\Score\HarmonicContext;
 use MADSCORE\Score\MotifScoreGenerator;
 use MADSCORE\Score\MotifArrangement;
-use MADSCORE\Score\Score;
 use SPTK\Events\EventContext;
 use SPTK\Events\KeyNormalizer;
 use SPTK\SDLWrapper\SDL;
@@ -21,17 +20,11 @@ final class ControllerComposer extends ControllerState {
   }
 
   public static function openComposer(): void {
-    if (!Controller::isDesign() || self::$composerOpen || !ControllerSheet::commitEditorFields()) {
+    if (!Controller::isDesign() || Controller::editorPanelOpen()
+      || !ControllerSheet::commitEditorFields()) {
       return;
     }
-    if (self::$chordOpen) {
-      ControllerChords::closeChord();
-    }
     $screen = Controller::screen('editor');
-    $screen->restore('savePanel');
-    $screen->restore('loadPanel');
-    $screen->restore('exportPanel');
-    $screen->restore('soundPicker');
     $motif = self::$score->melodies[self::$melody]['motif'] ?? null;
     if (self::$activeItemId !== 'main') {
       if ($motif !== null) {
@@ -73,7 +66,7 @@ final class ControllerComposer extends ControllerState {
       $screen->widget('scorePattern')->setValue(
         self::$project->pattern() ?? self::SCORE_PATTERN_HELP);
     }
-    if ($screen->show(self::composerPanelId())) {
+    if (Controller::showEditorPanel(self::composerPanelId())) {
       self::$window->refreshLayout();
     }
     ControllerSheet::invalidateSheet();
@@ -201,7 +194,7 @@ final class ControllerComposer extends ControllerState {
     self::refreshComposerChoices();
     $screen->restore('composerPanel');
     self::$composerGenerateOpen = true;
-    $screen->show('composerGeneratePanel');
+    Controller::showEditorPanel('composerGeneratePanel');
     self::$window->refreshLayout();
   }
 
@@ -213,7 +206,7 @@ final class ControllerComposer extends ControllerState {
     $screen = Controller::screen('editor');
     $screen->restore('composerGeneratePanel');
     if (self::$composerOpen) {
-      $screen->show('composerPanel');
+      Controller::showEditorPanel('composerPanel');
     }
     self::$window->refreshLayout();
   }
@@ -253,7 +246,7 @@ final class ControllerComposer extends ControllerState {
     self::refreshSectionKeyChoices();
     $screen->restore(self::composerPanelId());
     self::$composerKeyOpen = true;
-    $screen->show('sectionKeyPanel');
+    Controller::showEditorPanel('sectionKeyPanel');
     self::$window->refreshLayout();
   }
 
@@ -294,7 +287,7 @@ final class ControllerComposer extends ControllerState {
     self::$composerKeyChoiceOpen = null;
     $screen->restore($choice === 'scale'
       ? 'sectionScalePicker' : 'sectionHomeNotePicker');
-    $screen->show('sectionKeyPanel');
+    Controller::showEditorPanel('sectionKeyPanel');
     self::$window->refreshLayout();
   }
 
@@ -362,7 +355,7 @@ final class ControllerComposer extends ControllerState {
     $screen->restore('sectionKeyPanel');
     self::$composerKeyChoiceOpen = null;
     self::$composerKeyOpen = false;
-    $screen->show(self::composerPanelId());
+    Controller::showEditorPanel(self::composerPanelId());
     self::$window->refreshLayout();
   }
 
@@ -421,7 +414,7 @@ final class ControllerComposer extends ControllerState {
       'type' => 'composerTypePicker',
     });
     self::$composerChoiceOpen = null;
-    $screen->show('composerGeneratePanel');
+    Controller::showEditorPanel('composerGeneratePanel');
     self::$window->refreshLayout();
   }
 
@@ -509,7 +502,7 @@ final class ControllerComposer extends ControllerState {
     self::$score = $built;
     self::$history?->observe(self::$score);
     self::$bar = self::$slot = self::$melody = 0;
-    self::$firstBar = self::$firstRow = 0;
+    self::$firstBar = 0;
     ControllerSheet::clearSelection();
     ControllerSheet::syncNoteLength();
     self::closeComposer();
@@ -585,7 +578,7 @@ final class ControllerComposer extends ControllerState {
     self::$composerListOpen = false;
     $screen = Controller::screen('editor');
     $screen->restore('composerItems');
-    $screen->show(self::composerPanelId());
+    Controller::showEditorPanel(self::composerPanelId());
     self::$window->refreshLayout();
   }
 

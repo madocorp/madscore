@@ -121,7 +121,9 @@ a new original motif with its saved length, pitch count, and selector choices.
 On a generated section, it reruns that section's saved generator or
 transformation. Other branches
 keep their edits. A section added by hand has no generation settings and
-cannot be regenerated. The change can be undone.
+cannot be regenerated. When regenerated sections contain additions such as
+notes in other melodies, shared dynamics, or repeats, the status bar asks
+before discarding them. The change can be undone.
 
 **Derive version** (**V**) offers six transformations: keep the opening and change the
 ending, change the last notes, transpose by scale steps, invert the pitch
@@ -173,9 +175,11 @@ note and replaces its other tones. Reroll keeps the chosen placement mode.
 The motif's scale and home note appear in the Bar title and are used as its
 chord defaults. In the main score, the Bar title shows the current section's
 scale and home note, such as `Bar 2 (Major G)`. A
-built section inherits them when all its source motifs agree. A section built
-from motifs with different keys has no scale shown; choose a scale and home
-note in the chord panel when placing a chord there. Available scales are Major, Dorian, Phrygian,
+built section starts with a key when all its referenced motif versions agree.
+Key changes inside a motif are carried into the built score; the next motif
+returns to its own key. If the references disagree, the built section starts
+without a key; choose a scale and home note in the chord panel when placing a
+chord there. Available scales are Major, Dorian, Phrygian,
 Lydian, Mixolydian, Minor, and Locrian. Home notes are C through B, including
 sharps.
 
@@ -252,9 +256,10 @@ and Z is star 26. Extra separators are accepted, such as `O:A`, `T:A`, and
 `+2,-1`; the editor displays the compact form.
 The PDF packs referenced motifs into appendix tiles, filling columns from top
 to bottom before adding pages. If the score has one page and all tiles fit
-below it, the appendix shares that page. Otherwise appendix pages carry the
-same title, author, and catalog as score pages, with Appendix before the page
-number. The star and number sit beside the middle of each figure. An ornament
+below it, the appendix shares that page and keeps the score page header.
+Otherwise appendix pages carry the same title, author, and catalog as score
+pages, with Appendix - 1, Appendix - 2, and so on in place of the page number.
+The star and number sit beside the middle of each figure. An ornament
 panel has one
 dashed line for the marked note pitch. The first motif note anchors that pitch.
 Other notes keep their written lengths and note shapes at offsets from -2 to
@@ -268,30 +273,34 @@ conflicting note marks such as trills and staccato.
 ## Bars, sections, and print
 
 Bar settings hold its beat count, tempo, and optional note. A new bar inherits
-beat count and tempo. Changing a tempo also updates following bars that still
-have the previous tempo. Bar notes appear above their bars in the editor and
-printed score.
+beat count and tempo. Changing a bar's beat count moves its boundary without
+moving notes or shared dynamic marks in time. Changing a tempo also updates
+following bars that still have the previous tempo. Bar notes appear above
+their bars in the editor and printed score.
 
 Every score starts with a section. Use **|** or the Bar control to start a new
 section at the current bar. A section can repeat up to eight extra times. Dots
 above its last bar show the repeat count. A selection plays once, even if it
 contains a repeated section.
 
-**V** opens the PDF preview. **Page Up/Page Down** turns pages; **Home/End**
-jumps to the first or last page. **V**, **Esc**, or **Return** closes it. The PDF
-uses landscape A4 vector pages. It may show more octave bands than the editor's
-four rows so that melodies in different ranges can appear together. A dot marks
-the A3–G♯4 band containing middle C, and triangles mark higher or lower bands.
+**V** opens the PDF preview. **B/N** turns to the previous or next page;
+**F/L** jumps to the first or last page. **V**, **Esc**, or **Return** closes it.
+The PDF uses landscape A4 vector pages. It may show more octave bands than the
+editor's four rows so that melodies in different ranges can appear together.
+A dot marks the A3–G♯4 band containing middle C, and triangles mark higher or
+lower bands.
 
 ## Files and settings
 
 **Ctrl+S** opens Save, **Ctrl+W** overwrites the current project file, and
-**Ctrl+O** opens Load. Load can also import `.txt` files from the web editor;
-it warns about unsupported features before importing. **New** in the Load panel
+**Ctrl+O** opens Load. It can also import MusicXML files and warns about
+unsupported features before importing. **New** in the Load panel
 starts an empty, unnamed score. Use **Ctrl+S** to name it before **Ctrl+W** can
-overwrite a file. After saving, **Ctrl+E** opens the export list in the Note
-tile. Use **Space** to toggle MIDI, PDF, and WAV, then choose **Export selected** to
-write every selected format beside the project file.
+overwrite a file. With unsaved changes, Load asks for confirmation before
+opening the file selector; that decision also covers New. After saving,
+**Ctrl+E** opens the export list in the Note tile. Use **Space** to
+toggle MIDI, MusicXML, PDF, and WAV, then choose
+**Export selected** to write every selected format beside the project file.
 WAV uses FluidSynth and a SoundFont when available, falling back to the built-in sound.
 In the PDF preview, **U/J** increase/decrease note size and **H/K** decrease/increase
 beat width in 5% steps, up to 200%. The PDF layout keeps a section on one line

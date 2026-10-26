@@ -17,7 +17,7 @@
       </Layout>
       <Separator />
       <Layout width="1*">
-        <Text title="About madscore" height="5">madscore is a tile based score editor for Tristaff notation. Write melodies, preview pages, and export scores as PDF or MIDI.
+        <Text title="About madscore" height="5">madscore is a tile based score editor for Tristaff notation. Write melodies, preview pages, and export scores in several file types.
 Use F1 to read the Tristaff tutorial.</Text>
         <Separator />
         <Text id="settingsUnlicense" title="Unlicense" height="1*" />

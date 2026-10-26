@@ -131,6 +131,24 @@ $edge = 75 + 44 + (new ReflectionMethod(MADSCORE\Render\PagePainter::class, 'bar
 expectSection(sectionRgb($endingBandPage, $edge - 1, 325) === 0xffffff
   && sectionRgb($endingBandPage, $edge, 325) !== 0xffffff,
   'A staff ending before an octave hidden in the next section uses only the section border.');
+$changedSection = new MADSCORE\Score\Score(6);
+$changedSection->ensureBar(1);
+$changedSection->setSectionLeader(1, true);
+$changedSection->place(0, 0, 0, 8, 4, 2);
+foreach (range(0, 4) as $melody) {
+  $changedSection->place($melody + 1, 1, 0, $melody, 4, 2);
+}
+$changedStates = MADSCORE\Render\Prescription::states($changedSection);
+$changedWidth = (new ReflectionMethod(MADSCORE\Render\PagePainter::class, 'barWidth'))
+  ->invoke(null, $changedSection, 0);
+$changedPositions = MADSCORE\Render\Prescription::positions([0, 1],
+  [$changedWidth, $changedWidth], $changedStates, 44);
+$changedImage = sectionPageImage($changedSection, 3508, 2480);
+$closingX = 75 + $changedPositions[0]['right'];
+expectSection($changedPositions[1]['markerLeft'] !== null
+  && sectionRgb($changedImage, $closingX - 4, 600) === 0xffffff
+  && sectionRgb($changedImage, $closingX - 2, 600) !== 0xffffff,
+  'A section with an octave marker closes the preceding bar before the marker gap.');
 $wrappedSection = new MADSCORE\Score\Score();
 $wrappedSection->ensureBar(11);
 $wrappedSection->setSectionLeader(11, true);

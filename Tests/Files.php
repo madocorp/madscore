@@ -35,12 +35,20 @@ MADSCORE\App\Files::initialize();
 expectFiles($screens[0]->widget('saveDirectory')->path() === MADSCORE\App\Settings::defaultDirectory()
   && $screens[0]->widget('saveFilename')->getValue() === 'score.json.gz',
   'Save starts in the configured directory with a compressed project name.');
+MADSCORE\App\Controller::showEditorPanel('savePanel');
+MADSCORE\App\ControllerEditorActions::showSoundPicker(new SPTK\Events\EventContext(
+  'activate', $screens[0]->widget('sound')));
+expectFiles($screens[0]->layout->findTile('savePanel')->overwriting() !== null
+  && $screens[0]->layout->findTile('soundPicker')->overwriting() === null,
+  'The sound picker cannot replace an open Save panel.');
+$screens[0]->restore('savePanel');
 
 $path = sys_get_temp_dir() . '/madscore-file-' . bin2hex(random_bytes(6)) . '.json.gz';
 $legacyPath = substr($path, 0, -3);
 $badPath = $path . '.bad.json.gz';
 $midiPath = substr($path, 0, -8) . '.mid';
 $musicXmlPath = substr($path, 0, -8) . '.musicxml';
+$expectedMusicXmlPath = substr($path, 0, -8) . '.expected.musicxml';
 $pdfPath = substr($path, 0, -8) . '.pdf';
 $wavPath = substr($path, 0, -8) . '.wav';
 expectFiles($screens[0]->widget('exportFormats')->getValue() === ['midi', 'pdf'],
@@ -92,6 +100,47 @@ try {
   MADSCORE\App\Files::write(new SPTK\Events\EventContext('activate'));
   expectFiles(json_decode(gzdecode(file_get_contents($path)), true, 512, JSON_THROW_ON_ERROR)['title'] === 'Written again'
     && !$screens[0]->statusBar->confirming(), 'Write overwrites the current file without a prompt.');
+  $unsaved = new ReflectionMethod(MADSCORE\App\Files::class, 'hasUnsavedChanges');
+  expectFiles(!$unsaved->invoke(null), 'The saved project has no unsaved changes.');
+  $score->title = 'Unwritten title';
+  expectFiles($unsaved->invoke(null), 'A changed score is detected as unsaved.');
+  MADSCORE\App\Files::showLoad();
+  expectFiles($screens[0]->statusBar->confirming()
+    && $screens[0]->layout->findTile('loadPanel')->overwriting() === null,
+    'Load asks before opening its file selector when work is unsaved.');
+  $screens[0]->statusBar->handleBlockingInput((object)[
+    'type' => SPTK\SDLWrapper\SDL::SDL_EVENT_KEY_DOWN,
+    'key' => (object)['key' => SPTK\SDLWrapper\SDL::KEY_ESCAPE, 'mod' => 0],
+  ]);
+  expectFiles(!$screens[0]->statusBar->confirming()
+    && $screens[0]->layout->findTile('loadPanel')->overwriting() === null,
+    'Cancelling Load leaves the file selector closed.');
+  MADSCORE\App\Files::createNew(new SPTK\Events\EventContext('activate'));
+  expectFiles($screens[0]->statusBar->confirming()
+    && str_contains($screens[0]->statusBar->text(), 'Discard unsaved changes'),
+    'New asks in the status bar before replacing unsaved work.');
+  $screens[0]->statusBar->handleBlockingInput((object)[
+    'type' => SPTK\SDLWrapper\SDL::SDL_EVENT_KEY_DOWN,
+    'key' => (object)['key' => SPTK\SDLWrapper\SDL::KEY_ESCAPE, 'mod' => 0],
+  ]);
+  expectFiles(!$screens[0]->statusBar->confirming()
+    && MADSCORE\App\Controller::score()->title === 'Unwritten title'
+    && MADSCORE\App\Files::currentPath() === $path,
+    'Cancelling New keeps the score and its file path.');
+  $screens[0]->widget('loadSelector')->setPath(dirname($path));
+  $screens[0]->widget('loadSelector')->setValue($path);
+  MADSCORE\App\Files::open(new SPTK\Events\EventContext('activate'));
+  expectFiles($screens[0]->statusBar->confirming()
+    && str_contains($screens[0]->statusBar->text(), 'Discard unsaved changes'),
+    'Load asks in the status bar before replacing unsaved work.');
+  $screens[0]->statusBar->handleBlockingInput((object)[
+    'type' => SPTK\SDLWrapper\SDL::SDL_EVENT_KEY_DOWN,
+    'key' => (object)['key' => SPTK\SDLWrapper\SDL::KEY_ESCAPE, 'mod' => 0],
+  ]);
+  expectFiles(!$screens[0]->statusBar->confirming()
+    && MADSCORE\App\Controller::score()->title === 'Unwritten title',
+    'Cancelling Load keeps unsaved work.');
+  $score->title = 'Written again';
   MADSCORE\App\Files::exportSelected(new SPTK\Events\EventContext('activate'));
   expectFiles(str_starts_with(file_get_contents($midiPath), 'MThd')
     && str_starts_with(file_get_contents($pdfPath), '%PDF-')
@@ -107,6 +156,22 @@ try {
   expectFiles($musicXml->load($musicXmlPath, LIBXML_NONET)
     && $musicXml->documentElement->nodeName === 'score-partwise',
     'MusicXML can be selected and exported beside the project.');
+  $motifProject = MADSCORE\Score\Project::fromScore($score);
+  $motifId = $motifProject->create();
+  $motif = new MADSCORE\Score\Score();
+  $motif->place(0, 0, 0, 5, 8, 2);
+  (new ReflectionProperty(MADSCORE\App\Controller::class, 'project'))->setValue(null, $motifProject);
+  (new ReflectionProperty(MADSCORE\App\Controller::class, 'activeItemId'))->setValue(null, $motifId);
+  (new ReflectionProperty(MADSCORE\App\Controller::class, 'score'))->setValue(null, $motif);
+  MADSCORE\App\Files::exportSelected(new SPTK\Events\EventContext('activate'));
+  MADSCORE\Score\MusicXmlWriter::write($expectedMusicXmlPath, $motifProject->score('main'));
+  expectFiles(file_get_contents($musicXmlPath) === file_get_contents($expectedMusicXmlPath)
+    && $motifProject->score($motifId)->data() === $motif->data(),
+    'Exporting from a motif writes the main score and keeps the motif in the project.');
+  (new ReflectionProperty(MADSCORE\App\Controller::class, 'project'))->setValue(null,
+    MADSCORE\Score\Project::fromScore($score));
+  (new ReflectionProperty(MADSCORE\App\Controller::class, 'activeItemId'))->setValue(null, 'main');
+  (new ReflectionProperty(MADSCORE\App\Controller::class, 'score'))->setValue(null, $score);
   $screens[0]->widget('exportFormats')->setValue(['wav']);
   $originalPath = getenv('PATH');
   putenv('PATH=/nonexistent');
@@ -173,7 +238,8 @@ try {
     && MADSCORE\App\Files::currentPath() === null,
     'An invalid selected file leaves the score and current path intact.');
 } finally {
-  foreach ([$path, $legacyPath, $badPath, $midiPath, $musicXmlPath, $pdfPath, $wavPath] as $file) {
+  foreach ([$path, $legacyPath, $badPath, $midiPath, $musicXmlPath,
+    $expectedMusicXmlPath, $pdfPath, $wavPath] as $file) {
     if (is_file($file)) {
       unlink($file);
     }

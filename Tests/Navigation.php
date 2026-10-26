@@ -268,6 +268,28 @@ $canvas = new MADSCORE\App\SheetCanvas();
 expectNavigation($canvas->releaseNotification(SPTK\SDLWrapper\SDL::KEY_RETURN, 0) === null, 'Return stays in the editor for note placement.');
 expectNavigation($canvas->releaseNotification(SPTK\SDLWrapper\SDL::KEY_ESCAPE, 0) === 'cancel', 'Esc leaves the editor.');
 
+$editor = (new SPTK\XmlParser\ScreenParser())->parse('editor.xml',
+  new SPTK\Core\Style(), 'editor', 'Editor');
+$editor->measureGrid(new SPTK\Layout\Tile(0, 0, 160, 50));
+foreach (['savePanel', 'loadPanel', 'exportPanel', 'chordPanel', 'composerPanel',
+  'composerGeneratePanel', 'composerScorePanel', 'sectionKeyPanel',
+  'motifVersionPicker', 'motifVersionParams'] as $panelId) {
+  expectNavigation($editor->show($panelId), "The {$panelId} opens over the Note tile.");
+  $editor->measureGrid(new SPTK\Layout\Tile(0, 0, 160, 50));
+  $panel = $editor->layout->findTile($panelId);
+  $editor->selectLeaf($panel->childMovementLeaves()[0]);
+  expectNavigation($editor->navigationDepth() === 1,
+    "The {$panelId} opens its own navigation group.");
+  foreach ([SPTK\SDLWrapper\SDL::KEY_LEFT, SPTK\SDLWrapper\SDL::KEY_RIGHT,
+    SPTK\SDLWrapper\SDL::KEY_UP, SPTK\SDLWrapper\SDL::KEY_DOWN] as $key) {
+    $editor->handleEvent((object)['type' => SPTK\SDLWrapper\SDL::SDL_EVENT_KEY_DOWN,
+      'key' => (object)['key' => $key, 'mod' => 0, 'repeat' => false]]);
+    expectNavigation($panel->containsLeaf($editor->selectedLeaf()),
+      "Arrow navigation stays inside the {$panelId}.");
+  }
+  $editor->restore($panelId);
+}
+
 $previewEvent = new SPTK\Events\EventDispatcher();
 foreach (['b' => 'previousPreviewPage', 'n' => 'nextPreviewPage',
   'f' => 'firstPreviewPage', 'l' => 'lastPreviewPage'] as $key => $action) {

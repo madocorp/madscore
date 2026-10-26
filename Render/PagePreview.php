@@ -65,11 +65,12 @@ final class PagePreview {
       $cairo->cairo_clip($context);
       if ($page < count($pages)) {
         PagePainter::drawPage($score, $cairo, $context, $pages[$page], $states,
-          pageNumber: $page + 1, pageCount: $pageCount, figures: $figures,
+          pageNumber: $page + 1, pageCount: count($pages), figures: $figures,
           inlineTiles: $page === 0 ? $inlineTiles : []);
       } else {
         FigureAppendix::drawPage($cairo, $context, $appendixPages[$page - count($pages)]);
-        PagePainter::drawHeader($score, $cairo, $context, $page + 1, $pageCount, true);
+        PagePainter::drawHeader($score, $cairo, $context, $page + 1,
+          count($pages), $page - count($pages) + 1);
       }
       $cairo->cairo_restore($context);
       if ($cairo->cairo_status($context) !== 0) {

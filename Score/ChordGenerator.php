@@ -87,7 +87,7 @@ final class ChordGenerator {
     return [...array_slice($voices, 0, $count - 1), $sourceMelody];
   }
 
-  /** Form ascending scale thirds, invert, then put the bass nearest the anchor. */
+  /** Form scale thirds, invert, then order the tones around the anchor. */
   private static function pitches(int $count, int $degree, int $inversion,
     array $music, int $anchor, string $placement): array {
     $scale = MotifScoreGenerator::SCALES[$music['scale']];
@@ -100,6 +100,14 @@ final class ChordGenerator {
     for ($step = 0; $step < $inversion; $step++) {
       $pitches[] = array_shift($pitches) + 12;
     }
+    $bass = $pitches[0];
+    foreach ($pitches as &$pitch) {
+      while ($pitch < $bass) {
+        $pitch += 12;
+      }
+    }
+    unset($pitch);
+    sort($pitches);
     $reference = $placement === 'top' ? end($pitches) : $pitches[0];
     $octaves = (int)round(($anchor - $reference) / 12);
     $pitches = array_map(static fn (int $pitch): int => $pitch + 12 * $octaves,

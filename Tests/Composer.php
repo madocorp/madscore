@@ -305,7 +305,7 @@ $hotkeys = static function() use ($editor): array {
   $input = (new ReflectionProperty(SPTK\Core\Screen::class, 'screenInput'))->getValue($editor);
   return (new ReflectionProperty(SPTK\Events\ScreenInput::class, 'hotkeys'))->getValue($input);
 };
-$editor->show('composerScorePanel');
+MADSCORE\App\Controller::showEditorPanel('composerScorePanel');
 expectComposer((new ReflectionMethod(MADSCORE\App\ControllerComposer::class,
   'composerFocused'))->invoke(null),
   'A selected Composer button is recognized by its widget ID.');
@@ -321,9 +321,9 @@ expectComposer($hotkeys()['m']->id() === 'scoreToMotif'
   && $hotkeys()['b']->id() === 'scoreBuild',
   'The score tile binds its Motif and Build buttons.');
 $editor->restore('composerScorePanel');
-$editor->show('composerPanel');
+MADSCORE\App\Controller::showEditorPanel('composerPanel');
 expectComposer(array_map(static fn ($leaf): ?string => $leaf->instance()->id(),
-    $editor->layout->findTile('composerPanel')->movementLeaves())
+    $editor->layout->findTile('composerPanel')->childMovementLeaves())
     === ['composerItem', 'composerToScore', 'composerOpenGenerate', 'composerAddVersion',
       'motifSectionKey']
   && $hotkeys()['s']->id() === 'composerToScore'
@@ -346,7 +346,7 @@ expectComposer($editor->handleEvent((object)['type' => SPTK\SDLWrapper\SDL::SDL_
     . $editor->statusBar->text());
 $editor->statusBar->clear();
 $editor->restore('composerPanel');
-$editor->show('composerGeneratePanel');
+MADSCORE\App\Controller::showEditorPanel('composerGeneratePanel');
 expectComposer($editor->layout->findTile('composerGeneratePanel')->overwriting() !== null
   && !isset($hotkeys()['g']),
   'The generation parameter panel has separate controls.');
@@ -355,13 +355,13 @@ $editor->show('composerTypePicker');
 expectComposer($editor->layout->findTile('composerTypePicker')->overwriting() !== null,
   'The generator type choices can replace the parameter panel.');
 $editor->restore('composerTypePicker');
-$editor->show('motifVersionPicker');
+MADSCORE\App\Controller::showEditorPanel('motifVersionPicker');
 expectComposer($editor->layout->findTile('motifVersionPicker')->overwriting() !== null
   && $editor->selectedLeaf()?->instance()->id() === 'motifVersionList',
   'The version picker shows its source and target above the algorithm list.');
 $editor->restore('motifVersionPicker');
 $editor->restore('composerGeneratePanel');
-$editor->show('composerPanel');
+MADSCORE\App\Controller::showEditorPanel('composerPanel');
 expectComposer($editor->layout->findTile('composerPanel')->overwriting() !== null,
   'The three-button motif tile can be restored after generation settings.');
 $editor->restore('composerPanel');

@@ -97,6 +97,56 @@ final class MotifVersions {
     return $sections;
   }
 
+  /** Report added content that regenerating this section or its versions may replace. */
+  public static function regenerationExtras(Score $score, ?int $melody,
+    int $sectionIndex): array {
+    $sections = self::sections($score);
+    if (!isset($sections[$sectionIndex])) {
+      throw new \DomainException('The selected section does not exist.');
+    }
+    $rebuilt = [$sectionIndex => true];
+    $extras = [];
+    foreach ($sections as $index => $section) {
+      if ($index > $sectionIndex) {
+        $source = $section['bars'][0]['motifVersion']['source'] ?? null;
+        if ($source !== null && isset($rebuilt[$source])) {
+          $rebuilt[$index] = true;
+        }
+      }
+      if (!isset($rebuilt[$index])) {
+        continue;
+      }
+      foreach ($section['notes'] as $note) {
+        if ($melody === null || $note['melody'] !== $melody) {
+          $extras['other notes'] = true;
+        } else if (($note['articulation'] ?? 'ordinary') !== 'ordinary'
+          || ($note['slurToNext'] ?? false) || ($note['glissandoToNext'] ?? false)
+          || ($note['fermata'] ?? false) || ($note['trill'] ?? 0) !== 0
+          || ($note['finger'] ?? '') !== '' || ($note['dynamicToNext'] ?? '') !== ''
+          || ($note['dynamicLevel'] ?? '') !== '' || isset($note['figure'])
+          || isset($note['chord'])) {
+          $extras['note marks'] = true;
+        }
+      }
+      if ($section['marks'] !== []) {
+        $extras['shared dynamics'] = true;
+      }
+      $firstTempo = $section['bars'][0]['tempo'];
+      foreach ($section['bars'] as $barIndex => $bar) {
+        if ($bar['repeats'] > 0) {
+          $extras['repeats'] = true;
+        }
+        if ($barIndex > 0 && $bar['tempo'] !== $firstTempo) {
+          $extras['tempo changes'] = true;
+        }
+        if ($barIndex > 0 && $bar['note'] !== '') {
+          $extras['bar notes'] = true;
+        }
+      }
+    }
+    return array_keys($extras);
+  }
+
   private static function appendSection(Score $score, array $section): int {
     $index = count(self::sections($score));
     $barOffset = count($score->bars) - $section['startBar'];

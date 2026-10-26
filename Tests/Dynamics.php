@@ -116,6 +116,21 @@ expectDynamic(MADSCORE\Render\DynamicPainter::labels($wrapped, $previousRow, 220
   && abs(MADSCORE\Render\DynamicPainter::labels($wrapped, $nextRow, 220)[0]['x'] - $nextRow[0]['left']) < 0.01
   && count(MADSCORE\Render\DynamicPainter::segments($wrapped, $previousRow, 220)) === 1,
   'A level at a wrapped row start prints only on its own row while the preceding wedge still ends at the boundary.');
+$crossingNote = new MADSCORE\Score\Score();
+$crossingNote->ensureBar(1);
+$crossingIndex = $crossingNote->place(0, 0, 6, 3, 4, 4);
+$crossingNote->setDynamicLevel($crossingIndex, 'mf');
+$crossingStates = MADSCORE\Render\Prescription::states($crossingNote);
+$crossingFirst = MADSCORE\Render\Prescription::positions([0], [267], $crossingStates, 44);
+$crossingSecond = MADSCORE\Render\Prescription::positions([1], [267], $crossingStates, 44);
+expectDynamic(count(MADSCORE\Render\DynamicPainter::labels($crossingNote, $crossingFirst, 220)) === 1
+  && MADSCORE\Render\DynamicPainter::labels($crossingNote, $crossingSecond, 220) === [],
+  'A note crossing a line or editor viewport keeps its ungrouped level at the onset.');
+$wedgeStart = $crossingNote->place(0, 0, 0, 3, 1, 2);
+$crossingNote->setDynamicToNext($wedgeStart, 'crescendo');
+expectDynamic(MADSCORE\Render\DynamicPainter::labels($crossingNote, $crossingFirst, 220) === []
+  && count(MADSCORE\Render\DynamicPainter::labels($crossingNote, $crossingSecond, 220)) === 1,
+  'A closing wedge level on a crossing note appears beside its end on the next line.');
 $tempoLevels = new MADSCORE\Score\Score();
 $tempoLevels->setBeats(0, 1);
 $tempoNote = $tempoLevels->place(0, 0, 0, 4, 1, 1);
@@ -365,9 +380,42 @@ $timed->ensureBar(1);
 $timed->setScoreDynamicLevel(8, 'mp');
 expectDynamic(!$timed->removeEmptyLastBar(1), 'A shared mark keeps its otherwise empty bar.');
 $timed->setBeats(0, 5);
-expectDynamic($timed->scoreDynamics[0]['time'] === 10
+expectDynamic($timed->scoreDynamics[0]['time'] === 8
   && MADSCORE\Score\Score::fromData($timed->data())->data() === $timed->data(),
-  'Changing bar beats carries shared marks with the following bar.');
+  'Lengthening a bar keeps a shared mark at the same score beat.');
+$timed->setBeats(0, 2);
+expectDynamic($timed->scoreDynamics[0]['time'] === 8
+  && MADSCORE\Score\Score::fromData($timed->data())->data() === $timed->data(),
+  'Shortening a bar keeps a shared mark at the same score beat.');
+$aligned = new MADSCORE\Score\Score();
+$aligned->ensureBar(1);
+$alignedNote = $aligned->place(0, 1, 0, 4, 4, 2);
+$aligned->setScoreDynamicLevel(8, 'mf');
+$aligned->setScoreDynamicWedge(8, 12, 'crescendo');
+$aligned->setBeats(0, 2);
+expectDynamic($aligned->start($aligned->notes[$alignedNote]['bar'])
+    + $aligned->notes[$alignedNote]['slot'] === 8
+  && $aligned->scoreDynamics[0]['time'] === 8
+  && $aligned->scoreDynamics[0]['end'] === 12
+  && MADSCORE\Score\Score::fromData($aligned->data())->data() === $aligned->data(),
+  'A shared level and wedge remain aligned with a displaced note.');
+$expandedAligned = new MADSCORE\Score\Score();
+$expandedAligned->setBeats(0, 2);
+$expandedAligned->ensureBar(1);
+$expandedNote = $expandedAligned->place(0, 1, 0, 4, 4, 2);
+$expandedAligned->setScoreDynamicLevel(4, 'mf');
+$expandedAligned->setBeats(0, 4);
+expectDynamic($expandedAligned->start($expandedAligned->notes[$expandedNote]['bar'])
+    + $expandedAligned->notes[$expandedNote]['slot'] === 4
+  && $expandedAligned->scoreDynamics[0]['time'] === 4,
+  'Lengthening a bar keeps a shared level with its note.');
+$twoMarks = new MADSCORE\Score\Score();
+$twoMarks->ensureBar(1);
+$twoMarks->setScoreDynamicLevel(4, 'mp');
+$twoMarks->setScoreDynamicLevel(8, 'mf');
+$twoMarks->setBeats(0, 2);
+expectDynamic(array_column($twoMarks->scoreDynamics, 'time') === [4, 8],
+  'Shortening a bar preserves distinct beat positions for shared marks.');
 
 $screens = (new SPTK\XmlParser\XmlParser())->windows[0]['screens'];
 $window = (new ReflectionClass(SPTK\Core\Window::class))->newInstanceWithoutConstructor();

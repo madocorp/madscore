@@ -39,8 +39,8 @@ function midiEvents(string $track): array {
   return $events;
 }
 
-function midiMelodyEvents(MADSCORE\Score\Score $score): array {
-  $midi = MADSCORE\Play\MidiWriter::encode($score);
+function midiMelodyEvents(MADSCORE\Score\Score $score, ?int $start = null): array {
+  $midi = MADSCORE\Play\MidiWriter::encode($score, start: $start);
   $offset = 14;
   $conductorLength = unpack('N', substr($midi, $offset + 4, 4))[1];
   $offset += 8 + $conductorLength;
@@ -100,6 +100,47 @@ $staccatoStops = array_values(array_filter($articulationEvents,
   static fn (array $event): bool => ($event[1] & 0xf0) === 0xb0 && $event[3] === "\x78\x00"));
 expectMidi(array_column($staccatoStops, 0) === [240],
   'MIDI damps a staccato voice at its shortened end.');
+$overlappingStaccato = new MADSCORE\Score\Score();
+$longHeld = $overlappingStaccato->place(0, 0, 0, 4, 4, 4);
+$overlappingStaccato->setFermata($longHeld, true);
+$shortAfter = $overlappingStaccato->place(0, 0, 4, 4, 8, 2);
+$overlappingStaccato->setStaccato($shortAfter, true);
+$overlapEvents = midiMelodyEvents($overlappingStaccato);
+$heldOff = array_values(array_filter($overlapEvents,
+  static fn (array $event): bool => ($event[1] & 0xf0) === 0x80
+    && ord($event[3][0]) === 72));
+expectMidi($heldOff[0][0] === 1440
+  && !array_filter($overlapEvents,
+    static fn (array $event): bool => ($event[1] & 0xf0) === 0xb0
+      && $event[3] === "\x78\x00"),
+  'A staccato stop does not silence a fermata still sounding on its channel.');
+$splitArticulation = new MADSCORE\Score\Score();
+$splitArticulation->place(0, 0, 0, 4, 4, 2);
+$shortTone = $splitArticulation->addChordTone(0, 0, 0, 4, 8, 2);
+$splitArticulation->setStaccato($shortTone, true);
+expectMidi(!array_filter(midiMelodyEvents($splitArticulation),
+  static fn (array $event): bool => ($event[1] & 0xf0) === 0xb0
+    && $event[3] === "\x78\x00"),
+  'A short chord tone does not silence another tone held in the same melody.');
+$staccatoCursor = new MADSCORE\Score\Score();
+$crossed = $staccatoCursor->place(0, 0, 0, 4, 4, 4);
+$staccatoCursor->setStaccato($crossed, true);
+$staccatoCursor->place(0, 0, 4, 4, 6, 2);
+$afterStaccato = midiMelodyEvents($staccatoCursor, 3);
+$afterStaccatoOnsets = array_values(array_filter($afterStaccato,
+  static fn (array $event): bool => ($event[1] & 0xf0) === 0x90));
+expectMidi($afterStaccato[0][0] === 0
+  && $afterStaccatoOnsets[0][0] === 240
+  && !array_filter($afterStaccato,
+    static fn (array $event): bool => ($event[1] & 0xf0) === 0xb0
+      && $event[3] === "\x78\x00"),
+  'Starting after a staccato sound ends does not shift later MIDI events.');
+$duringStaccato = midiMelodyEvents($staccatoCursor, 1);
+$duringStops = array_values(array_filter($duringStaccato,
+  static fn (array $event): bool => ($event[1] & 0xf0) === 0xb0
+    && $event[3] === "\x78\x00"));
+expectMidi(count($duringStops) === 1 && $duringStops[0][0] === 240,
+  'Starting during a staccato sound still damps it at the shortened end.');
 $midi = MADSCORE\Play\MidiWriter::encode($score);
 expectMidi(substr($midi, 0, 14) === 'MThd' . pack('Nnnn', 6, 1, 3, 480),
   'Export is a type-1 MIDI file at 480 ticks per beat.');
@@ -249,6 +290,22 @@ $fermata->setFermata($held, true);
 $lastOff = array_values(array_filter(midiMelodyEvents($fermata),
   static fn (array $event): bool => ($event[1] & 0xf0) === 0x80));
 expectMidi($lastOff[0][0] === 2160, 'A final fermata continues past the end of the last bar.');
+$repeatedFermata = new MADSCORE\Score\Score();
+$firstC = $repeatedFermata->place(0, 0, 0, 4, 4, 2);
+$repeatedFermata->setFermata($firstC, true);
+$repeatedFermata->place(0, 0, 2, 4, 4, 2);
+$fermataEvents = midiMelodyEvents($repeatedFermata);
+$cEvents = array_values(array_filter($fermataEvents,
+  static fn (array $event): bool => in_array($event[1] & 0xf0, [0x80, 0x90], true)
+    && ord($event[3][0]) === 72));
+$fermataPedal = array_values(array_filter($fermataEvents,
+  static fn (array $event): bool => ($event[1] & 0xf0) === 0xb0
+    && ord($event[3][0]) === 64));
+expectMidi(array_column($cEvents, 0) === [0, 480, 480, 946]
+  && array_map(static fn (array $event): int => $event[1] & 0xf0, $cEvents)
+    === [0x90, 0x80, 0x90, 0x80]
+  && array_column($fermataPedal, 0) === [480, 720],
+  'A fermata tail releases before the next same-pitch attack and rings under the pedal.');
 
 $articulated = new MADSCORE\Score\Score();
 $short = $articulated->place(0, 0, 0, 4, 1, 2);
@@ -291,6 +348,19 @@ $firstJoin = array_values(array_filter(midiMelodyEvents($repeated),
 expectMidi(array_map(static fn (array $event): int => $event[1] & 0xf0, $firstJoin) ===
   [0xb0, 0x80, 0xb0, 0x90],
   'The previous linked voice releases before the next same-pitch attack.');
+$slurredChord = new MADSCORE\Score\Score();
+$oldC = $slurredChord->place(0, 0, 0, 4, 4, 2);
+$slurredChord->place(0, 0, 2, 4, 8, 2);
+$slurredChord->addChordTone(0, 0, 2, 4, 4, 2);
+$slurredChord->setSlurToNext($oldC, true);
+$chordEvents = midiMelodyEvents($slurredChord);
+$chordC = array_values(array_filter($chordEvents,
+  static fn (array $event): bool => in_array($event[1] & 0xf0, [0x80, 0x90], true)
+    && ord($event[3][0]) === 72));
+expectMidi(array_column($chordC, 0) === [0, 480, 480, 946]
+  && array_map(static fn (array $event): int => $event[1] & 0xf0, $chordC)
+    === [0x90, 0x80, 0x90, 0x80],
+  'A slur finds the matching pitch inside the next chord before releasing its old note.');
 
 $example = MADSCORE\Score\Project::fromData(json_decode(file_get_contents(APP_DIR . '/Assets/example.json'), true, 512, JSON_THROW_ON_ERROR))->score('main');
 expectMidi(count($example->melodies) === 5 && count($example->notes) > 60

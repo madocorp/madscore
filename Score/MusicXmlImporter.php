@@ -53,6 +53,7 @@ final class MusicXmlImporter {
       $divisions = 1;
       $beats = 4;
       $beatType = 4;
+      $transpose = 0;
       foreach ($measures as $bar => $measure) {
         if ($partIndex > 0) {
           [$beats, $beatType] = $meters[$bar];
@@ -67,6 +68,9 @@ final class MusicXmlImporter {
           }
           switch ($node->localName) {
             case 'attributes':
+              if (($shift = self::child($node, 'transpose')) !== null) {
+                $transpose = self::transposition($shift);
+              }
               if (($value = self::value($node, 'divisions')) !== null) {
                 $divisions = self::positiveInt($value, 'divisions');
               }
@@ -81,7 +85,7 @@ final class MusicXmlImporter {
                 if ($cursor !== 0) {
                   throw new \DomainException('Mid-measure key changes are not supported.');
                 }
-                $music = self::key($key, $warnings);
+                $music = self::key($key, $warnings, $transpose);
                 if (array_key_exists($bar, $keys) && $keys[$bar] !== $music) {
                   throw new \DomainException('MusicXML parts have conflicting keys in measure ' . ($bar + 1) . '.');
                 }
@@ -89,7 +93,7 @@ final class MusicXmlImporter {
               }
               break;
             case 'direction':
-              $tempo = self::directionTempo($node);
+              $tempo = self::directionTempo($node, $warnings);
               $directionType = self::child($node, 'direction-type');
               if ($directionType !== null) {
                 foreach ($directionType->childNodes as $mark) {
@@ -153,7 +157,7 @@ final class MusicXmlImporter {
                 break;
               }
               $voices[$partIndex][$voice] = true;
-              [$octave, $position, $written] = self::pitch($pitch);
+              [$octave, $position, $written] = self::pitch($pitch, $transpose);
               $tieStart = false;
               $tieStop = false;
               foreach (self::children($node, 'tie') as $tie) {
@@ -307,12 +311,40 @@ final class MusicXmlImporter {
     }
     usort($notes, static fn (array $a, array $b): int => [$a['time'], $a['melody'], $a['position']]
       <=> [$b['time'], $b['melody'], $b['position']]);
+    $lanes = [];
     foreach ($notes as $note) {
       if ($note['length'] > 198) {
         throw new \DomainException('An imported note exceeds the 198 half-beat limit.');
       }
       $bar = $note['bar'];
       $slot = $note['time'] - $starts[$bar];
+      $sourceMelody = $note['melody'];
+      $lanes[$sourceMelody] ??= [['melody' => $sourceMelody, 'start' => -1,
+        'end' => -1, 'length' => 0]];
+      $laneIndex = null;
+      foreach ($lanes[$sourceMelody] as $candidate => $lane) {
+        if ($lane['start'] === $note['time'] && $lane['length'] === $note['length']) {
+          $laneIndex = $candidate;
+          break;
+        }
+      }
+      if ($laneIndex === null) {
+        foreach ($lanes[$sourceMelody] as $candidate => $lane) {
+          if ($lane['end'] <= $note['time']) {
+            $laneIndex = $candidate;
+            break;
+          }
+        }
+      }
+      if ($laneIndex === null) {
+        $laneIndex = count($lanes[$sourceMelody]);
+        $lanes[$sourceMelody][] = ['melody' => $score->addMelody(), 'start' => -1,
+          'end' => -1, 'length' => 0];
+      }
+      $lanes[$sourceMelody][$laneIndex]['start'] = $note['time'];
+      $lanes[$sourceMelody][$laneIndex]['end'] = $note['time'] + $note['length'];
+      $lanes[$sourceMelody][$laneIndex]['length'] = $note['length'];
+      $note['melody'] = $lanes[$sourceMelody][$laneIndex]['melody'];
       $at = $score->noteAt($note['melody'], $bar, $slot);
       if ($at === null) {
         $index = $score->place($note['melody'], $bar, $slot,
@@ -436,7 +468,20 @@ final class MusicXmlImporter {
     return intdiv($length, $beatType);
   }
 
-  private static function pitch(DOMElement $pitch): array {
+  private static function transposition(DOMElement $transpose): int {
+    $chromatic = self::value($transpose, 'chromatic');
+    $octave = self::value($transpose, 'octave-change') ?? '0';
+    if ($chromatic === null || preg_match('/^-?[0-9]+$/D', $chromatic) !== 1
+      || preg_match('/^-?[0-9]+$/D', $octave) !== 1
+      || abs((int)$chromatic) > 24 || abs((int)$octave) > 8
+      || self::child($transpose, 'double') !== null
+      || $transpose->hasAttribute('number')) {
+      throw new \DomainException('Unsupported MusicXML instrument transposition.');
+    }
+    return (int)$chromatic + 12 * (int)$octave;
+  }
+
+  private static function pitch(DOMElement $pitch, int $transpose = 0): array {
     $step = self::value($pitch, 'step');
     $octave = self::value($pitch, 'octave');
     $alter = self::value($pitch, 'alter') ?? '0';
@@ -446,7 +491,8 @@ final class MusicXmlImporter {
     }
     $octave = (int)$octave;
     $alter = (int)$alter;
-    $global = 12 * ($octave + 1) + self::PITCH_CLASSES[$step] + $alter - 20;
+    $global = 12 * ($octave + 1) + self::PITCH_CLASSES[$step] + $alter
+      + $transpose - 20;
     if ($global < 1 || $global > 108) {
       throw new \DomainException('A MusicXML pitch is outside the MadScore range.');
     }
@@ -454,13 +500,15 @@ final class MusicXmlImporter {
     $position = $global - 12 * $band;
     $writtenBand = $octave - (in_array($step, ['A', 'B'], true) ? 0 : 1);
     $writtenPosition = Pitch::naturalPosition($step) + $alter;
-    $written = abs($alter) <= 1 && $writtenBand >= 0 && $writtenBand <= 8
-      && $writtenPosition >= 1 && $writtenPosition <= 12
-      ? [$writtenBand, $step, $alter] : null;
+    $written = $transpose === 0
+      ? (abs($alter) <= 1 && $writtenBand >= 0 && $writtenBand <= 8
+        && $writtenPosition >= 1 && $writtenPosition <= 12
+        ? [$writtenBand, $step, $alter] : null)
+      : [$band, ...Pitch::spelling($position)];
     return [$band, $position, $written];
   }
 
-  private static function key(DOMElement $key, array &$warnings): ?array {
+  private static function key(DOMElement $key, array &$warnings, int $transpose = 0): ?array {
     $fifths = self::value($key, 'fifths');
     $mode = strtolower(self::value($key, 'mode') ?? 'major');
     if ($fifths === null || preg_match('/^-?[0-9]+$/D', $fifths) !== 1 || abs((int)$fifths) > 7
@@ -469,31 +517,37 @@ final class MusicXmlImporter {
       return null;
     }
     [$scale, $offset] = self::MODE_OFFSETS[$mode];
-    $homeClass = (((int)$fifths * 7 + $offset) % 12 + 12) % 12;
+    $homeClass = (((int)$fifths * 7 + $offset + $transpose) % 12 + 12) % 12;
     $home = array_search($homeClass, MotifScoreGenerator::HOME_NOTES, true);
     return ['scale' => $scale, 'homeNote' => $home];
   }
 
-  private static function directionTempo(DOMElement $direction): ?float {
+  private static function directionTempo(DOMElement $direction, array &$warnings): ?float {
     $sound = self::child($direction, 'sound');
     $value = $sound?->getAttribute('tempo');
-    if ($value !== null && $value !== '') {
-      return self::tempo($value);
-    }
+    $soundTempo = $value !== null && $value !== '' ? self::tempo($value) : null;
     $type = self::child($direction, 'direction-type');
     $mark = $type === null ? null : self::child($type, 'metronome');
     if ($mark === null) {
-      return null;
+      return $soundTempo;
     }
     $perMinute = self::value($mark, 'per-minute');
     $unit = self::value($mark, 'beat-unit');
     $length = ['whole' => 4, 'half' => 2, 'quarter' => 1,
       'eighth' => 0.5, '16th' => 0.25, '32nd' => 0.125][$unit] ?? null;
     if ($perMinute === null || $length === null) {
-      return null;
+      return $soundTempo;
     }
     $length *= 1.5 ** count(self::children($mark, 'beat-unit-dot'));
-    return self::tempo($perMinute) * $length;
+    if (preg_match('/^(?:c\.?|ca\.?|circa|approx\.?|~)\s*([0-9]+(?:\.[0-9]*)?|\.[0-9]+)$/iD',
+      $perMinute, $match) === 1) {
+      $warnings[] = 'approximate tempos';
+      $perMinute = $match[1];
+    } else if (preg_match('/^(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)$/D', $perMinute) !== 1) {
+      $warnings[] = 'unreadable tempo marks';
+      return $soundTempo;
+    }
+    return $soundTempo ?? self::tempo($perMinute) * $length;
   }
 
   private static function tempo(string $value): float {

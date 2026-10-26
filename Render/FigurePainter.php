@@ -28,10 +28,10 @@ final class FigurePainter {
     $cairo->cairo_restore($context);
   }
 
-  /** Fit the full reference inside a note, or place it above a cramped PDF note. */
+  /** Fit the full reference inside a note. */
   public static function referenceMark(\FFI $cairo, \FFI\CData $context, float $left,
     float $right, float $y, float $step, array $reference, string $color,
-    bool $blackKey, bool $outside = false, bool $print = false,
+    bool $blackKey, bool $print = false,
     bool $lift = false): void {
     if ($print) {
       $font = PdfLayout::markFontSize();
@@ -48,11 +48,6 @@ final class FigurePainter {
       $cairo->cairo_move_to($context, $center + $radius + 2, $y + $font * 0.35);
       $cairo->cairo_show_text($context, (string)$reference['number']);
       $cairo->cairo_restore($context);
-      return;
-    }
-    if ($outside) {
-      self::star($cairo, $context, $left + $step * 0.15, $y - $step * 0.85,
-        $reference['number'], max(6, $step * 0.58), $color);
       return;
     }
     $width = max(1, $right - $left);

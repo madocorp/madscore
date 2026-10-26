@@ -5,6 +5,8 @@ define('APP_NAMESPACE', 'MADSCORE');
 require APP_DIR . '/SPTK/App.php';
 
 use MADSCORE\App\MelodySelection;
+use MADSCORE\Score\ChordGenerator;
+use MADSCORE\Score\Figure;
 use MADSCORE\Score\RangeEdit;
 use MADSCORE\Score\Score;
 
@@ -33,6 +35,32 @@ expectGroup($clip['duration'] === 3 && count($clip['notes']) === 2
   && $clip['notes'][0]['time'] === 0 && $clip['notes'][0]['note']['length'] === 3
   && $clip['notes'][1]['note']['length'] === 3 && $clip['dynamics'][0]['time'] === 0,
   'Whole-score copying clips notes and shared dynamics at both time boundaries.');
+$figured = new Score();
+$figuredIndex = $figured->place(0, 0, 0, 3, 4, 6);
+$figured->setFigure($figuredIndex, Figure::parse('+2+4', $figured->notes[$figuredIndex]));
+$middle = ['scope' => 'score', 'melody' => 0, 'start' => 2, 'end' => 4];
+$figureClip = RangeEdit::copy($figured, $middle);
+expectGroup(!isset($figureClip['notes'][0]['note']['figure'])
+  && isset($figured->notes[0]['figure']),
+  'Copying part of a figured note makes the copied fragment a normal note.');
+$splitFigure = RangeEdit::clear($figured, $middle);
+expectGroup(count($splitFigure->notes) === 2
+  && !isset($splitFigure->notes[0]['figure'])
+  && !isset($splitFigure->notes[1]['figure']),
+  'Splitting a figured note does not duplicate its figure.');
+$generated = ChordGenerator::place(new Score(), 0, 0, 6, 3, 1,
+  ['scale' => 'Major', 'homeNote' => 'C'], 60, 0, 1, 0);
+$splitGenerated = RangeEdit::clear($generated, $middle);
+expectGroup(count($splitGenerated->notes) === 6
+  && count(array_filter($splitGenerated->notes,
+    static fn (array $note): bool => isset($note['chord']))) === 0,
+  'Splitting a generated chord leaves ordinary note fragments without a shared ID.');
+$oneVoice = RangeEdit::clear($generated,
+  ['scope' => 'melody', 'melody' => 1, 'start' => 0, 'end' => 6]);
+expectGroup(count($oneVoice->notes) === 2
+  && count(array_filter($oneVoice->notes,
+    static fn (array $note): bool => isset($note['chord']))) === 0,
+  'Removing one chord voice clears stale generated-chord IDs on the remaining voices.');
 $cleared = RangeEdit::clear($score, $whole);
 expectGroup(count($cleared->notes) === 4 && $cleared->noteAt(0, 0, 2) === null
   && $cleared->noteAt(1, 0, 2) === null && $cleared->noteAt(0, 0, 5) !== null,

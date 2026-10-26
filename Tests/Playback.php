@@ -27,7 +27,7 @@ expectPlayback(abs($timeline->durationSeconds - 16.0) < 0.000001,
   'The written playback end excludes renderer-added silence.');
 $fromCursor = new MADSCORE\Play\PlaybackTimeline($score, 1);
 expectPlayback($fromCursor->passes === [[1, 16, true], [0, 16, false], [16, 24, false]]
-  && $fromCursor->beats[0]['bar'] === 0 && $fromCursor->beats[0]['slot'] === 0
+  && $fromCursor->beats[0]['bar'] === 0 && $fromCursor->beats[0]['beat'] === 0
   && $fromCursor->beats[0]['length'] === 1
   && abs((new MADSCORE\Play\ScoreSource($score, null, 1))->durationSeconds()
     - $fromCursor->durationSeconds) < 0.000001,

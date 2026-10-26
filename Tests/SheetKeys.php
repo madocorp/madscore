@@ -37,30 +37,30 @@ foreach (['window' => $window, 'score' => $score, 'bar' => 0, 'slot' => 0, 'octa
 $sheet = (new ReflectionProperty(MADSCORE\App\Controller::class, 'sheets'))->getValue()['editor'];
 sheetState('sheet', $sheet);
 $canvas = $sheet->instance();
-sheetState('displayedReadout', "[T] Gap\nCursor A#3\nLength 1 beat\n\n\n");
+sheetState('displayedReadout', "Gap\nCursor A#3\nLength 1 beat\n\n\n");
 expectSheetKey($canvas->handleInput(sheetKey(SDL::KEY_RETURN)), 'Return handles an empty cursor.');
 expectSheetKey(count($score->notes) === 1 && MADSCORE\Score\Pitch::position($score->notes[0]) === 2,
   'Return places the cursor pitch in a gap.');
 sheetState('slot', 2);
 sheetState('pitchPosition', 4);
-sheetState('displayedReadout', "[T] Gap\nCursor C3\nLength 1 beat\n\n\n");
+sheetState('displayedReadout', "Gap\nCursor C3\nLength 1 beat\n\n\n");
 expectSheetKey($canvas->handleInput(sheetKey(SDL::KEY_SPACE)), 'Space handles an empty cursor.');
 expectSheetKey(count($score->notes) === 2 && MADSCORE\Score\Pitch::position($score->notes[1]) === 4,
   'Space places the cursor pitch in a gap.');
 sheetState('slot', 0);
 sheetState('pitchPosition', 5);
-sheetState('displayedReadout', "[T] Note C#3\nCursor C#3\nLength 1 beat\n\n\n[\"ordinary\",false,false,false,0,\"\",\"\",\"\"]");
+sheetState('displayedReadout', "Note C#3\nCursor C#3\nLength 1 beat\n\n\n[\"ordinary\",false,false,false,0,\"\",\"\",\"\"]");
 expectSheetKey($canvas->handleInput(sheetKey(SDL::KEY_RETURN)), 'Return handles an existing note.');
 expectSheetKey(count($score->notes) === 2 && MADSCORE\Score\Pitch::position($score->notes[0]) === 5,
   'Return changes the note to the cursor pitch.');
 sheetState('pitchPosition', 2);
-sheetState('displayedReadout', "[T] Note C#3\nCursor C#3\nLength 1 beat\n\n\n[\"ordinary\",false,false,false,0,\"\",\"\",\"\"]");
+sheetState('displayedReadout', "Note C#3\nCursor C#3\nLength 1 beat\n\n\n[\"ordinary\",false,false,false,0,\"\",\"\",\"\"]");
 $before = $score->notes;
 expectSheetKey($canvas->handleInput(sheetKey(SDL::KEY_SPACE)), 'Space handles an existing note.');
 expectSheetKey($score->notes === $before && MADSCORE\App\ControllerSelection::cursorStateForSheet()['pitch'] === 5,
   'Space moves the pitch cursor to the note without changing the note.');
 sheetState('pitchPosition', 8);
-sheetState('displayedReadout', "[T] Chord (2) base C#3\nCursor E3\nLength 1 beat\n\n\n[\"ordinary\",false,false,false,0,\"\",\"\",\"\"]");
+sheetState('displayedReadout', "Chord (2) base C#3\nCursor E3\nLength 1 beat\n\n\n[\"ordinary\",false,false,false,0,\"\",\"\",\"\"]");
 expectSheetKey($canvas->handleInput(sheetKey(SDL::KEY_RETURN, SDL::MOD_SHIFT))
   && count($score->chordAt(0, 0, 0)) === 2
   && MADSCORE\App\ControllerNoteEditing::cursorSlot() === 0,
@@ -76,10 +76,10 @@ expectSheetKey((new ReflectionMethod(MADSCORE\App\EditorInput::class, 'text'))->
   'The pipe shortcut reaches Section start and preserves the required first section.');
 expectSheetKey($canvas->handleInput(sheetKey(ord('z'), SDL::MOD_CTRL))
   && str_contains($window->screen('editor')->statusBar->text(), 'Nothing to undo'),
-  'Ctrl+Z reaches the selected melody undo command.');
+  'Ctrl+Z reaches the score undo command.');
 expectSheetKey($canvas->handleInput(sheetKey(ord('y'), SDL::MOD_CTRL))
   && str_contains($window->screen('editor')->statusBar->text(), 'Nothing to redo'),
-  'Ctrl+Y reaches the selected melody redo command.');
+  'Ctrl+Y reaches the score redo command.');
 $full = new MADSCORE\Score\Score();
 foreach ([0, 2, 4, 6] as $slot) {
   $full->place(0, 0, $slot, 3, 4, 2);
@@ -88,7 +88,7 @@ foreach (['score' => $full, 'bar' => 0, 'slot' => 6, 'octave' => 3,
   'pitchPosition' => 4, 'cursorLength' => 2, 'cursorLengthExplicit' => false,
   'firstBar' => 0, 'columns' => 2, 'displayedBar' => 1,
   'lastCursorEndBar' => 0, 'history' => new MADSCORE\App\ScoreHistory($full),
-  'displayedReadout' => "[T] Gap\nCursor C3\nLength 1 beat\n\n\n"] as $name => $value) {
+  'displayedReadout' => "Gap\nCursor C3\nLength 1 beat\n\n\n"] as $name => $value) {
   sheetState($name, $value);
 }
 $contentDirty = new ReflectionProperty(MADSCORE\App\SheetCanvas::class, 'contentDirty');

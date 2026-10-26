@@ -95,6 +95,8 @@ expectNotePanel($editor->widget('section')->hotkey() === '|'
   'The Bar tile shows the highlighted section shortcut like other toggle buttons.');
 expectNotePanel($editor->widget('noteTitle')->text() === '[T] Note · [C] Composer · [O] Chord',
   'The Note tile title shows its three shortcuts in a gap.');
+expectNotePanel($editor->widget('currentNoteTitle')->text() === 'Gap',
+  'The Note tile shows the current gap below its shortcut title.');
 expectNotePanel($editor->widget('cursorTitle')->text() === 'Cursor A#3'
   && $editor->widget('cursorLength')->text() === 'Length 1 beat',
   'The Cursor title shows its pitch and the length remains below it.');
@@ -107,6 +109,8 @@ $score->place(0, 0, 0, 3, 2, 2);
 expectNotePanel($refresh->invoke(null), 'Adding a note updates the title even when details stay the same.');
 expectNotePanel($editor->widget('noteTitle')->text() === '[T] Note · [C] Composer · [O] Chord',
   'The Note tile title keeps its shortcuts when a note is selected.');
+expectNotePanel($editor->widget('currentNoteTitle')->text() === 'Note A#3',
+  'The Note tile shows the selected note below its shortcut title.');
 expectNotePanel($editor->widget('cursorTitle')->text() === 'Cursor A#3'
   && $editor->widget('cursorLength')->text() === 'Length 1 beat',
   'Adding a note leaves the cursor readout unchanged.');
@@ -147,6 +151,12 @@ expectNotePanel($refresh->invoke(null)
   && $editor->widget('cursorTitle')->text() === 'Cursor C3'
   && $editor->widget('noteTitle')->text() === '[T] Note · [C] Composer · [O] Chord',
   'Moving the cursor pitch changes its heading without changing the selected note heading.');
+expectNotePanel($editor->widget('currentNoteTitle')->text() === 'Note A#3',
+  'The note readout follows the selected note, not the preview pitch.');
+$score->addChordTone(0, 0, 0, 3, 4, 2);
+expectNotePanel($refresh->invoke(null)
+  && $editor->widget('currentNoteTitle')->text() === 'Chord (2) base A#3',
+  'The Note tile identifies a chord and its base note.');
 expectNotePanel(str_contains($editor->widget('noteHelp')->text(), 'Bksp Delete + gap')
   && !str_contains($editor->widget('noteHelp')->text(), 'Toggle staccato'),
   'The Note box shows note editing help beside its articulation controls.');

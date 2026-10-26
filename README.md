@@ -5,8 +5,8 @@ madscore is an SPTK score editor for the Tristaff notation method.
 ## Requirements
 
 - Linux with a graphical desktop session and PHP 8.2 or newer on the command
-  line. Enable FFI, DOM, XMLReader, mbstring, PCNTL, and ZIP. GD is needed for non-PNG
-  images handled by SPTK.
+  line. Enable FFI, DOM, XMLReader, mbstring, PCNTL, ZIP, and zlib. GD is needed
+  for non-PNG images handled by SPTK.
 - [SPTK](https://github.com/madocorp/SPTK), with SDL3 and SDL3_ttf installed
   as described in its installation instructions. SDL3_ttf also needs FreeType
   and HarfBuzz; PNG images need `libpng16.so.16`.
@@ -20,7 +20,7 @@ Check the PHP version and extensions with:
 
 ```sh
 php --version
-php -m | grep -Ei '^(FFI|dom|xmlreader|mbstring|pcntl|zip|gd)$'
+php -m | grep -Ei '^(FFI|dom|xmlreader|mbstring|pcntl|zip|zlib|gd)$'
 ```
 
 Install missing PHP extensions and native libraries with your system's package
@@ -107,12 +107,6 @@ The app restores your working score and position when it starts again. Load
 notation marks. For more detail, see the [editor reference](Docs/editor.md).
 For the notation itself, read the offline [Tristaff tutorial](Tristaff/index.html).
 
-The JSON inside a saved project uses a wrapper: `title`, `author`, `catalog`, and `items`.
-The item with ID `main` is the finished score; uppercase IDs identify motifs.
-Each item's `score` holds `bars`, `melodies`, `notes`, and
-`scoreDynamics`. The session stores the project and active item alongside the
-cursor and other editor state. Earlier bare-score JSON files and sessions are
-not loaded.
 Existing plain `.json` projects still open and keep their format with **Ctrl+W**;
 use **Ctrl+S** to save a compressed copy. The included example remains plain
 JSON.

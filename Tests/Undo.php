@@ -43,4 +43,33 @@ expectUndo($history->undo($score) && $score->scoreDynamics === [],
 expectUndo($history->redo($score) && $score->scoreDynamics[0]['level'] === 'fff',
   'Redo restores a shared level.');
 
+$screens = (new SPTK\XmlParser\XmlParser())->windows[0]['screens'];
+$window = (new ReflectionClass(SPTK\Core\Window::class))->newInstanceWithoutConstructor();
+(new ReflectionProperty(SPTK\Core\Window::class, 'screens'))->setValue($window, $screens);
+(new ReflectionProperty(MADSCORE\App\Controller::class, 'window'))->setValue(null, $window);
+$install = new ReflectionMethod(MADSCORE\App\ControllerSheet::class, 'installSheet');
+$install->invoke(null, 'editor');
+$sheet = (new ReflectionProperty(MADSCORE\App\Controller::class, 'sheets'))->getValue()['editor'];
+$trailing = new MADSCORE\Score\Score();
+$trailingHistory = new MADSCORE\App\ScoreHistory($trailing);
+foreach (['score' => $trailing, 'history' => $trailingHistory, 'sheet' => $sheet,
+  'view' => 'editor', 'bar' => 0, 'slot' => 7, 'melody' => 0,
+  'octave' => 4, 'pitchPosition' => 4, 'cursorLength' => 2,
+  'cursorLengthExplicit' => true, 'displayedBar' => 0, 'firstBar' => 0,
+  'columns' => 10, 'lastCursorEndBar' => 0] as $name => $value) {
+  (new ReflectionProperty(MADSCORE\App\Controller::class, $name))->setValue(null, $value);
+}
+$trailing->place(0, 0, 6, 4, 4, 1);
+MADSCORE\App\ControllerSheet::refreshCursorReadout();
+MADSCORE\App\ControllerSheet::focusCursor();
+expectUndo(count($trailing->bars) === 2 && count($trailing->notes) === 1,
+  'The cursor adds a trailing bar after placing a note.');
+expectUndo($trailingHistory->undo($trailing) && $trailing->notes === [],
+  'One undo removes the note despite the cursor-created bar.');
+MADSCORE\App\ControllerSheet::refreshCursorReadout();
+MADSCORE\App\ControllerSheet::focusCursor();
+expectUndo(count($trailing->bars) === 2 && $trailingHistory->redo($trailing)
+  && count($trailing->notes) === 1,
+  'Redo survives when the cursor recreates the empty bar after undo.');
+
 echo "Score undo checks passed\n";

@@ -23,7 +23,7 @@ final class EditorInput {
       self::$lastKeyModifiers = KeyNormalizer::normalizeModifiers((int)$event->key->mod);
       return self::key($canvas, $event);
     }
-    if ($event->type === SDL::SDL_EVENT_TEXT_INPUT && Controller::isDesign()) {
+    if ($event->type === SDL::SDL_EVENT_TEXT_INPUT) {
       $value = \FFI::string($event->text->text);
       $modifiers = self::$lastKeyModifiers;
       self::$lastKeyModifiers = 0;
@@ -58,14 +58,14 @@ final class EditorInput {
     $alt = ((int)$event->key->mod & SDL::MOD_ALT) !== 0;
     $mode = ((int)$event->key->mod & SDL::MOD_MODE) !== 0;
     $context = new EventContext('keyDown', $canvas, $event);
-    if (Controller::isDesign() && $shift && !$ctrl && !$alt && !$mode
+    if ($shift && !$ctrl && !$alt && !$mode
       && KeyNormalizer::keyName($key, 0) === 'c') {
       if (!$event->key->repeat) {
         ControllerMotifGeneration::regenerateComposerFromSheet();
       }
       return true;
     }
-    if (Controller::isDesign() && !$shift && !$ctrl && !$alt && !$mode
+    if (!$shift && !$ctrl && !$alt && !$mode
       && KeyNormalizer::keyName($key, 0) === 'c') {
       if (!$event->key->repeat) {
         ControllerComposer::openComposer();
@@ -74,7 +74,7 @@ final class EditorInput {
     }
     if ($ctrl && !$alt && !$shift && !$mode && !$event->key->repeat) {
       $name = KeyNormalizer::keyName($key, 0);
-      if (Controller::isDesign() && $name >= '1' && $name <= '9') {
+      if ($name >= '1' && $name <= '9') {
         try {
           ControllerNoteMarks::setDynamicLevel(self::digitLevel($name), false);
         } catch (\DomainException $error) {
@@ -82,15 +82,15 @@ final class EditorInput {
         }
         return true;
       }
-      if (Controller::isDesign() && $name === 'a') {
+      if ($name === 'a') {
         ControllerSelection::selectAll();
         return true;
       }
       if ($name === 'z' || $name === 'y') {
-        $name === 'z' ? ControllerNoteEditing::undoMelody() : ControllerNoteEditing::redoMelody();
+        $name === 'z' ? ControllerNoteEditing::undoScore() : ControllerNoteEditing::redoScore();
         return true;
       }
-      if (Controller::isDesign() && ($name === 'c' || $name === 'v')) {
+      if ($name === 'c' || $name === 'v') {
         try {
           $name === 'c' ? ControllerSelection::copySelection() : ControllerSelection::pasteSelection();
         } catch (\DomainException $error) {
@@ -98,22 +98,6 @@ final class EditorInput {
         }
         return true;
       }
-    }
-    if (!Controller::isDesign()) {
-      $name = KeyNormalizer::keyName($key, (int)$event->key->mod);
-      if (in_array($name, ['p', 'm'], true) && !$ctrl && !$alt && !$shift && !$event->key->repeat) {
-        ControllerPlayback::togglePlayback($name === 'm');
-      } else if (($name === 'v' || $key === SDL::KEY_ESCAPE || $key === SDL::KEY_RETURN)
-        && !$ctrl && !$alt && !$shift && !$event->key->repeat) {
-        ControllerNavigation::toggleView($context);
-      } else if ($key === SDL::KEY_PAGEUP) {
-        ControllerNavigation::scrollRows(-1);
-      } else if ($key === SDL::KEY_PAGEDOWN) {
-        ControllerNavigation::scrollRows(1);
-      } else if ($key === SDL::KEY_HOME || $key === SDL::KEY_END) {
-        ControllerNavigation::previewEdge($key === SDL::KEY_END);
-      }
-      return true;
     }
     if (KeyNormalizer::normalizeModifiers((int)$event->key->mod) === 0) {
       $name = KeyNormalizer::keyName($key, 0);

@@ -132,7 +132,7 @@ final class ControllerPlayback extends ControllerState {
     self::$firstBar = $page * self::$columns;
     self::$playbackFrame = ['cache' => $cache, 'page' => $page, 'width' => $width,
       'height' => $height, 'rect' => SheetPainter::beatRect(self::$score, self::$firstBar,
-        self::$columns, $width, $height, $beat['bar'], $beat['slot'])];
+        self::$columns, $width, $height, $beat['bar'], $beat['beat'])];
   }
 
   /** Follow the sound player's consumed position, allowing small output latency. */

@@ -12,18 +12,13 @@ use SPTK\Layout\LayoutLeaf;
 
 /** Cursor navigation, melodies, views, and settings. */
 final class ControllerNavigation extends ControllerState {
-  /** Return the visible screen identifier for file actions. */
-  public static function currentScreenId(): string {
-    return self::$window->currentScreenId();
-  }
-
   /** Display a short status message without interrupting note entry. */
   public static function status(string $message, ?string $screen = null): void {
     Controller::screen($screen ?? self::$view)->statusBar?->notice($message, 'background', 4500);
   }
 
   /** Repaint the sheet after a changed note. */
-  public static function changedNote(?array $before, ?array $after): void {
+  public static function changedNote(): void {
     ControllerSheet::clearSelection();
     ControllerSheet::invalidateSheet();
   }
@@ -267,6 +262,9 @@ final class ControllerNavigation extends ControllerState {
 
   /** Let box shortcuts jump directly to a field in another grouped tile. */
   public static function selectSettingsShortcut(EventContext $event): bool {
+    if (Controller::editorPanelOpen()) {
+      return true;
+    }
     if ($event->input->key->repeat || Controller::screen('editor')->activeLeaf() !== null) {
       return false;
     }
@@ -310,7 +308,6 @@ final class ControllerNavigation extends ControllerState {
       return;
     }
     self::$view = Controller::isDesign() ? 'sheet' : 'editor';
-    self::$firstRow = 0;
     if (!Controller::isDesign()) {
       foreach (PagePainter::pages(self::$score, project: Controller::project()) as $index => $page) {
         if (in_array(self::$bar, array_merge(...$page), true)) {
@@ -418,12 +415,6 @@ final class ControllerNavigation extends ControllerState {
     }
     Controller::screen('editor')->activateLeaf(self::$sheets['editor']);
     return true;
-  }
-
-  /** Show the score editing screen. */
-  public static function showEditor(EventContext $event): void {
-    self::$window->setCurrentScreenId(self::$view);
-    ControllerSheet::focusCursor();
   }
 
   /** Open the application settings after applying edits in the score fields. */

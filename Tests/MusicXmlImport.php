@@ -128,6 +128,74 @@ try {
       'Tempo changes that cannot fit a MadScore bar are rejected.');
   }
 
+  $transposing = '<?xml version="1.0"?><score-partwise version="4.0"><part-list>'
+    . '<score-part id="P1"><part-name>Piano</part-name></score-part>'
+    . '<score-part id="P2"><part-name>B-flat instrument</part-name></score-part></part-list>'
+    . '<part id="P1"><measure number="1"><attributes><divisions>1</divisions>'
+    . '<key><fifths>0</fifths></key></attributes>'
+    . '<note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note>'
+    . '</measure></part><part id="P2"><measure number="1"><attributes><divisions>1</divisions>'
+    . '<key><fifths>2</fifths></key><transpose><diatonic>-1</diatonic>'
+    . '<chromatic>-2</chromatic></transpose></attributes>'
+    . '<note><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration></note>'
+    . '</measure></part></score-partwise>';
+  file_put_contents($path, $transposing);
+  [$concert, $transposeWarnings] = MusicXmlImporter::read($path);
+  expectImport($transposeWarnings === []
+    && $concert->sectionMusic(0) === ['scale' => 'Major', 'homeNote' => 'C']
+    && count($concert->notes) === 2
+    && $concert->notes[0]['pitch'] === 'C' && $concert->notes[1]['pitch'] === 'C',
+    'Written B-flat instrument notes and key import at concert pitch.');
+  file_put_contents($path, str_replace('<chromatic>-2</chromatic>',
+    '<chromatic>many</chromatic>', $transposing));
+  try {
+    MusicXmlImporter::read($path);
+    throw new RuntimeException('An unsupported instrument transposition was accepted.');
+  } catch (DomainException $error) {
+    expectImport(str_contains($error->getMessage(), 'instrument transposition'),
+      'Unsupported instrument transposition has a specific import error.');
+  }
+
+  $approximate = '<?xml version="1.0"?><score-partwise version="4.0"><part-list>'
+    . '<score-part id="P1"><part-name>Line</part-name></score-part></part-list>'
+    . '<part id="P1"><measure number="1"><attributes><divisions>1</divisions></attributes>'
+    . '<direction><direction-type><metronome><beat-unit>quarter</beat-unit>'
+    . '<per-minute>c. 72</per-minute></metronome></direction-type></direction>'
+    . '<note><rest/><duration>4</duration></note></measure></part></score-partwise>';
+  file_put_contents($path, $approximate);
+  [$approximateScore, $approximateWarnings] = MusicXmlImporter::read($path);
+  expectImport($approximateScore->bars[0]['tempo'] === '72'
+    && in_array('approximate tempos', $approximateWarnings, true),
+    'An approximate metronome value imports at its stated tempo with a warning.');
+  file_put_contents($path, str_replace('c. 72', 'fastish', $approximate));
+  [$unknownTempo, $unknownWarnings] = MusicXmlImporter::read($path);
+  expectImport($unknownTempo->bars[0]['tempo'] === '120'
+    && in_array('unreadable tempo marks', $unknownWarnings, true),
+    'Unreadable metronome text leaves the previous tempo in place.');
+  $withSound = str_replace('</direction-type></direction>',
+    '</direction-type><sound tempo="88"/></direction>',
+    str_replace('c. 72', 'fastish', $approximate));
+  file_put_contents($path, $withSound);
+  [$soundTempo, $soundWarnings] = MusicXmlImporter::read($path);
+  expectImport($soundTempo->bars[0]['tempo'] === '88'
+    && in_array('unreadable tempo marks', $soundWarnings, true),
+    'A numeric sound tempo survives an unreadable metronome label.');
+
+  $mixedChord = '<?xml version="1.0"?><score-partwise version="4.0"><part-list>'
+    . '<score-part id="P1"><part-name>Line</part-name></score-part></part-list>'
+    . '<part id="P1"><measure number="1"><attributes><divisions>1</divisions></attributes>'
+    . '<note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration></note>'
+    . '<note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration></note>'
+    . '<note><pitch><step>D</step><octave>4</octave></pitch><duration>2</duration></note>'
+    . '</measure></part></score-partwise>';
+  file_put_contents($path, $mixedChord);
+  [$splitChord] = MusicXmlImporter::read($path);
+  expectImport(count($splitChord->melodies) === 2 && count($splitChord->notes) === 3
+    && $splitChord->notes[0]['melody'] === $splitChord->notes[2]['melody']
+    && $splitChord->notes[1]['melody'] !== $splitChord->notes[0]['melody']
+    && $splitChord->notes[1]['length'] === 2 * $splitChord->notes[0]['length'],
+    'Different chord-tone durations import as separate overlapping melodies.');
+
   $zip = new ZipArchive();
   expectImport($zip->open($mxl, ZipArchive::CREATE) === true, 'Compressed test archive opens.');
   $zip->addFromString('META-INF/container.xml', '<?xml version="1.0"?><container>'

@@ -217,14 +217,6 @@ try {
 }
 expectView(MADSCORE\Score\Score::fromData($score->data())->data() === $score->data(), 'A score with more than twelve melodies round trips in JSON.');
 expectView(strlen((new MADSCORE\Play\ScoreSource($score, 13))->read(32)) === 128, 'A melody beyond the former limit can play.');
-$legacy = tempnam(sys_get_temp_dir(), 'madscore-many-melodies-');
-try {
-  file_put_contents($legacy, '{"title":"Many","tempo":"120"}' . "\n" . str_repeat('{C} ', 14) . "\n");
-  [$imported, $warnings] = MADSCORE\Score\LegacyImporter::read($legacy);
-  expectView(count($imported->melodies) === 14 && count($imported->notes) === 14, 'Legacy import retains melodies beyond twelve.');
-} finally {
-  unlink($legacy);
-}
 $pdf = tempnam(sys_get_temp_dir(), 'madscore-views-');
 try {
   MADSCORE\Render\PdfWriter::write($pdf, $score);

@@ -212,7 +212,7 @@ final class ControllerNoteMarks extends ControllerState {
       $before = self::$score->notes[$index];
       self::$score->deleteChord($index);
       self::$score->forgetGeneratedChord($before['chord']['id'] ?? null);
-      ControllerNavigation::changedNote($before, null);
+      ControllerNavigation::changedNote();
       self::$cursorLengthExplicit = false;
       ControllerSheet::focusCursor();
       return;
@@ -232,7 +232,7 @@ final class ControllerNoteMarks extends ControllerState {
       }
       self::$score->delete($index);
       self::$score->forgetGeneratedChord($note['chord']['id'] ?? null);
-      ControllerNavigation::changedNote($note, null);
+      ControllerNavigation::changedNote();
       ControllerSheet::syncNoteLength();
       ControllerSheet::focusCursor();
       return;
@@ -281,7 +281,7 @@ final class ControllerNoteMarks extends ControllerState {
     self::$score->forgetGeneratedChord($note['chord']['id'] ?? null);
     self::$bar = $note['bar'];
     self::$slot = $note['slot'];
-    ControllerNavigation::changedNote($note, null);
+    ControllerNavigation::changedNote();
     self::$cursorLength = 1;
     ControllerSheet::syncNoteLength();
     ControllerSheet::focusCursor();

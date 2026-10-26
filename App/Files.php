@@ -5,7 +5,6 @@ namespace MADSCORE\App;
 use MADSCORE\Play\MidiWriter;
 use MADSCORE\Play\WavWriter;
 use MADSCORE\Render\PdfWriter;
-use MADSCORE\Score\LegacyImporter;
 use MADSCORE\Score\MusicXmlImporter;
 use MADSCORE\Score\MusicXmlWriter;
 use MADSCORE\Score\Project;
@@ -18,6 +17,7 @@ final class Files {
   private const PROJECT_EXTENSION = '.json.gz';
   private static ?string $path = null;
   private static ?string $lastDirectory = null;
+  private static bool $loadDiscardConfirmed = false;
 
   public static function currentPath(): ?string {
     return self::$path;
@@ -54,11 +54,31 @@ final class Files {
 
   /** Reopen the last directory and let Return on a file load it. */
   public static function showLoad(): void {
+    if (Controller::editorPanelOpen()) {
+      ControllerNavigation::status('Press Esc to close the open panel first.');
+      return;
+    }
+    self::$loadDiscardConfirmed = false;
+    if (self::hasUnsavedChanges()) {
+      Controller::screen('editor')->statusBar->confirm(
+        'Open Load? Choosing a file or New will discard unsaved changes.',
+        static function(): void {
+          self::$loadDiscardConfirmed = true;
+          self::openLoadPanel();
+        },
+        static function(): void { ControllerNavigation::status('Load cancelled.'); });
+      return;
+    }
+    self::openLoadPanel();
+  }
+
+  private static function openLoadPanel(): void {
     $screen = Controller::screen('editor');
     $directory = self::browserDirectory();
     try {
       $screen->widget('loadSelector')->setPath($directory);
     } catch (\Throwable $error) {
+      self::$loadDiscardConfirmed = false;
       ControllerNavigation::status($error->getMessage());
       return;
     }
@@ -158,32 +178,17 @@ final class Files {
       return true;
     }
     try {
-      if (strtolower(pathinfo($path, PATHINFO_EXTENSION)) === 'txt') {
-        [$score, $warnings] = LegacyImporter::read($path);
-        if ($warnings !== []) {
-          Controller::screen('editor')->statusBar?->confirm(
-            'Import and omit: ' . implode(', ', $warnings) . '?',
-            static function() use ($score): void { self::finishOpen($score, null, 'Imported core notes. Save as a project to keep editing.'); },
-            static function(): void { ControllerNavigation::status('Import cancelled.'); });
-          return true;
-        }
-        self::finishOpen($score, null, 'Imported core notes. Save as a project to keep editing.');
-        return true;
-      }
       if (in_array(strtolower(pathinfo($path, PATHINFO_EXTENSION)), ['musicxml', 'xml', 'mxl'], true)) {
         [$score, $warnings] = MusicXmlImporter::read($path);
-        if ($warnings !== []) {
-          Controller::screen('editor')->statusBar?->confirm(
-            'Import and omit: ' . implode(', ', $warnings) . '?',
-            static function() use ($score): void { self::finishOpen($score, null, 'Imported MusicXML. Save as a project to keep editing.'); },
-            static function(): void { ControllerNavigation::status('Import cancelled.'); });
-          return true;
-        }
-        self::finishOpen($score, null, 'Imported MusicXML. Save as a project to keep editing.');
+        self::confirmReplacement(
+          static function() use ($score): void { self::finishOpen($score, null, 'Imported MusicXML. Save as a project to keep editing.'); },
+          'load the selected file', 'Import cancelled.', $warnings);
         return true;
       }
       $project = self::readProject($path);
-      self::finishOpenProject($project, $path, 'Opened ' . basename($path));
+      self::confirmReplacement(
+        static function() use ($project, $path): void { self::finishOpenProject($project, $path, 'Opened ' . basename($path)); },
+        'load the selected file', 'Load cancelled.');
     } catch (\Throwable $error) {
       ControllerNavigation::status($error->getMessage());
     }
@@ -207,6 +212,7 @@ final class Files {
 
   private static function finishOpen(Score $score, ?string $path, string $message): void {
     ControllerEditorActions::hideFilePanel('loadPanel');
+    self::$loadDiscardConfirmed = false;
     self::$path = $path;
     ControllerNoteEditing::loadScore($score);
     ControllerNavigation::status($message);
@@ -214,6 +220,7 @@ final class Files {
 
   private static function finishOpenProject(Project $project, ?string $path, string $message): void {
     ControllerEditorActions::hideFilePanel('loadPanel');
+    self::$loadDiscardConfirmed = false;
     self::$path = $path;
     ControllerNoteEditing::loadProject($project);
     ControllerNavigation::status($message);
@@ -221,13 +228,45 @@ final class Files {
 
   /** Start an unnamed, empty document from the Load panel. */
   public static function createNew(EventContext $event): void {
-    self::finishOpen(new Score(), null, 'New empty score. Use Ctrl+S to save it.');
+    self::confirmReplacement(
+      static function(): void { self::finishOpen(new Score(), null, 'New empty score. Use Ctrl+S to save it.'); },
+      'start a new score', 'New cancelled.');
+  }
+
+  /** Confirm before replacing a changed project, combining any import warning. */
+  private static function confirmReplacement(callable $replace, string $action,
+    string $cancelMessage, array $warnings = []): void {
+    $unsaved = !self::$loadDiscardConfirmed && self::hasUnsavedChanges();
+    if (!$unsaved && $warnings === []) {
+      $replace();
+      return;
+    }
+    $question = $warnings === []
+      ? 'Discard unsaved changes and ' . $action . '?'
+      : 'Import and omit: ' . implode(', ', $warnings)
+        . ($unsaved ? '; discard unsaved changes?' : '?');
+    Controller::screen('editor')->statusBar->confirm($question, $replace,
+      static function() use ($cancelMessage): void { ControllerNavigation::status($cancelMessage); });
+  }
+
+  /** Compare the working project with its named file, or a blank new project. */
+  private static function hasUnsavedChanges(): bool {
+    $current = Controller::project()->data();
+    if (self::$path === null) {
+      return $current !== Project::fromScore(new Score())->data();
+    }
+    try {
+      return $current !== self::readProject(self::$path)->data();
+    } catch (\Throwable) {
+      return true;
+    }
   }
 
   public static function cancel(EventContext $event): bool {
     ControllerEditorActions::hideFilePanel('savePanel');
     ControllerEditorActions::hideFilePanel('loadPanel');
     ControllerEditorActions::hideFilePanel('exportPanel');
+    self::$loadDiscardConfirmed = false;
     return true;
   }
 
@@ -253,16 +292,18 @@ final class Files {
       ControllerNavigation::status('Select at least one export format.');
       return;
     }
+    $project = Controller::project();
+    $score = $project->score('main');
     $exported = [];
     $failed = [];
     foreach ($formats as $format) {
       $path = self::exportPath($format === 'midi' ? 'mid' : $format);
       try {
         match ($format) {
-          'midi' => MidiWriter::write($path, Controller::score(), Controller::project()),
-          'musicxml' => MusicXmlWriter::write($path, Controller::score()),
-          'pdf' => PdfWriter::write($path, Controller::score(), Controller::project()),
-          'wav' => WavWriter::write($path, Controller::score(), Controller::project()),
+          'midi' => MidiWriter::write($path, $score, $project),
+          'musicxml' => MusicXmlWriter::write($path, $score),
+          'pdf' => PdfWriter::write($path, $score, $project),
+          'wav' => WavWriter::write($path, $score, $project),
           default => throw new \DomainException('Unknown export format: ' . $format),
         };
         $exported[] = basename($path);

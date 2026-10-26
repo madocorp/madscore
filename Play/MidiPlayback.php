@@ -31,22 +31,22 @@ final class MidiPlayback {
     unlink($base);
     $midi = $base . '.mid';
     $wave = $base . '.wav';
+    $stdout = $base . '.out';
+    $stderr = $base . '.err';
     try {
       $data = MidiWriter::encode($score, $melody, $start, $end, $project);
       if (file_put_contents($midi, $data) !== strlen($data)) {
         throw new \RuntimeException('Could not write temporary MIDI.');
       }
       $process = proc_open([self::executable(), '-ni', '-g', '6', '-F', $wave, '-r', '22050', self::soundfont(), $midi],
-        [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        [0 => ['pipe', 'r'], 1 => ['file', $stdout, 'w'], 2 => ['file', $stderr, 'w']], $pipes);
       if (!is_resource($process)) {
         throw new \RuntimeException('Could not start FluidSynth.');
       }
       fclose($pipes[0]);
-      stream_get_contents($pipes[1]);
-      fclose($pipes[1]);
-      $errors = stream_get_contents($pipes[2]);
-      fclose($pipes[2]);
-      if (proc_close($process) !== 0 || !is_file($wave) || filesize($wave) < 44) {
+      $status = proc_close($process);
+      $errors = is_file($stderr) ? (file_get_contents($stderr) ?: '') : '';
+      if ($status !== 0 || !is_file($wave) || filesize($wave) < 44) {
         throw new \RuntimeException('FluidSynth failed: ' . trim(preg_replace('/\s+/', ' ', $errors)));
       }
       return $wave;
@@ -58,6 +58,12 @@ final class MidiPlayback {
     } finally {
       if (is_file($midi)) {
         unlink($midi);
+      }
+      if (is_file($stdout)) {
+        unlink($stdout);
+      }
+      if (is_file($stderr)) {
+        unlink($stderr);
       }
     }
   }

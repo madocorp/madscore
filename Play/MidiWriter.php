@@ -179,14 +179,26 @@ final class MidiWriter {
         }
         $end = $onset + ($writtenEnd - $start) * self::TICKS_PER_SLOT;
         $legatoSamePitch = false;
+        $heldFermataEnd = null;
         if ($note['fermata'] ?? false) {
           $end = $onset + (int)round(($end - $onset) * 1.5);
+          if (($note['trill'] ?? 0) === 0
+            && ($following = self::nextSamePitch($score, $starts, $index, $sourceEnd)) !== null) {
+            $nextNote = $score->notes[$following];
+            $nextStart = $starts[$nextNote['bar']] + $nextNote['slot'];
+            $nextOnset = ($offset + $nextStart - $sourceStart) * self::TICKS_PER_SLOT;
+            if ($nextOnset < $end && $nextOnset < $limit) {
+              if (self::canCarrySamePitch($nextNote)) {
+                $heldFermataEnd = min($end, $jump ? $limit : PHP_INT_MAX);
+              }
+              $end = $nextOnset;
+            }
+          }
         } else if (($note['articulation'] ?? '') === 'staccato') {
           $end = $onset + (int)round(($end - $onset) * 0.5);
         } else if (($note['slurToNext'] ?? false) && ($following = $score->nextAdjacent($index)) !== null) {
-          $nextNote = $score->notes[$following];
-          if ($note['octave'] !== $nextNote['octave']
-            || Pitch::position($note) !== Pitch::position($nextNote)) {
+          $samePitch = self::nextSamePitch($score, $starts, $index, $writtenEnd + 1);
+          if ($samePitch === null) {
             $end += 5;
           } else {
             $legatoSamePitch = self::samePitchLink($score, $index) !== null
@@ -197,6 +209,10 @@ final class MidiWriter {
         }
         $trill = $note['trill'] ?? 0;
         $pulses = $trill === 0 ? 1 : 2 * $note['length'];
+        if ($heldFermataEnd !== null && max(0, $onset) < $end) {
+          self::event($track, $end, -1, chr(0xb0 | $channel) . "\x40\x7f");
+          self::event($track, $heldFermataEnd, 3, chr(0xb0 | $channel) . "\x40\x00");
+        }
         for ($pulse = 0; $pulse < $pulses; $pulse++) {
           $begin = $onset + $pulse * 120;
           $finish = $pulse === $pulses - 1 ? $end : min($end, $begin + 120);
@@ -213,15 +229,18 @@ final class MidiWriter {
         if (($note['articulation'] ?? '') === 'staccato') {
           // Piano SoundFonts can ring well after note-off. Damp the voice at
           // the written staccato end so the following gap is audible.
-          self::event($track, min($end, $jump ? $limit : PHP_INT_MAX), 1,
-            chr(0xb0 | $channel) . "\x78\x00");
+          $staccatoEnd = min($end, $jump ? $limit : PHP_INT_MAX);
+          if (max(0, $onset) < $staccatoEnd) {
+            self::event($track, $staccatoEnd, 1,
+              chr(0xb0 | $channel) . "\x78\x00");
+          }
         }
         unset($track);
       }
     }
     $chunks = [self::track($conductor, $scoreEnd)];
     foreach ($tracks as $events) {
-      $chunks[] = self::track($events, $scoreEnd);
+      $chunks[] = self::track(self::safeStaccatoStops($events), $scoreEnd);
     }
     return 'MThd' . pack('Nnnn', 6, 1, count($chunks), self::TICKS_PER_BEAT) . implode('', $chunks);
   }
@@ -336,17 +355,42 @@ final class MidiWriter {
     if (!($note['slurToNext'] ?? false) || ($note['trill'] ?? 0) !== 0) {
       return null;
     }
-    $following = $score->nextAdjacent($index);
-    if ($following === null) {
-      return null;
+    $end = $score->start($note['bar']) + $note['slot'] + $note['length'];
+    foreach ($score->notes as $following => $next) {
+      if ($following !== $index && $next['melody'] === $note['melody']
+        && $score->start($next['bar']) + $next['slot'] === $end
+        && $note['octave'] === $next['octave']
+        && Pitch::position($note) === Pitch::position($next)
+        && self::canCarrySamePitch($next)) {
+        return $following;
+      }
     }
-    $next = $score->notes[$following];
-    if ($note['octave'] !== $next['octave'] || Pitch::position($note) !== Pitch::position($next)
-      || ($next['trill'] ?? 0) !== 0 || ($next['articulation'] ?? '') === 'staccato'
-      || ($next['glissandoToNext'] ?? false)) {
-      return null;
+    return null;
+  }
+
+  /** Find the next attack of this pitch in the same melody and playback pass. */
+  private static function nextSamePitch(Score $score, array $starts, int $index, int $before): ?int {
+    $note = $score->notes[$index];
+    $start = $starts[$note['bar']] + $note['slot'];
+    $nearest = $before;
+    $found = null;
+    foreach ($score->notes as $otherIndex => $other) {
+      $time = $starts[$other['bar']] + $other['slot'];
+      if ($otherIndex !== $index && $other['melody'] === $note['melody']
+        && $time > $start && $time < $nearest
+        && $other['octave'] === $note['octave']
+        && Pitch::position($other) === Pitch::position($note)) {
+        $nearest = $time;
+        $found = $otherIndex;
+      }
     }
-    return $following;
+    return $found;
+  }
+
+  private static function canCarrySamePitch(array $next): bool {
+    return ($next['trill'] ?? 0) === 0
+      && ($next['articulation'] ?? '') !== 'staccato'
+      && !($next['glissandoToNext'] ?? false);
   }
 
   private static function note(array &$events, int $channel, int $pitch, int $start, int $end, float $gain): void {
@@ -364,6 +408,41 @@ final class MidiWriter {
 
   private static function event(array &$events, int $tick, int $order, string $data): void {
     $events[] = [$tick, $order, $data];
+  }
+
+  /** Do not silence a whole channel while another note or pedal-held voice is sounding. */
+  private static function safeStaccatoStops(array $events): array {
+    usort($events, static fn (array $a, array $b): int => [$a[0], $a[1]] <=> [$b[0], $b[1]]);
+    $active = [];
+    $sustained = 0;
+    $pedal = false;
+    $result = [];
+    foreach ($events as $event) {
+      $data = $event[2];
+      $type = ord($data[0]) & 0xf0;
+      if ($type === 0x90 && ord($data[2]) > 0) {
+        $pitch = ord($data[1]);
+        $active[$pitch] = ($active[$pitch] ?? 0) + 1;
+      } else if ($type === 0x80 || ($type === 0x90 && ord($data[2]) === 0)) {
+        $pitch = ord($data[1]);
+        if (($active[$pitch] ?? 0) > 0) {
+          $active[$pitch]--;
+          if ($pedal) {
+            $sustained++;
+          }
+        }
+      } else if ($type === 0xb0 && ord($data[1]) === 64) {
+        $pedal = ord($data[2]) >= 64;
+        if (!$pedal) {
+          $sustained = 0;
+        }
+      } else if ($type === 0xb0 && ord($data[1]) === 120
+        && (array_sum($active) > 0 || $sustained > 0)) {
+        continue;
+      }
+      $result[] = $event;
+    }
+    return $result;
   }
 
   private static function track(array $events, int $end): string {

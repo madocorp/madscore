@@ -131,12 +131,12 @@ expectEditorFocus($editor->handleEvent(editorArrow(SDL::KEY_LEFT))
 expectEditorFocus($editor->handleEvent(editorArrow(SDL::KEY_LEFT))
   && $editor->selectedLeaf()?->instance()?->id() === 'noteBox',
   'Left from Cursor returns to Note as one tile.');
-$editor->show('savePanel');
+MADSCORE\App\Controller::showEditorPanel('savePanel');
 expectEditorFocus($editor->layout->findTile('savePanel')->overwriting() === $editor->layout->findTile('noteBox')
   && $editor->selectedLeaf()?->instance()?->id() === 'saveDirectory',
   'Save replaces Note and focuses its directory selector.');
 $editor->restore('savePanel');
-$editor->show('loadPanel');
+MADSCORE\App\Controller::showEditorPanel('loadPanel');
 expectEditorFocus($editor->layout->findTile('loadPanel')->overwriting() === $editor->layout->findTile('noteBox')
   && $editor->selectedLeaf()?->instance()?->id() === 'loadSelector',
   'Load replaces Note and focuses its file selector.');

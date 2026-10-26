@@ -40,6 +40,26 @@ $topPitch = 20 + 12 * $top['octave'] + MADSCORE\Score\Pitch::position($top);
 checkChord($topPitch === max(array_map(static fn (array $note): int =>
   20 + 12 * $note['octave'] + MADSCORE\Score\Pitch::position($note), $free->notes)),
   'In empty space the selected melody receives the highest chord tone.');
+$wideInversion = ChordGenerator::place(new Score(), 0, 0, 2, 5, 1,
+  $music, 60, 0, 1, 1);
+$widePitches = array_map(static fn (array $note): int =>
+  20 + 12 * $note['octave'] + MADSCORE\Score\Pitch::position($note),
+  $wideInversion->notes);
+$wideTop = $wideInversion->notes[$wideInversion->noteAt(0, 0, 0)];
+checkChord(min($widePitches) === 52
+  && 20 + 12 * $wideTop['octave'] + MADSCORE\Score\Pitch::position($wideTop)
+    === max($widePitches),
+  'A five-note inversion keeps its bass and puts its highest tone in the selected melody.');
+$fourthInversion = ChordGenerator::place(new Score(), 0, 0, 2, 5, 1,
+  $music, 60, 0, 1, 4);
+$fourthPitches = array_map(static fn (array $note): int =>
+  20 + 12 * $note['octave'] + MADSCORE\Score\Pitch::position($note),
+  $fourthInversion->notes);
+$fourthTop = $fourthInversion->notes[$fourthInversion->noteAt(0, 0, 0)];
+checkChord(min($fourthPitches) === 50
+  && 20 + 12 * $fourthTop['octave'] + MADSCORE\Score\Pitch::position($fourthTop)
+    === max($fourthPitches),
+  'A later inversion also keeps its intended bass below the selected top tone.');
 $inside = ChordGenerator::place($score, 0, 1, 2, 3, 1, $music, 60, 0, 1, 0);
 checkChord($inside->noteAt(0, 0, 0) !== null
   && ChordGenerator::groupAt($inside, 0, 0, 0) !== null
@@ -197,6 +217,44 @@ checkChord($arranged->sectionMusic(0) === null
   'Mixed motif keys leave a section unset; a matching section inherits its key.');
 checkChord(Score::fromData($arranged->data())->data() === $arranged->data(),
   'Arranged chord voices and keys survive save and load.');
+$keyProject = new Project();
+$keyMotif = $keyProject->create();
+$keyScore = new Score();
+$keyScore->place(0, 0, 0, 3, 4, 2);
+$keyScore->ensureBar(2);
+$keyScore->setSectionLeader(1, true);
+$keyScore->place(0, 1, 0, 3, 6, 2);
+$keyScore->place(0, 2, 0, 3, 8, 2);
+$keyScore->setSectionMusic(0, $music);
+$versionKey = ['scale' => 'Major', 'homeNote' => 'G'];
+$internalKey = ['scale' => 'Major', 'homeNote' => 'D'];
+$keyScore->setSectionMusic(1, $versionKey);
+$keyScore->setSectionMusic(2, $internalKey);
+$keyProject->setScore($keyMotif, $keyScore);
+$secondMotif = $keyProject->create();
+$secondScore = new Score();
+$secondScore->place(0, 0, 0, 3, 6, 2);
+$secondScore->setSectionMusic(0, $versionKey);
+$keyProject->setScore($secondMotif, $secondScore);
+$versionArrangement = MotifArrangement::build($keyProject,
+  $keyMotif . '1 ' . $secondMotif);
+checkChord($versionArrangement->sectionMusic(0) === $versionKey
+  && $versionArrangement->sectionMusic(1) === $internalKey
+  && $versionArrangement->sectionMusic(2) === $versionKey,
+  'A version contributes its own key, keeps internal changes, and restores the next motif key.');
+$separateKeys = MotifArrangement::build($keyProject,
+  $keyMotif . ' | ' . $keyMotif . '1');
+checkChord($separateKeys->sectionMusic(0) === $music
+  && $separateKeys->sectionMusic(1) === $versionKey,
+  'Separate built sections use the keys of the referenced original and version.');
+$secondScore->setSectionMusic(0, ['scale' => 'Minor', 'homeNote' => 'A']);
+$keyProject->setScore($secondMotif, $secondScore);
+$mixedKeys = MotifArrangement::build($keyProject,
+  $keyMotif . '1 ' . $secondMotif);
+checkChord($mixedKeys->sectionMusic(0) === null
+  && $mixedKeys->sectionMusic(1) === $internalKey
+  && $mixedKeys->sectionMusic(2) === ['scale' => 'Minor', 'homeNote' => 'A'],
+  'Mixed source keys leave the built section start unset while keeping later key changes.');
 
 $motif = MotifScoreGenerator::place(new Score(), 4, 3,
   scale: 'Major', homeNote: 'C')['score'];
@@ -291,6 +349,25 @@ try {
   checkChord($highChord->data() === $beforeHigh,
     'An invalid octave move leaves every chord tone unchanged.');
 }
+$figureChord = new Score();
+$figureBase = $figureChord->place(0, 0, 0, 7, 4, 2);
+$figureChord->addChordTone(0, 0, 0, 7, 8, 2);
+$figureChord->setFigure($figureBase,
+  MADSCORE\Score\Figure::parse('+9+9', $figureChord->notes[$figureBase]));
+$figureChord->transposeChordOctave($figureBase, -1);
+checkChord($figureChord->notes[$figureBase]['octave'] === 6
+  && Score::fromData($figureChord->data())->data() === $figureChord->data(),
+  'A valid octave move preserves the figure and a loadable score.');
+$figureChord->transposeChordOctave($figureBase, 1);
+$beforeFigureMove = $figureChord->data();
+try {
+  $figureChord->transposeChordOctave($figureBase, 1);
+  throw new RuntimeException('A chord with an out-of-range figure was transposed.');
+} catch (DomainException $error) {
+  checkChord($figureChord->data() === $beforeFigureMove
+    && Score::fromData($figureChord->data())->data() === $beforeFigureMove,
+    'A figure outside the score prevents octave transposition without changing the chord.');
+}
 
 $sameMelody = ChordGenerator::place(new Score(), 0, 0, 2, 3, 1,
   $music, 60, 0, 1, 0, mode: 'current');
@@ -298,6 +375,14 @@ checkChord(count($sameMelody->melodies) === 1
   && count($sameMelody->chordAt(0, 0, 0)) === 3
   && ChordGenerator::groupAt($sameMelody, 0, 0)['mode'] === 'current',
   'Current-melody generation stacks tones and records its mode.');
+$wideCurrent = ChordGenerator::place(new Score(), 0, 0, 2, 5, 1,
+  $music, 60, 0, 1, 1, mode: 'current');
+$wideCurrentPitches = array_map(static fn (array $note): int =>
+  20 + 12 * $note['octave'] + MADSCORE\Score\Pitch::position($note),
+  $wideCurrent->notes);
+checkChord($wideCurrentPitches[0] === max($wideCurrentPitches)
+    && min($wideCurrentPitches) === 52,
+  'A five-note inversion puts the current-melody base at the highest pitch.');
 $rerolledSame = ChordGenerator::reroll($sameMelody, 0, 0, melody: 0);
 checkChord(count($rerolledSame->chordAt(0, 0, 0)) === 3
   && $rerolledSame->notes[0]['octave'] === $sameMelody->notes[0]['octave']
