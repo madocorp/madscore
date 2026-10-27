@@ -12,7 +12,7 @@ final class FigureCatalog {
   private array $entries = [];
   private array $byKey = [];
 
-  public function __construct(Score $score, ?Project $project = null) {
+  public function __construct(private Score $score, ?Project $project = null) {
     $notes = $score->visibleCopy()->notes;
     usort($notes, static fn (array $a, array $b): int =>
       [$score->start($a['bar']) + $a['slot'], $a['melody']]
@@ -56,6 +56,10 @@ final class FigureCatalog {
 
   public function entries(): array {
     return $this->entries;
+  }
+
+  public function score(): Score {
+    return $this->score;
   }
 
   public function reference(array $figure): ?array {

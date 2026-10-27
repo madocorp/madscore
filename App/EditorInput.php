@@ -122,7 +122,7 @@ final class EditorInput {
           ControllerNavigation::selectSettings(match ($name) {
             'r' => 'tempo',
             'y' => 'sound',
-            't' => 'staccato',
+            't' => 'figure',
           });
         }
         return true;

@@ -89,7 +89,7 @@ CTRL+Z/Y Undo/Redo</Text>
         </List>
       </Layout>
       <Separator />
-      <Layout id="noteBox" direction="vertical" width="2*" navigateChildren="false" enterChildren="true">
+      <Layout id="noteBox" direction="vertical" width="2*" navigateChildren="false" enterChildren="true" initialFocus="figure">
         <Title id="noteTitle" height="1" navigate="false">[T] Note · [C] Composer · [O] Chord</Title>
         <Layout direction="horizontal" height="1*">
           <Layout direction="vertical" width="1*">

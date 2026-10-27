@@ -61,6 +61,17 @@ $held = $isolated->place(0, 0, 0, 4, 1, 2);
 $isolated->setFermata($held, true);
 expectArticulation(articulationWindow($isolated, 0.600) > 0.02, 'A fermata sustains a note past its written end.');
 expectArticulation(articulationWindow($isolated, 0.800) < 0.0001, 'A fermata ends after 1.5 times its written duration.');
+$parallel = new MADSCORE\Score\Score(2);
+$long = $parallel->place(0, 0, 0, 4, 1, 8);
+$short = $parallel->place(1, 0, 4, 4, 4, 4);
+$parallel->setFermata($long, true);
+$parallel->setFermata($short, true);
+$parallelSource = new MADSCORE\Play\ScoreSource($parallel);
+$parallelEvents = (new ReflectionProperty(MADSCORE\Play\ScoreSource::class, 'events'))->getValue($parallelSource);
+expectArticulation(count($parallelEvents) === 2
+  && $parallelEvents[0]['ending'] === $parallelEvents[1]['ending']
+  && abs($parallelSource->durationSeconds() - 3.0) < 0.0001,
+  'Parallel built-in fermatas release together at the longest note’s extended end.');
 expectArticulation(MADSCORE\Score\Score::fromData($score->data())->data() === $score->data(), 'Articulation survives a score round trip.');
 $score->setStaccato($first, true);
 expectArticulation(!$score->notes[$first]['fermata'], 'Staccato clears a fermata.');
@@ -182,7 +193,7 @@ expectArticulation(end(MADSCORE\Render\PagePainter::pages($lineBreak)[0][0]) ===
 $plainPage = MADSCORE\Render\PagePreview::render($lineBreak, 0, 1400, 1000);
 $lineBreak->setSlurToNext($lastOnLine, true);
 $linkedPage = MADSCORE\Render\PagePreview::render($lineBreak, 0, 1400, 1000);
-$split = 440 * 1400 * 4;
+$split = 250 * 1400 * 4;
 expectArticulation(substr($plainPage->pixels, 0, $split) !== substr($linkedPage->pixels, 0, $split)
   && substr($plainPage->pixels, $split) !== substr($linkedPage->pixels, $split),
   'A slur continues at both sides of a printed line break.');

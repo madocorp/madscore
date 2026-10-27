@@ -56,11 +56,13 @@ final class ControllerPlayback extends ControllerState {
       }
       $cache = new SheetCache(self::$score->visibleCopy(), self::$columns, $width, $height,
         ControllerSelection::cursorStateForSheet(), self::$melody, $firstPage, Controller::project());
+      $source = new ScoreSource(self::$score, $melody, $start, $end, Controller::project(), true);
+      $musicalEnd = $source->audibleDurationSeconds();
       $midiFailure = self::$playbackSound === 'midi' ? MidiPlayback::unavailableReason() : null;
       $midiPlayed = false;
       if (self::$playbackSound === 'midi' && $midiFailure === null) {
         try {
-          $wave = MidiPlayback::render(self::$score, $melody, $start, $end, Controller::project());
+          $wave = MidiPlayback::render(self::$score, $melody, $start, $end, Controller::project(), true);
           try {
             $audio->playMusic($wave);
           } finally {
@@ -72,14 +74,13 @@ final class ControllerPlayback extends ControllerState {
         }
       }
       if ($midiPlayed) {
-        self::beginPlayback($mode, $timeline, $cache, $return, $firstBeat, $timeline->durationSeconds);
+        self::beginPlayback($mode, $timeline, $cache, $return, $firstBeat, $musicalEnd);
         ControllerNavigation::status('Playing ' . ($selectedMelody ? 'melody' : 'score')
           . ($selection === null ? '' : ' selection') . ' with MIDI.');
         return;
       }
-      $source = new ScoreSource(self::$score, $melody, $start, $end, Controller::project());
       $audio->playMusic($source);
-      self::beginPlayback($mode, $timeline, $cache, $return, $firstBeat, $source->durationSeconds());
+      self::beginPlayback($mode, $timeline, $cache, $return, $firstBeat, $musicalEnd);
       ControllerNavigation::status('Playing ' . ($selectedMelody ? 'melody' : 'score')
         . ($selection === null ? '' : ' selection') . ' with built-in sound.'
         . ($midiFailure === null ? '' : ' MIDI: ' . $midiFailure));
@@ -110,7 +111,7 @@ final class ControllerPlayback extends ControllerState {
 
   /** Install the playback input guard and show the first beat. */
   private static function beginPlayback(string $mode, PlaybackTimeline $timeline, SheetCache $cache,
-    array $return, array $firstBeat, float $endSeconds): void {
+    array $return, array $firstBeat, ?float $endSeconds): void {
     self::clearPlaybackInputDrain(false);
     self::$playbackMode = $mode;
     self::$playbackTimeline = $timeline;
@@ -147,7 +148,7 @@ final class ControllerPlayback extends ControllerState {
         self::stopPlayback('Playback finished.');
         return;
       }
-      if ($position >= self::$playbackEndSeconds) {
+      if (self::$playbackEndSeconds !== null && $position >= self::$playbackEndSeconds) {
         self::stopPlayback('Playback finished.');
         return;
       }
@@ -216,7 +217,7 @@ final class ControllerPlayback extends ControllerState {
     self::$playbackFrame = null;
     self::$playbackTimeline = null;
     self::$playbackBeatIndex = -1;
-    self::$playbackEndSeconds = 0.0;
+    self::$playbackEndSeconds = null;
     self::$playbackMode = null;
     self::$playbackCache?->close();
     self::$playbackCache = null;

@@ -249,9 +249,9 @@ final class ControllerNavigation extends ControllerState {
     self::status('Melody deletion cancelled.');
   }
 
-  /** Select the first control in a settings tile; Return activates it normally. */
+  /** Select a control in a settings tile; Return activates it normally. */
   public static function selectSettings(string $field): void {
-    if (!Controller::isDesign() || !in_array($field, ['tempo', 'sound', 'staccato'], true)) {
+    if (!Controller::isDesign() || !in_array($field, ['tempo', 'sound', 'figure'], true)) {
       return;
     }
     $leaf = Controller::screen('editor')->layout->findTile($field);
@@ -269,7 +269,7 @@ final class ControllerNavigation extends ControllerState {
       return false;
     }
     $field = match (KeyNormalizer::keyName((int)$event->input->key->key, 0)) {
-      'r' => 'tempo', 'y' => 'sound', 't' => 'staccato', default => null,
+      'r' => 'tempo', 'y' => 'sound', 't' => 'figure', default => null,
     };
     if ($field === null) {
       return false;

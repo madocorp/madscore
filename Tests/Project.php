@@ -41,7 +41,7 @@ expectProject($projectPreview->pixels !== $defaultPreview->pixels
   && MADSCORE\Render\PdfLayout::beatSize() === 100,
   'The PDF preview uses the project layout without changing another document.');
 $layoutScore = new MADSCORE\Score\Score();
-$layoutScore->ensureBar(14);
+$layoutScore->ensureBar(49);
 $layoutProject = MADSCORE\Score\Project::fromScore($layoutScore);
 $layoutProject->setPdfLayout(70, 200);
 expectProject(count(MADSCORE\Render\PagePainter::pages($layoutScore,

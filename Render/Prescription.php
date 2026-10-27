@@ -141,8 +141,8 @@ final class Prescription {
       && $cursor['start'] < $start + 2 * $score->beats($next) && $cursor['end'] > $start;
   }
 
-  /** Map selected bands to four readable rows, with small gaps between groups. */
-  public static function rows(array $state, int $height, int $topSpace): array {
+  /** Map selected bands to readable rows, with small gaps between groups. */
+  public static function rows(array $state, int $height, int $topSpace, int $minimumRows = 4): array {
     $bands = $state['bands'];
     rsort($bands, SORT_NUMERIC);
     $breaks = 0;
@@ -152,7 +152,7 @@ final class Prescription {
       }
     }
     $gap = max(2, intdiv($height, 40));
-    $rowHeight = max(1, intdiv(max(4, $height - $topSpace - $breaks * $gap), max(4, count($bands))));
+    $rowHeight = max(1, intdiv(max(4, $height - $topSpace - $breaks * $gap), max($minimumRows, count($bands))));
     $top = $topSpace;
     $rows = [];
     foreach ($bands as $index => $band) {

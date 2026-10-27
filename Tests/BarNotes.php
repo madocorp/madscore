@@ -103,11 +103,17 @@ $window = (new ReflectionClass(SPTK\Core\Window::class))->newInstanceWithoutCons
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'window'))->setValue(null, $window);
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'score'))->setValue(null, $score);
 (new ReflectionProperty(MADSCORE\App\Controller::class, 'bar'))->setValue(null, 1);
+(new ReflectionMethod(MADSCORE\App\ControllerSheet::class, 'installSheet'))->invoke(null, 'editor');
+$sheetLeaf = (new ReflectionProperty(MADSCORE\App\Controller::class, 'sheets'))->getValue()['editor'];
+(new ReflectionProperty(MADSCORE\App\Controller::class, 'sheet'))->setValue(null, $sheetLeaf);
+$contentDirty = new ReflectionProperty(MADSCORE\App\SheetCanvas::class, 'contentDirty');
+$contentDirty->setValue($sheetLeaf->instance(), false);
 (new ReflectionMethod(MADSCORE\App\ControllerSheet::class, 'refreshSelectedBarFields'))->invoke(null);
 $field = $window->screen('editor')->widget('barNote');
 expectBarNote($field->getValue() === '', 'The bar settings show the selected bar note.');
 $field->setValue('Con moto');
 (new ReflectionMethod(MADSCORE\App\ControllerSheet::class, 'applyEditorBarNote'))->invoke(null);
-expectBarNote($score->bars[1]['note'] === 'Con moto', 'The bar settings save edited text.');
+expectBarNote($score->bars[1]['note'] === 'Con moto' && $contentDirty->getValue($sheetLeaf->instance()),
+  'Editing a bar note saves it and redraws the editor sheet.');
 
 echo "Bar note checks passed\n";

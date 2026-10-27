@@ -151,7 +151,7 @@ try {
   unlink($viewerPath);
 }
 $printedPitch = false;
-for ($y = 250; $y < 295; $y++) {
+for ($y = 170; $y < 195; $y++) {
   for ($x = 20; $x < 50; $x++) {
     $pixel = (unpack('L', substr($symmetricPreview->pixels, ($y * 842 + $x) * 4, 4))[1] >> 8) & 0xffffff;
     $printedPitch = $printedPitch || $pixel === $melodyInk;
@@ -249,9 +249,9 @@ try {
     && $bluePixel !== $paperPixel($tallPreview, 300, 600),
     'A tall preview keeps the app blue above and below the centered A4 page.');
   $long = new MADSCORE\Score\Score();
-  $long->ensureBar(29);
+  $long->ensureBar(69);
   $pages = MADSCORE\Render\PagePainter::pages($long);
-  expectView(count($pages) > 1 && count(array_merge(...array_map(static fn (array $page): array => array_merge(...$page), $pages))) === 30,
+  expectView(count($pages) > 1 && count(array_merge(...array_map(static fn (array $page): array => array_merge(...$page), $pages))) === 70,
     'Preview pagination covers every bar exactly once.');
   $headerPixels = static function(\SPTK\Core\RasterImage $image, int $left, int $right, int $top, int $bottom): string {
     $pixels = '';

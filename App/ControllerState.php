@@ -43,7 +43,7 @@ abstract class ControllerState {
   protected static ?SheetCache $playbackCache = null;
   protected static ?int $playbackTimer = null;
   protected static int $playbackBeatIndex = -1;
-  protected static float $playbackEndSeconds = 0.0;
+  protected static ?float $playbackEndSeconds = null;
   protected static array $playbackHeldKeys = [];
   protected static ?int $playbackDrainTimer = null;
   protected static ?string $playbackDrainView = null;

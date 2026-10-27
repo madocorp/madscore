@@ -207,11 +207,11 @@ $figureStates = MADSCORE\Render\Prescription::states($score, figures: $catalog);
 [$inlineTiles, $separatePages] = PagePainter::appendixPlacement(
   PagePainter::pages($score, $figureStates), $figureStates, $catalog);
 expectFigure(count($inlineTiles) === 1 && $separatePages === []
-  && $inlineTiles[0]['y'] >= 1200,
+  && $inlineTiles[0]['y'] >= 645 && $inlineTiles[0]['y'] < 1200,
   'The inline appendix starts below the score rather than covering it.');
 $longScore = new Score();
 $longNote = $longScore->place(0, 0, 0, 4, 4, 2);
-$longScore->place(0, 25, 0, 4, 4, 2);
+$longScore->place(0, 80, 0, 4, 4, 2);
 $longScore->setFigure($longNote, Figure::parse('TA', $longScore->notes[$longNote]));
 $longCatalog = new FigureCatalog($longScore, $project);
 $longStates = MADSCORE\Render\Prescription::states($longScore, figures: $longCatalog);

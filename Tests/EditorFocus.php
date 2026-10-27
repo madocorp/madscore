@@ -109,8 +109,12 @@ expectEditorFocus($editor->selectedLeaf()?->instance()?->id() === 'sound'
   'Closing the sound picker returns to the Melody box.');
 $editor->handleEvent((object)['type' => SDL::SDL_EVENT_KEY_DOWN,
   'key' => (object)['key' => ord('t'), 'mod' => 0, 'repeat' => false]]);
-expectEditorFocus($editor->selectedLeaf()?->instance()?->id() === 'staccato',
-  'T jumps from Melody to a Note control.');
+expectEditorFocus($editor->selectedLeaf()?->instance()?->id() === 'figure',
+  'T jumps from Melody to the Figure input.');
+$editor->selectLeaf($editor->layout->findTile('noteBox')->leaves(true)[0]);
+expectEditorFocus($editor->handleEvent(editorArrow(SDL::KEY_RETURN))
+  && $editor->selectedLeaf()?->instance()?->id() === 'figure',
+  'Entering the Note tile selects the Figure input.');
 $editor->selectLeaf($editor->layout->findTile('finger'));
 expectEditorFocus($editor->handleEvent(editorArrow(SDL::KEY_RIGHT))
   && $editor->layout->findTile('noteBox')->pathTo($editor->selectedLeaf()) !== null,

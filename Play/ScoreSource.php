@@ -21,7 +21,6 @@ final class ScoreSource implements Source {
   private const EDGE_FRAMES = 240;
   private const ORDINARY_GAP_SECONDS = 0.030;
   private const LEGATO_OVERLAP_SECONDS = 0.010;
-  private const FERMATA_STRETCH = 1.5;
 
   private array $events = [];
   private array $active = [];
@@ -34,7 +33,7 @@ final class ScoreSource implements Source {
 
   /** Freeze the requested half-beat span and optional melody from a score. */
   public function __construct(Score $score, ?int $melody = null, ?int $start = null, ?int $end = null,
-    ?Project $project = null) {
+    ?Project $project = null, bool $extendSelectionFermata = false) {
     $wholeScore = $end === null;
     $scoreEnd = $score->start(count($score->bars));
     $start ??= 0;
@@ -52,6 +51,18 @@ final class ScoreSource implements Source {
     $rangeStart = $wholeScore ? 0.0 : self::secondsAt($start, $barStarts, $seconds);
     $rangeEnd = self::secondsAt($end, $barStarts, $seconds);
     $this->totalFrames = max(1, (int)round(($rangeEnd - $rangeStart) * self::SAMPLE_RATE));
+    $fermataEnds = FermataTiming::ends($score,
+      static fn (int $slot): float => self::secondsAt($slot, $barStarts, $seconds), $melody);
+    if ($extendSelectionFermata && !$wholeScore) {
+      foreach ($fermataEnds as $index => $ending) {
+        $note = $score->notes[$index];
+        $noteStart = $score->start($note['bar']) + $note['slot'];
+        if ($noteStart < $end && $noteStart + $note['length'] <= $end) {
+          $this->totalFrames = max($this->totalFrames,
+            (int)round(($ending - $rangeStart) * self::SAMPLE_RATE));
+        }
+      }
+    }
     $dynamicLevels = DynamicLevel::playbackLevels($score);
     $this->dynamicBaseline = DynamicLevel::baseline($dynamicLevels);
     [$levels, $dynamics, $localTimes] = self::dynamicPlayback($score, $barStarts, $seconds, $rangeStart, $dynamicLevels);
@@ -135,7 +146,7 @@ final class ScoreSource implements Source {
       $writtenStart = self::secondsAt($noteStart, $barStarts, $seconds);
       $duration = $writtenEnd - $writtenStart;
       if ($note['fermata'] ?? false) {
-        $soundingEnd = $writtenStart + $duration * self::FERMATA_STRETCH;
+        $soundingEnd = $fermataEnds[$index];
       } else if (($note['articulation'] ?? 'ordinary') === 'staccato') {
         $soundingEnd = $writtenStart + $duration * 0.5;
       } else if (($note['slurToNext'] ?? false) && $score->nextAdjacent($index) !== null) {
@@ -261,6 +272,15 @@ final class ScoreSource implements Source {
   /** Include any intentional final note or drum tail beyond the written bars. */
   public function durationSeconds(): float {
     return $this->totalFrames / self::SAMPLE_RATE;
+  }
+
+  /** Stop after the last sounding event, allowing the ordinary note gap up to its written end. */
+  public function audibleDurationSeconds(): float {
+    if ($this->events === []) {
+      return $this->durationSeconds();
+    }
+    return min($this->durationSeconds(),
+      max(array_column($this->events, 'end')) / self::SAMPLE_RATE + self::ORDINARY_GAP_SECONDS);
   }
 
   /** Produce little-endian float PCM for the next portion of the score. */

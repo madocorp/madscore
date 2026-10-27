@@ -368,6 +368,7 @@ final class ControllerSheet extends ControllerState {
   public static function applyEditorBarNote(): void {
     $note = str_replace("\t", ' ', Controller::screen('editor')->widget('barNote')->getValue());
     self::$score->setBarNote(self::$bar, $note);
+    self::invalidateSheet();
   }
 
   /** Store the number of extra plays for the selected section. */

@@ -290,6 +290,35 @@ $fermata->setFermata($held, true);
 $lastOff = array_values(array_filter(midiMelodyEvents($fermata),
   static fn (array $event): bool => ($event[1] & 0xf0) === 0x80));
 expectMidi($lastOff[0][0] === 2160, 'A final fermata continues past the end of the last bar.');
+$selectedFermata = MADSCORE\Play\MidiWriter::encode($fermata, start: 6, end: 8,
+  extendSelectionFermata: true);
+$selectedConductorLength = unpack('N', substr($selectedFermata, 18, 4))[1];
+$selectedTrackAt = 22 + $selectedConductorLength;
+$selectedTrackLength = unpack('N', substr($selectedFermata, $selectedTrackAt + 4, 4))[1];
+$selectedOffs = array_values(array_filter(
+  midiEvents(substr($selectedFermata, $selectedTrackAt + 8, $selectedTrackLength)),
+  static fn (array $event): bool => ($event[1] & 0xf0) === 0x80));
+expectMidi(array_column($selectedOffs, 0) === [720],
+  'Playback MIDI preserves a fermata beyond the selected cursor boundary.');
+$parallel = new MADSCORE\Score\Score(2);
+$long = $parallel->place(0, 0, 0, 4, 1, 8);
+$short = $parallel->place(1, 0, 4, 4, 4, 4);
+$parallel->setFermata($long, true);
+$parallel->setFermata($short, true);
+$parallelMidi = MADSCORE\Play\MidiWriter::encode($parallel);
+$trackOffset = 14;
+$parallelOffs = [];
+while ($trackOffset < strlen($parallelMidi)) {
+  $trackLength = unpack('N', substr($parallelMidi, $trackOffset + 4, 4))[1];
+  foreach (midiEvents(substr($parallelMidi, $trackOffset + 8, $trackLength)) as $event) {
+    if (($event[1] & 0xf0) === 0x80) {
+      $parallelOffs[] = $event[0];
+    }
+  }
+  $trackOffset += 8 + $trackLength;
+}
+expectMidi($parallelOffs === [2880, 2880],
+  'Parallel MIDI fermatas release together at the longest note’s extended end.');
 $repeatedFermata = new MADSCORE\Score\Score();
 $firstC = $repeatedFermata->place(0, 0, 0, 4, 4, 2);
 $repeatedFermata->setFermata($firstC, true);

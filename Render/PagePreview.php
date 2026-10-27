@@ -43,7 +43,7 @@ final class PagePreview {
     $score = $score->visibleCopy()->renderCopy();
     $figures = new FigureCatalog($score, $project);
     $states = Prescription::states($score, figures: $figures);
-    $pages = PagePainter::pages($score, $states);
+    $pages = PagePainter::pages($score, $states, figures: $figures);
     [$inlineTiles, $appendixPages] = PagePainter::appendixPlacement($pages, $states, $figures);
     $pageCount = count($pages) + count($appendixPages);
     $page = max(0, min($pageCount - 1, $page));

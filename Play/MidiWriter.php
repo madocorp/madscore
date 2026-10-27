@@ -24,7 +24,7 @@ final class MidiWriter {
   }
 
   public static function encode(Score $score, ?int $selectedMelody = null, ?int $start = null, ?int $end = null,
-    ?Project $project = null): string {
+    ?Project $project = null, bool $extendSelectionFermata = false): string {
     $starts = [0];
     foreach ($score->bars as $bar) {
       $starts[] = end($starts) + $bar['beats'] * 2;
@@ -37,6 +37,8 @@ final class MidiWriter {
       throw new \InvalidArgumentException('Invalid MIDI playback range or melody.');
     }
     $score = $score->visibleCopy();
+    $fermataEnds = FermataTiming::ends($score,
+      static fn (int $slot): float => $slot * self::TICKS_PER_SLOT, $selectedMelody);
     $timeline = new PlaybackTimeline($score, $start, $wholeScore ? null : $end);
     $passes = [];
     $outputStart = 0;
@@ -180,8 +182,10 @@ final class MidiWriter {
         $end = $onset + ($writtenEnd - $start) * self::TICKS_PER_SLOT;
         $legatoSamePitch = false;
         $heldFermataEnd = null;
+        $allowFermataTail = $extendSelectionFermata && !$wholeScore
+          && ($note['fermata'] ?? false) && $writtenEnd <= $sourceEnd;
         if ($note['fermata'] ?? false) {
-          $end = $onset + (int)round(($end - $onset) * 1.5);
+          $end = (int)round(($offset - $sourceStart) * self::TICKS_PER_SLOT + $fermataEnds[$index]);
           if (($note['trill'] ?? 0) === 0
             && ($following = self::nextSamePitch($score, $starts, $index, $sourceEnd)) !== null) {
             $nextNote = $score->notes[$following];
@@ -189,7 +193,7 @@ final class MidiWriter {
             $nextOnset = ($offset + $nextStart - $sourceStart) * self::TICKS_PER_SLOT;
             if ($nextOnset < $end && $nextOnset < $limit) {
               if (self::canCarrySamePitch($nextNote)) {
-                $heldFermataEnd = min($end, $jump ? $limit : PHP_INT_MAX);
+                $heldFermataEnd = min($end, $jump && !$allowFermataTail ? $limit : PHP_INT_MAX);
               }
               $end = $nextOnset;
             }
@@ -218,7 +222,8 @@ final class MidiWriter {
           $finish = $pulse === $pulses - 1 ? $end : min($end, $begin + 120);
           $pitch = 69 + ($note['octave'] - 4) * 12 + Pitch::position($note) - 1
             + ($pulse % 2 ? $trill : 0);
-          self::note($track, $channel, $pitch, $begin, min($finish, $jump ? $limit : PHP_INT_MAX), $noteGain);
+          self::note($track, $channel, $pitch, $begin,
+            min($finish, $jump && !$allowFermataTail ? $limit : PHP_INT_MAX), $noteGain);
         }
         if ($legatoSamePitch) {
           // Keep the previous voice under the next attack. Note-off precedes

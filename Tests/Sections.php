@@ -158,8 +158,8 @@ expectSection(count($wrappedLines) === 2 && end($wrappedLines[0]) === 10 && $wra
 $wrappedPage = sectionPageImage($wrappedSection, 3508, 2480);
 $firstLineRight = 75 + 44 + 11 * (new ReflectionMethod(MADSCORE\Render\PagePainter::class, 'barWidth'))
   ->invoke(null, $wrappedSection, 0);
-expectSection(sectionRgb($wrappedPage, $firstLineRight - 2, 540) !== 0xffffff
-  && sectionRgb($wrappedPage, 119, 1580) !== 0xffffff,
+expectSection(sectionRgb($wrappedPage, $firstLineRight - 2, 500) !== 0xffffff
+  && sectionRgb($wrappedPage, 119, 800) !== 0xffffff,
   'A wrapped section separator appears at both the previous line end and the next line start.');
 
 $grouped = new MADSCORE\Score\Score();

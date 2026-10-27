@@ -20,7 +20,7 @@ final class MidiPlayback {
   }
 
   public static function render(Score $score, ?int $melody = null, ?int $start = null, ?int $end = null,
-    ?Project $project = null): string {
+    ?Project $project = null, bool $extendSelectionFermata = false): string {
     if (($reason = self::unavailableReason()) !== null) {
       throw new \RuntimeException($reason);
     }
@@ -34,7 +34,7 @@ final class MidiPlayback {
     $stdout = $base . '.out';
     $stderr = $base . '.err';
     try {
-      $data = MidiWriter::encode($score, $melody, $start, $end, $project);
+      $data = MidiWriter::encode($score, $melody, $start, $end, $project, $extendSelectionFermata);
       if (file_put_contents($midi, $data) !== strlen($data)) {
         throw new \RuntimeException('Could not write temporary MIDI.');
       }

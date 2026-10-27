@@ -45,6 +45,20 @@ $selection = new MADSCORE\Play\PlaybackTimeline($score, 1, 5);
 expectPlayback(count($selection->passes) === 1 && $selection->beats[0]['length'] === 1
   && abs($selection->beats[1]['time'] - 0.25) < 0.000001,
   'A selected half-beat begins with a partial beat and plays once.');
+$selectedNotes = new MADSCORE\Score\Score();
+$selectedNotes->place(0, 0, 0, 4, 1, 2);
+$endingNote = $selectedNotes->place(0, 0, 2, 4, 4, 2);
+$selectedSource = new MADSCORE\Play\ScoreSource($selectedNotes, null, 0, 4, extendSelectionFermata: true);
+expectPlayback(abs($selectedSource->audibleDurationSeconds() - 1.0) < 0.05,
+  'A selected pair ends at its cursor boundary without waiting for a rendered WAV tail.');
+$trailingSelection = new MADSCORE\Play\ScoreSource($selectedNotes, null, 0, 8, extendSelectionFermata: true);
+expectPlayback($trailingSelection->audibleDurationSeconds() < 1.1
+  && abs($trailingSelection->durationSeconds() - 2.0) < 0.000001,
+  'Playback stops after the final note instead of waiting through empty selected beats.');
+$selectedNotes->setFermata($endingNote, true);
+$heldSelection = new MADSCORE\Play\ScoreSource($selectedNotes, null, 0, 4, extendSelectionFermata: true);
+expectPlayback(abs($heldSelection->audibleDurationSeconds() - 1.25) < 0.0001,
+  'A fermata at the selection boundary extends playback past the cursor end.');
 $tail = new MADSCORE\Score\Score();
 $tail->setTempo(0, '600');
 $tail->setMelodyPattern(0, 'kick');

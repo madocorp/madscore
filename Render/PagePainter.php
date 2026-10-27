@@ -25,7 +25,7 @@ final class PagePainter {
     $score = $score->visibleCopy()->renderCopy();
     $figures = new FigureCatalog($score, $project);
     $states = Prescription::states($score, figures: $figures);
-    $pages = self::pages($score, $states);
+    $pages = self::pages($score, $states, figures: $figures);
     [$inlineTiles, $appendixPages] = self::appendixPlacement($pages, $states, $figures);
     $pageCount = count($pages);
     foreach ($pages as $index => $page) {
@@ -52,9 +52,12 @@ final class PagePainter {
       self::drawHeader($score, $cairo, $context, $pageNumber, $pageCount);
       $y = self::FIRST_LINE_Y;
       foreach ($page as $bars) {
-        $lineRows = max(4, ...array_map(static fn (int $bar): int => count($states[$bar]['bands']), $bars));
+        $bands = self::lineBands($score, $bars, $states, $figures);
+        $lineRows = count($bands);
         $rowHeight = self::rowHeight($lineRows);
         $lineHeight = self::TOP_SPACE + self::LINE_PADDING + $lineRows * $rowHeight;
+        $rows = Prescription::rows(['bands' => $bands], self::TOP_SPACE + $lineRows * $rowHeight,
+          self::TOP_SPACE, 1);
         $widths = array_map(static fn (int $bar): int => self::barWidth($score, $bar), $bars);
         $positions = Prescription::positions($bars, $widths, $states, self::MARKER_WIDTH);
         $dynamicSegments = DynamicPainter::segments($score, $positions, $rowHeight);
@@ -70,7 +73,6 @@ final class PagePainter {
         $lastPrintedBar = $positions[count($positions) - 1]['bar'];
         foreach ($positions as $index => $position) {
           $bar = $position['bar'];
-          $rows = Prescription::rows($states[$bar], self::TOP_SPACE + max(4, count($states[$bar]['bands'])) * $rowHeight, self::TOP_SPACE);
           if ($score->bars[$bar]['sectionLeader']) {
             SectionPainter::edge($cairo, $context, $rows, $position['left']);
           }
@@ -87,8 +89,6 @@ final class PagePainter {
         $cairo->cairo_restore($context);
         foreach ($positions as $index => $position) {
           $bar = $position['bar'];
-          $state = $states[$bar];
-          $rows = Prescription::rows($state, self::TOP_SPACE + max(4, count($state['bands'])) * $rowHeight, self::TOP_SPACE);
           $cairo->cairo_save($context);
           $cairo->cairo_translate($context, self::SIDE_MARGIN, $y);
           $repeats = ($bar === count($score->bars) - 1 || $score->bars[$bar + 1]['sectionLeader'])
@@ -112,13 +112,9 @@ final class PagePainter {
             Prescription::drawMarkers($cairo, $context, $rows,
               $position['markerLeft'] + self::MARKER_WIDTH / 2, true);
           }
-          $sounding = Prescription::soundingBands($score, $bar, figures: $figures);
           $sectionAtRight = $bar === count($score->bars) - 1
             || ($score->bars[$bar + 1]['sectionLeader'] ?? false);
           foreach ($rows as $band => $row) {
-            if ($band !== $state['primary'] && !in_array($band, $sounding, true)) {
-              continue;
-            }
             $cairo->cairo_save($context);
             $cairo->cairo_translate($context, $position['left'], $row['top']);
             $clipTop = -min($row['top'], max(2 * $row['height'] / 12,
@@ -126,8 +122,7 @@ final class PagePainter {
             $width = $position['right'] - $position['left'];
             $cairo->cairo_rectangle($context, 0, $clipTop, $width, $row['height'] - $clipTop);
             $cairo->cairo_clip($context);
-            $endBar = $index === count($positions) - 1
-              || !Prescription::bandContinues($score, $states, $bar, $band, figures: $figures);
+            $endBar = $index === count($positions) - 1;
             BarPainter::draw($cairo, $context, $score, $bar, $band, $width, $row['height'],
               endBar: $endBar && !$sectionAtRight, paintBackground: false,
               startBorder: !$score->bars[$bar]['sectionLeader'], figures: $figures,
@@ -143,8 +138,7 @@ final class PagePainter {
           DynamicPainter::labels($score, $positions, $rowHeight, $tempoReservations, true),
           68, $rowHeight, true);
         SlurPainter::draw($cairo, $context, $score, $positions,
-          static fn (int $bar): array => Prescription::rows($states[$bar],
-            self::TOP_SPACE + max(4, count($states[$bar]['bands'])) * $rowHeight, self::TOP_SPACE));
+          static fn (int $bar): array => $rows);
         foreach ($positions as $position) {
           if (($tempo = TempoPainter::label($score, $position['bar'])) !== null) {
             TempoPainter::draw($cairo, $context, $position['left'], $position['right'],
@@ -202,22 +196,24 @@ final class PagePainter {
   }
 
   /** Return the exact line groups used by PDF pagination. */
-  public static function pages(Score $score, ?array $states = null, ?Project $project = null): array {
+  public static function pages(Score $score, ?array $states = null, ?Project $project = null,
+    ?FigureCatalog $figures = null): array {
     if ($project !== null) {
       return PdfLayout::withProject($project, static function () use ($score, $states, $project): array {
         $visible = $score->visibleCopy()->renderCopy();
-        $states ??= Prescription::states($visible,
-          figures: new FigureCatalog($visible, $project));
-        return self::pages($visible, $states);
+        $catalog = new FigureCatalog($visible, $project);
+        $states ??= Prescription::states($visible, figures: $catalog);
+        return self::pages($visible, $states, figures: $catalog);
       });
     }
     $score = $score->visibleCopy()->renderCopy();
     $states ??= Prescription::states($score);
+    $figures ??= new FigureCatalog($score);
     $pages = [];
     $page = [];
     $y = self::FIRST_LINE_Y;
     foreach (self::lines($score, $states) as $bars) {
-      $rows = max(4, ...array_map(static fn (int $bar): int => count($states[$bar]['bands']), $bars));
+      $rows = count(self::lineBands($score, $bars, $states, $figures));
       $height = self::TOP_SPACE + self::LINE_PADDING + $rows * self::rowHeight($rows);
       if ($page !== [] && $y + $height > self::HEIGHT - 125) {
         $pages[] = $page;
@@ -238,7 +234,7 @@ final class PagePainter {
       $score = $score->visibleCopy()->renderCopy();
       $figures = new FigureCatalog($score, $project);
       $states = Prescription::states($score, figures: $figures);
-      $pages = self::pages($score, $states);
+      $pages = self::pages($score, $states, figures: $figures);
       [, $appendixPages] = self::appendixPlacement($pages, $states, $figures);
       return count($pages) + count($appendixPages);
     });
@@ -253,7 +249,7 @@ final class PagePainter {
     }
     $bottom = self::FIRST_LINE_Y;
     foreach ($pages[0] as $bars) {
-      $rows = max(4, ...array_map(static fn (int $bar): int => count($states[$bar]['bands']), $bars));
+      $rows = count(self::lineBands($figures->score(), $bars, $states, $figures));
       $bottom += self::TOP_SPACE + self::LINE_PADDING + $rows * self::rowHeight($rows);
     }
     $top = max(225, $bottom + 65);
@@ -274,6 +270,23 @@ final class PagePainter {
     $requested = (int)round(self::ROW_HEIGHT * PdfLayout::noteSize() / 100);
     $available = self::HEIGHT - self::FIRST_LINE_Y - 125 - self::TOP_SPACE - self::LINE_PADDING;
     return min($requested, intdiv($available, $rows));
+  }
+
+  /** Include every octave sounded anywhere on a printed line. */
+  private static function lineBands(Score $score, array $bars, array $states,
+    ?FigureCatalog $figures = null): array {
+    $bands = [];
+    foreach ($bars as $bar) {
+      foreach (Prescription::soundingBands($score, $bar, figures: $figures) as $band) {
+        $bands[$band] = true;
+      }
+    }
+    if ($bands === []) {
+      $bands[$states[$bars[0]]['primary']] = true;
+    }
+    $bands = array_map('intval', array_keys($bands));
+    rsort($bands, SORT_NUMERIC);
+    return $bands;
   }
 
   /** Keep a section together when it fits; split longer sections at bar edges. */

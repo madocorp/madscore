@@ -30,6 +30,25 @@ expectPrescription(abs($markerSize(220) - 220 / 12) < 0.001
   'Printed octave symbols grow from half a note head to at most one note head.');
 expectPrescription($score->data() === MADSCORE\Score\Score::fromData($score->data())->data(), 'Current scores round trip.');
 
+$oneOctave = new MADSCORE\Score\Score();
+$oneOctave->place(0, 0, 0, 4, 4, 2);
+$twoOctaves = MADSCORE\Score\Score::fromData($oneOctave->data());
+$twoOctaves->place(0, 0, 2, 5, 4, 2);
+$singlePage = MADSCORE\Render\PagePreview::render($oneOctave, 0, 1754, 1240);
+$doublePage = MADSCORE\Render\PagePreview::render($twoOctaves, 0, 1754, 1240);
+$printedInk = static function (\SPTK\Core\RasterImage $image, int $top): bool {
+  for ($y = $top; $y < $top + 7; $y++) {
+    $pixel = (unpack('L', substr($image->pixels, ($y * $image->width + 100) * 4, 4))[1] >> 8) & 0xffffff;
+    if ($pixel < 0x808080) {
+      return true;
+    }
+  }
+  return false;
+};
+expectPrescription($printedInk($singlePage, 166) && !$printedInk($singlePage, 276)
+  && $printedInk($doublePage, 166) && $printedInk($doublePage, 276),
+  'PDF lines draw only their one or two occupied octave staffs.');
+
 $previewScore = new MADSCORE\Score\Score(12);
 $previewStates = MADSCORE\Render\Prescription::states($previewScore, 7, 9, 8);
 expectPrescription(in_array(8, $previewStates[0]['bands'], true) && in_array(8, $previewStates[1]['bands'], true), 'An unplaced cursor spanning bars keeps its octave staff visible throughout its width.');
