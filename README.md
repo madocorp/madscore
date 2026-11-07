@@ -83,7 +83,7 @@ sheet and the controls.
   The Load panel also imports `.musicxml`, `.xml`, and compressed `.mxl` files as
   new unnamed scores. Basic import preserves pitches, chords, rests, ties, keys,
   meter, and bar-aligned tempo changes. It reports omitted notation marks before
-  replacing the current score. Dense rhythms that exceed MadScore's bar or note
+  replacing the current score. Dense rhythms that exceed madscore's bar or note
   limits are reported rather than shortened.
 - **V** opens the PDF preview. Use **+/-** to zoom, arrows to scroll, and **B/N**
   to turn pages. In the preview, **U/J** increase/decrease PDF note size and

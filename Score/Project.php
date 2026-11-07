@@ -40,7 +40,7 @@ final class Project {
       || array_diff(array_keys($data), ['title', 'author', 'catalog', 'items', 'pdfLayout']) !== []
       || !is_array($data['items'] ?? null)
       || !array_is_list($data['items']) || $data['items'] === []) {
-      throw new \DomainException('Invalid MadScore project.');
+      throw new \DomainException('Invalid madscore project.');
     }
     $project = new self();
     $project->pdfLayout = null;
@@ -69,7 +69,7 @@ final class Project {
         || (isset($item['name']) && !is_string($item['name']))
         || (isset($item['music']) && $item['music'] !== []
           && HarmonicContext::validate($item['music']) !== $item['music'])) {
-        throw new \DomainException('Invalid MadScore project item.');
+        throw new \DomainException('Invalid madscore project item.');
       }
       $seen[$item['id']] = true;
       $mainCount += (int)($item['id'] === 'main');
@@ -81,7 +81,7 @@ final class Project {
     $meta = [];
     foreach (['title', 'author', 'catalog'] as $field) {
       if (!array_key_exists($field, $data)) {
-        throw new \DomainException('Invalid MadScore project metadata.');
+        throw new \DomainException('Invalid madscore project metadata.');
       }
       $meta[$field] = $data[$field];
     }

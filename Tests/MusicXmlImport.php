@@ -92,7 +92,7 @@ try {
   [$polyphonic] = MusicXmlImporter::read($path);
   expectImport(count($polyphonic->melodies) === 2 && count($polyphonic->notes) === 2
     && $polyphonic->notes[0]['melody'] !== $polyphonic->notes[1]['melody'],
-    'Independent MusicXML voices become separate MadScore melodies.');
+    'Independent MusicXML voices become separate madscore melodies.');
 
   $pickup = '<?xml version="1.0"?><score-partwise version="4.0"><part-list>'
     . '<score-part id="P1"><part-name>Pickup</part-name></score-part></part-list>'
@@ -125,7 +125,7 @@ try {
     throw new RuntimeException('Mid-measure tempo change was accepted.');
   } catch (DomainException $error) {
     expectImport(str_contains($error->getMessage(), 'Mid-measure tempo'),
-      'Tempo changes that cannot fit a MadScore bar are rejected.');
+      'Tempo changes that cannot fit a madscore bar are rejected.');
   }
 
   $transposing = '<?xml version="1.0"?><score-partwise version="4.0"><part-list>'

@@ -8,7 +8,7 @@ use DOMNode;
 use DOMXPath;
 use ZipArchive;
 
-/** Import timed notes from partwise MusicXML into MadScore's half-beat grid. */
+/** Import timed notes from partwise MusicXML into madscore's half-beat grid. */
 final class MusicXmlImporter {
   private const MAX_XML_BYTES = 33554432;
   private const MAX_TICKS_PER_QUARTER = 1000000;
@@ -216,7 +216,7 @@ final class MusicXmlImporter {
           $length = $furthest;
         }
         if ($length % 2 !== 0) {
-          throw new \DomainException('MusicXML pickup measure cannot fit MadScore beats.');
+          throw new \DomainException('MusicXML pickup measure cannot fit madscore beats.');
         }
         if (isset($rawBars[$bar]) && $rawBars[$bar] !== $length) {
           throw new \DomainException('MusicXML parts have conflicting time signatures in measure ' . ($bar + 1) . '.');
@@ -243,7 +243,7 @@ final class MusicXmlImporter {
       $beatCount = intdiv($length, 2 * $grid);
       if ($beatCount < 1 || $beatCount > 32) {
         throw new \DomainException('Measure ' . ($bar + 1) . ' needs ' . $beatCount
-          . ' MadScore beats (maximum 32).');
+          . ' madscore beats (maximum 32).');
       }
       $grids[$bar] = $grid;
       $starts[] = end($starts) + $beatCount * 2;
@@ -359,7 +359,7 @@ final class MusicXmlImporter {
         [$score->notes[$index]['octave'], $score->notes[$index]['pitch'],
           $score->notes[$index]['alter']] = $note['written'];
       } else {
-        $warnings[] = 'enharmonic spellings outside MadScore range';
+        $warnings[] = 'enharmonic spellings outside madscore range';
       }
     }
     return [Score::fromData($score->data()), array_values(array_unique($warnings))];
@@ -463,7 +463,7 @@ final class MusicXmlImporter {
   private static function measureTicks(int $beats, int $beatType, int $quarter): int {
     $length = 4 * $beats * $quarter;
     if ($length % $beatType !== 0 || intdiv($length, $beatType) % 2 !== 0) {
-      throw new \DomainException('This MusicXML time signature cannot fit MadScore bars.');
+      throw new \DomainException('This MusicXML time signature cannot fit madscore bars.');
     }
     return intdiv($length, $beatType);
   }
@@ -494,7 +494,7 @@ final class MusicXmlImporter {
     $global = 12 * ($octave + 1) + self::PITCH_CLASSES[$step] + $alter
       + $transpose - 20;
     if ($global < 1 || $global > 108) {
-      throw new \DomainException('A MusicXML pitch is outside the MadScore range.');
+      throw new \DomainException('A MusicXML pitch is outside the madscore range.');
     }
     $band = $global % 12 === 0 ? intdiv($global, 12) - 1 : intdiv($global, 12);
     $position = $global - 12 * $band;
@@ -572,7 +572,7 @@ final class MusicXmlImporter {
 
   private static function decimal(float $value): string {
     if (!is_finite($value) || $value <= 0) {
-      throw new \DomainException('MusicXML tempo cannot fit MadScore.');
+      throw new \DomainException('MusicXML tempo cannot fit madscore.');
     }
     $formatted = rtrim(rtrim(sprintf('%.8f', $value), '0'), '.');
     if ($formatted === '0') {
